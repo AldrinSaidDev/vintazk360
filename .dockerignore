@@ -1,0 +1,28 @@
+# Virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local database & env
+*.sqlite3
+db.sqlite3
+.env
+.env.*
+!.env.example
+
+# Git & editor
+.git/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+
+# Collected static / media (built inside the container)
+staticfiles/
+media/
+
+# Docs / misc
+*.md

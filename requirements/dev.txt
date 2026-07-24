@@ -1,0 +1,6 @@
+# Development dependencies. Install with:  pip install -r requirements/dev.txt
+-r base.txt
+
+# Add dev-only tools here (linters, formatters, debug toolbar, etc.), e.g.:
+# ruff==0.6.9
+# django-debug-toolbar==4.4.6

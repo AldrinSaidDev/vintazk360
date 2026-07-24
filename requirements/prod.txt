@@ -1,0 +1,6 @@
+# Production dependencies. Install with:  pip install -r requirements/prod.txt
+-r base.txt
+
+# Add production-only packages here (WSGI server, static serving, etc.), e.g.:
+# gunicorn==23.0.0
+# whitenoise==6.7.0

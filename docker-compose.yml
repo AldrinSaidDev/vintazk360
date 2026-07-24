@@ -1,0 +1,49 @@
+# Local development stack.
+#
+# - `db`  : Postgres for local development ONLY. In production you'll point
+#           DATABASE_URL at Supabase instead and this service is not used.
+# - `web` : the Django app, hot-reloading via a bind mount.
+#
+# Usage:
+#   docker compose up --build      # start everything
+#   docker compose down            # stop
+#   docker compose down -v         # stop AND wipe the dev database volume
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vintazk360
+    ports:
+      # Expose to the host so you can connect with a DB GUI if you like.
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vintazk360"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    command: /app/entrypoint.sh
+    environment:
+      # Local dev stack uses the development settings module.
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      # Inside the compose network the DB host is the service name `db`.
+      # This overrides whatever is in .env so Docker always uses local Postgres.
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/vintazk360
+    ports:
+      - "8000:8000"
+    volumes:
+      # Bind mount for live code reload during development.
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data:
