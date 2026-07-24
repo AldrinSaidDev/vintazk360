@@ -1,14 +1,15 @@
 # Vintazk360
 
-A Django 6 project. **Development runs on Docker Compose (Postgres); production
-runs on Supabase (hosted Postgres).**
+A Django 6 project with a Tailwind CSS frontend. **Development runs on Docker
+Compose (Postgres); production runs on Supabase (hosted Postgres).**
 
 | Environment | Database | How |
 |-------------|----------|-----|
 | **Development** | Local Postgres (Docker container) | `docker compose up` |
 | **Production / staging** | Supabase (hosted Postgres) | `DATABASE_URL` → Supabase |
 
-Postgres is used everywhere, so dev matches production.
+Postgres is used everywhere, so dev matches production. Styling is built with
+[Tailwind CSS](https://tailwindcss.com/) — see [Styling (Tailwind)](#styling-tailwind).
 
 ---
 
@@ -16,8 +17,8 @@ Postgres is used everywhere, so dev matches production.
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (includes Docker Compose)
 
-That's it — you do not need Python installed on your host; it runs inside the
-container.
+That's it — you do not need Python **or Node** installed on your host; both run
+inside the container (Node compiles the Tailwind CSS).
 
 ---
 
@@ -30,11 +31,17 @@ cp .env.example .env         # Windows: copy .env.example .env
 docker compose up --build
 ```
 
-Everything (app + Postgres) starts with that one command:
+Everything (app + Postgres + Tailwind watcher) starts with that one command:
 
-- App: http://localhost:8000
+- App: http://localhost:8000 (redirects to the login page)
 - Admin: http://localhost:8000/admin
 - Postgres: `localhost:5432` (user `postgres`, password `postgres`, db `vintazk360`)
+
+The app requires login. Create an account to sign in with:
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
 
 Migrations run automatically on startup. To stop:
 
@@ -42,6 +49,11 @@ Migrations run automatically on startup. To stop:
 docker compose down          # stop containers, keep the database
 docker compose down -v       # stop AND delete the database volume (fresh DB)
 ```
+
+> **Editing code?** You do **not** need to rebuild. Python, templates, and
+> Tailwind classes are picked up live — just save and refresh the browser.
+> Only rerun `docker compose up --build` when you change dependencies
+> (`requirements/*`, `package.json`), the `Dockerfile`, or `docker-compose.yml`.
 
 ---
 
@@ -54,6 +66,7 @@ docker compose up                 # start (after first build)
 docker compose up --build         # rebuild image + start (after dependency changes)
 docker compose up -d              # start in the background
 docker compose logs -f web        # tail the app logs
+docker compose logs -f tailwind   # tail the Tailwind CSS build/watch
 docker compose down               # stop
 docker compose down -v            # stop + wipe the dev database
 
@@ -72,6 +85,38 @@ docker compose exec db psql -U postgres -d vintazk360
 
 > All `manage.py` commands run **inside the container** via
 > `docker compose exec web ...`. You don't run Python on the host.
+
+---
+
+## Styling (Tailwind)
+
+Styling uses [Tailwind CSS](https://tailwindcss.com/), compiled by a Node
+toolchain that also runs in Docker — you do **not** need Node on your host.
+
+- Source: [`static/src/input.css`](static/src/input.css) + the classes you write
+  in your templates.
+- Config: [`tailwind.config.js`](tailwind.config.js) (scans `templates/` and
+  `apps/**/templates/`; defines the `brand` color).
+- Output: `static/css/output.css` (a build artifact — **gitignored**, not
+  committed), loaded in [`templates/base.html`](templates/base.html).
+
+**In development**, the `tailwind` compose service watches your templates and
+rebuilds `output.css` automatically. Add Tailwind classes to any template, save,
+and refresh — no rebuild, no manual command. Watch it work with:
+
+```bash
+docker compose logs -f tailwind
+```
+
+**In production**, the CSS is compiled during the Docker image build (a dedicated
+Tailwind build stage), so the running image ships a ready `output.css` with no
+Node in the final image.
+
+To build the CSS once manually (rarely needed):
+
+```bash
+docker compose run --rm tailwind npm run build:css
+```
 
 ---
 
@@ -128,7 +173,8 @@ are encrypted with no extra config.
 ```
 vintazk360/
 ├── apps/                    # Django applications
-│   └── core/                # Main application (import path: apps.core)
+│   ├── core/                # Base/shared app (import path: apps.core)
+│   └── dashboard/           # Dashboard app — home page + templates
 ├── config/                  # Django project package
 │   ├── settings/            # Split settings
 │   │   ├── base.py          # Shared settings
@@ -137,20 +183,29 @@ vintazk360/
 │   ├── urls.py
 │   ├── wsgi.py
 │   └── asgi.py
-├── requirements/            # Dependencies split by environment
+├── requirements/            # Python deps split by environment
 │   ├── base.txt             # Shared
 │   ├── dev.txt              # Development
 │   └── prod.txt             # Production
-├── static/                  # Project-wide static source files
+├── static/
+│   ├── src/input.css        # Tailwind entry (source)
+│   └── css/output.css       # Compiled Tailwind (build artifact, gitignored)
 ├── templates/               # Project-wide templates
+│   ├── base.html            # Shared shell (Vintazk 360 nav)
+│   └── registration/        # Django auth templates (login page)
 ├── media/                   # User uploads (gitignored)
 ├── manage.py
 ├── requirements.txt         # Shim → requirements/dev.txt
-├── Dockerfile               # Web app image
-├── docker-compose.yml       # Local dev stack (web + Postgres)
+├── package.json             # Node/Tailwind build scripts
+├── tailwind.config.js       # Tailwind configuration
+├── Dockerfile               # Web app image (Tailwind build + Python stages)
+├── docker-compose.yml       # Local dev stack (db + web + tailwind)
 ├── entrypoint.sh            # Container startup: migrate + runserver
 └── .env.example             # Template for your local .env
 ```
+
+`node_modules/` (Node deps) and `static/css/output.css` (compiled CSS) are
+generated inside Docker and are gitignored — you never commit them.
 
 ### Settings modules
 

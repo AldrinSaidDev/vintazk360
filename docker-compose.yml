@@ -1,8 +1,10 @@
 # Local development stack.
 #
-# - `db`  : Postgres for local development ONLY. In production you'll point
-#           DATABASE_URL at Supabase instead and this service is not used.
-# - `web` : the Django app, hot-reloading via a bind mount.
+# - `db`       : Postgres for local development ONLY. In production you'll point
+#                DATABASE_URL at Supabase instead and this service is not used.
+# - `web`      : the Django app, hot-reloading via a bind mount.
+# - `tailwind` : watches templates + input.css and rebuilds static/css/output.css
+#                into the shared bind mount so style changes appear live.
 #
 # Usage:
 #   docker compose up --build      # start everything
@@ -27,6 +29,19 @@ services:
       timeout: 5s
       retries: 10
 
+  tailwind:
+    image: node:22-slim
+    working_dir: /app
+    # Build once, then watch. tty keeps the --watch process alive in a
+    # detached container.
+    command: sh -c "npm install && npm run build:css && npm run watch:css"
+    tty: true
+    volumes:
+      # Share the project so compiled CSS lands where Django reads it.
+      - .:/app
+      # Keep the container's node_modules from being shadowed by the host.
+      - node_modules:/app/node_modules
+
   web:
     build: .
     command: /app/entrypoint.sh
@@ -47,3 +62,4 @@ services:
 
 volumes:
   pg_data:
+  node_modules:

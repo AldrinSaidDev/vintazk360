@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+
+{% block title %}Sign in · Vintazk 360{% endblock %}
+
+{% block navbar %}{% endblock %}
+
+{% block content %}
+<div class="flex min-h-[70vh] items-center justify-center">
+    <div class="w-full max-w-sm">
+        <div class="mb-8 text-center">
+            <h1 class="text-2xl font-bold tracking-tight text-brand">Vintazk 360</h1>
+            <p class="mt-1 text-sm text-slate-500">Sign in to your account</p>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            {% if form.errors %}
+            <div class="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                Your username and password didn't match. Please try again.
+            </div>
+            {% endif %}
+
+            <form method="post" action="{% url 'login' %}" class="space-y-4">
+                {% csrf_token %}
+
+                <div>
+                    <label for="{{ form.username.id_for_label }}"
+                           class="block text-sm font-medium text-slate-700">Username</label>
+                    <input type="text" name="{{ form.username.html_name }}"
+                           id="{{ form.username.id_for_label }}"
+                           autocomplete="username" required autofocus
+                           class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm
+                                  focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                </div>
+
+                <div>
+                    <label for="{{ form.password.id_for_label }}"
+                           class="block text-sm font-medium text-slate-700">Password</label>
+                    <input type="password" name="{{ form.password.html_name }}"
+                           id="{{ form.password.id_for_label }}"
+                           autocomplete="current-password" required
+                           class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm
+                                  focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                </div>
+
+                <button type="submit"
+                        class="w-full rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white
+                               hover:bg-brand-dark focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 transition">
+                    Sign in
+                </button>
+
+                <input type="hidden" name="next" value="{{ next }}">
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

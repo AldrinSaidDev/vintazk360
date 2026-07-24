@@ -146,6 +146,16 @@ USE_I18N = True
 USE_TZ = True
 
 
+# Authentication
+# https://docs.djangoproject.com/en/6.0/topics/auth/
+
+# Unauthenticated users hitting a protected view are sent here.
+LOGIN_URL = 'login'
+# Where users land after a successful login / logout.
+LOGIN_REDIRECT_URL = 'dashboard:home'
+LOGOUT_REDIRECT_URL = 'login'
+
+
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 

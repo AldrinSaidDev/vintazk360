@@ -19,5 +19,7 @@ from django.urls import include, path
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # Built-in auth views: login, logout, password change/reset, etc.
+    path('', include('django.contrib.auth.urls')),
     path('', include('apps.dashboard.urls')),
 ]

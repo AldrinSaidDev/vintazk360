@@ -13,6 +13,10 @@ db.sqlite3
 .env.*
 !.env.example
 
+# Node — the image installs and builds these itself
+node_modules/
+static/css/output.css
+
 # Git & editor
 .git/
 .gitignore

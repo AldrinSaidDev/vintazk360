@@ -1,6 +1,25 @@
 # syntax=docker/dockerfile:1
 
-# ---- Base image ----
+# ---- Tailwind build stage ----
+# Compiles static/css/output.css from the templates + input.css. Node lives
+# only in this stage and never ships in the final runtime image.
+FROM node:22-slim AS tailwind
+
+WORKDIR /build
+
+# Install JS deps (cached until package.json changes).
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# Copy the sources Tailwind needs to scan, then build the stylesheet.
+COPY tailwind.config.js ./
+COPY static/ static/
+COPY templates/ templates/
+COPY apps/ apps/
+RUN npm run build:css
+
+
+# ---- Base Python image ----
 FROM python:3.13-slim AS base
 
 # Keep Python from writing .pyc files and buffering stdout/stderr.
@@ -25,6 +44,9 @@ RUN pip install -r requirements/prod.txt
 
 # ---- Application code ----
 COPY . .
+
+# Bring in the compiled Tailwind stylesheet from the build stage.
+COPY --from=tailwind /build/static/css/output.css static/css/output.css
 
 EXPOSE 8000
 

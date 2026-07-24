@@ -11,3 +11,8 @@ __pycache__/
 staticfiles/
 media/*
 !media/.gitkeep
+
+# Node / Tailwind
+node_modules/
+# Compiled Tailwind output (build artifact)
+static/css/output.css
