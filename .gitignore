@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 
+# Claude Code local files
+.claude/
+
 # Environment files
 .env
 .env.*
@@ -16,3 +19,7 @@ media/*
 node_modules/
 # Compiled Tailwind output (build artifact)
 static/css/output.css
+# Vendored Flowbite JS (copied from node_modules at build time)
+static/js/flowbite.min.js
+# Vendored fonts (copied from node_modules at build time)
+static/fonts/

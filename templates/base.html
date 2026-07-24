@@ -69,9 +69,26 @@
                            class="w-56 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm
                                   focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
                 </div>
-                <span class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-brand">
+                {# Flowbite dropdown — avatar opens a menu #}
+                <button id="avatarButton" type="button" data-dropdown-toggle="avatarMenu"
+                        class="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-brand
+                               hover:ring-2 hover:ring-brand/30">
                     {{ user.get_username|first|upper }}
-                </span>
+                </button>
+                <div id="avatarMenu" class="z-50 hidden w-44 divide-y divide-slate-100 rounded-lg bg-white shadow-lg">
+                    <div class="px-4 py-3 text-sm text-slate-700">
+                        <div class="font-semibold">{{ user.get_username }}</div>
+                        <div class="truncate text-xs text-slate-400">{{ user.email|default:"Signed in" }}</div>
+                    </div>
+                    <div class="py-1">
+                        <form method="post" action="{% url 'logout' %}">
+                            {% csrf_token %}
+                            <button type="submit" class="block w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">
+                                Log out
+                            </button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -82,5 +99,9 @@
     </div>
 </div>
 {% endblock %}
+
+{# Flowbite interactive components (dropdowns, modals, etc.) — vendored locally #}
+<script src="{% static 'js/flowbite.min.js' %}"></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

@@ -5,9 +5,14 @@ module.exports = {
   content: [
     './templates/**/*.html',
     './apps/**/templates/**/*.html',
+    './node_modules/flowbite/**/*.js',
   ],
   theme: {
     extend: {
+      fontFamily: {
+        // Display font for headings (vendored locally).
+        heading: ['"Space Grotesk"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
       colors: {
         // Vintazk 360 brand palette.
         ink: '#040404',        // near-black — primary text
@@ -69,6 +74,50 @@ module.exports = {
           '0%': { transform: 'scale(0.8)', opacity: '0.6' },
           '100%': { transform: 'scale(1.9)', opacity: '0' },
         },
+        // Organic drifting for aurora mesh blobs (position + scale morph).
+        'drift-a': {
+          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+          '33%':  { transform: 'translate(6%, -8%) scale(1.12)' },
+          '66%':  { transform: 'translate(-5%, 5%) scale(0.92)' },
+        },
+        'drift-b': {
+          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+          '50%':  { transform: 'translate(-8%, -6%) scale(1.15)' },
+        },
+        // A slow conic sweep, like a radar/searchlight pass.
+        sweep: {
+          from: { transform: 'rotate(0deg)' },
+          to: { transform: 'rotate(360deg)' },
+        },
+        // Particles rising and fading.
+        rise: {
+          '0%':   { transform: 'translateY(0) scale(1)', opacity: '0' },
+          '10%':  { opacity: '0.9' },
+          '90%':  { opacity: '0.4' },
+          '100%': { transform: 'translateY(-160px) scale(0.4)', opacity: '0' },
+        },
+        // Stars twinkling (opacity + tiny scale).
+        twinkle: {
+          '0%, 100%': { opacity: '0.25', transform: 'scale(0.85)' },
+          '50%':      { opacity: '1', transform: 'scale(1)' },
+        },
+        // The North Star's steady breathing glow.
+        'star-glow': {
+          '0%, 100%': { opacity: '0.7', transform: 'translate(-50%, -50%) scale(1)' },
+          '50%':      { opacity: '1', transform: 'translate(-50%, -50%) scale(1.15)' },
+        },
+        // Slow rotation of the star's light rays.
+        'ray-spin': {
+          from: { transform: 'translate(-50%, -50%) rotate(0deg)' },
+          to:   { transform: 'translate(-50%, -50%) rotate(360deg)' },
+        },
+        // A shooting star streaking across.
+        shoot: {
+          '0%':   { transform: 'translate(0,0) rotate(35deg) scaleX(0)', opacity: '0' },
+          '8%':   { opacity: '1', transform: 'translate(0,0) rotate(35deg) scaleX(1)' },
+          '22%':  { transform: 'translate(240px, 168px) rotate(35deg) scaleX(1)', opacity: '0' },
+          '100%': { opacity: '0' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.6s ease-out both',
@@ -82,8 +131,18 @@ module.exports = {
         signalflow: 'signalflow 2.6s linear infinite',
         'ring-ping': 'ring-ping 3s ease-out infinite',
         'ring-ping-slow': 'ring-ping 3s ease-out infinite 1.5s',
+        'drift-a': 'drift-a 18s ease-in-out infinite',
+        'drift-b': 'drift-b 22s ease-in-out infinite',
+        sweep: 'sweep 24s linear infinite',
+        rise: 'rise 7s linear infinite',
+        twinkle: 'twinkle 4s ease-in-out infinite',
+        'star-glow': 'star-glow 4s ease-in-out infinite',
+        'ray-spin': 'ray-spin 60s linear infinite',
+        shoot: 'shoot 9s ease-in infinite',
       },
     },
   },
-  plugins: [],
+  plugins: [
+    require('flowbite/plugin'),
+  ],
 };

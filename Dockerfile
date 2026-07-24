@@ -18,6 +18,14 @@ COPY templates/ templates/
 COPY apps/ apps/
 RUN npm run build:css
 
+# Vendor Flowbite's runtime JS + Space Grotesk fonts into static/ so they can be
+# served locally (no CDN) — the final image copies these out of the build stage.
+RUN mkdir -p static/js static/fonts \
+    && cp node_modules/flowbite/dist/flowbite.min.js static/js/flowbite.min.js \
+    && cp node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-400-normal.woff2 static/fonts/ \
+    && cp node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2 static/fonts/ \
+    && cp node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2 static/fonts/
+
 
 # ---- Base Python image ----
 FROM python:3.13-slim AS base
@@ -45,8 +53,10 @@ RUN pip install -r requirements/prod.txt
 # ---- Application code ----
 COPY . .
 
-# Bring in the compiled Tailwind stylesheet from the build stage.
+# Bring in the compiled Tailwind stylesheet + vendored Flowbite JS from the build stage.
 COPY --from=tailwind /build/static/css/output.css static/css/output.css
+COPY --from=tailwind /build/static/js/flowbite.min.js static/js/flowbite.min.js
+COPY --from=tailwind /build/static/fonts/ static/fonts/
 
 EXPOSE 8000
 
