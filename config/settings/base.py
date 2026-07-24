@@ -42,6 +42,15 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     'apps.core',
     'apps.dashboard',
+    # Line-of-business (LOB) screens
+    'apps.sales',
+    'apps.hr',
+    'apps.academy',
+    'apps.supervisor',
+    'apps.finance',
+    'apps.operations',
+    'apps.marketing',
+    'apps.nexzys',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

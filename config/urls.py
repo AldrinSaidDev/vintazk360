@@ -22,4 +22,14 @@ urlpatterns = [
     # Built-in auth views: login, logout, password change/reset, etc.
     path('', include('django.contrib.auth.urls')),
     path('', include('apps.dashboard.urls')),
+
+    # Line-of-business (LOB) screens — each its own app.
+    path('sales/', include('apps.sales.urls')),
+    path('hr/', include('apps.hr.urls')),
+    path('academy/', include('apps.academy.urls')),
+    path('supervisor/', include('apps.supervisor.urls')),
+    path('finance/', include('apps.finance.urls')),
+    path('operations/', include('apps.operations.urls')),
+    path('marketing/', include('apps.marketing.urls')),
+    path('nexzys/', include('apps.nexzys.urls')),
 ]

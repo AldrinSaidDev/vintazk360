@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+
+{% block title %}Sales · Vintazk 360{% endblock %}
+{% block page_title %}Sales{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-5xl space-y-6">
+    <div class="rounded-xl bg-white p-6 shadow-sm">
+        <h2 class="font-heading text-xl font-bold text-ink">Sales</h2>
+        <p class="mt-2 text-sm text-slate-500">
+            This is the Sales line-of-business screen. KPI cards, charts, and
+            filters for this department will live here.
+        </p>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div class="rounded-xl bg-white p-5 shadow-sm">
+            <p class="text-sm font-medium text-slate-500">Metric A</p>
+            <p class="mt-2 font-heading text-3xl font-bold text-ink">—</p>
+        </div>
+        <div class="rounded-xl bg-white p-5 shadow-sm">
+            <p class="text-sm font-medium text-slate-500">Metric B</p>
+            <p class="mt-2 font-heading text-3xl font-bold text-ink">—</p>
+        </div>
+        <div class="rounded-xl bg-white p-5 shadow-sm">
+            <p class="text-sm font-medium text-slate-500">Metric C</p>
+            <p class="mt-2 font-heading text-3xl font-bold text-ink">—</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
