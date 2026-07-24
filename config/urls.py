@@ -27,9 +27,9 @@ urlpatterns = [
     path('sales/', include('apps.sales.urls')),
     path('hr/', include('apps.hr.urls')),
     path('academy/', include('apps.academy.urls')),
-    path('supervisor/', include('apps.supervisor.urls')),
-    path('finance/', include('apps.finance.urls')),
     path('operations/', include('apps.operations.urls')),
+    path('finance/', include('apps.finance.urls')),
+    path('sitelead/', include('apps.sitelead.urls')),
     path('marketing/', include('apps.marketing.urls')),
     path('nexzys/', include('apps.nexzys.urls')),
 ]

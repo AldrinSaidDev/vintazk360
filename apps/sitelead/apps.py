@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 
 
-class SupervisorConfig(AppConfig):
+class SiteleadConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'apps.supervisor'
-    label = 'supervisor'
+    name = 'apps.sitelead'
+    label = 'sitelead'
