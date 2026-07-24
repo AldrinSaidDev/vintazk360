@@ -1,28 +1,71 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ title }} · Vintazk 360{% endblock %}
+{% block title %}Dashboard · Vintazk 360{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold tracking-tight text-slate-900">{{ title }}</h1>
-    <p class="mt-1 text-sm text-slate-500">Welcome back, {{ user.get_username }}.</p>
-</div>
+<div class="mx-auto max-w-5xl space-y-6">
 
-<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-slate-500">Overview</p>
-        <p class="mt-2 text-3xl font-bold text-slate-900">—</p>
-        <p class="mt-1 text-xs text-slate-400">Placeholder card</p>
+    {# Info banner #}
+    <div class="flex items-start gap-2 rounded-lg bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
+        <span class="mt-0.5 text-brand">&#9432;</span>
+        <p>This dashboard provides a real-time overview of key performance indicators (KPIs).
+           Use the filters to view metrics by Line of Business (LOB), department, or reporting period.</p>
     </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-slate-500">Activity</p>
-        <p class="mt-2 text-3xl font-bold text-slate-900">—</p>
-        <p class="mt-1 text-xs text-slate-400">Placeholder card</p>
-    </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p class="text-sm font-medium text-slate-500">Reports</p>
-        <p class="mt-2 text-3xl font-bold text-slate-900">—</p>
-        <p class="mt-1 text-xs text-slate-400">Placeholder card</p>
-    </div>
+
+    {# Overall Goal #}
+    <section class="rounded-xl bg-white p-6 shadow-sm">
+        <div class="mb-1 flex items-center gap-2">
+            <h2 class="text-base font-bold text-ink">Overall Goal</h2>
+            <span class="text-xs text-slate-400">&#9432;</span>
+        </div>
+        <p class="mb-4 text-xs font-medium text-accent">&#9650; +8% This Week</p>
+
+        <div class="relative h-2.5 w-full rounded-full bg-slate-100">
+            <div class="h-2.5 rounded-full bg-gradient-to-r from-brand to-accent" style="width: 38%"></div>
+        </div>
+        <div class="mt-2 flex justify-between text-xs text-slate-400">
+            <span>0%</span>
+            <span class="font-semibold text-brand">38%</span>
+            <span>100%</span>
+        </div>
+
+        <div class="mt-4 flex justify-end">
+            <button class="rounded-lg bg-brand px-4 py-1.5 text-xs font-semibold text-white hover:bg-brand-dark transition">
+                View More Details
+            </button>
+        </div>
+    </section>
+
+    {# Global Filters #}
+    <section class="rounded-xl bg-white p-6 shadow-sm">
+        <h2 class="mb-4 text-sm font-semibold text-slate-600">Global Filters</h2>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label class="block">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Line of Businesses and Departments</span>
+                <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
+                               focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                    <option>All</option>
+                </select>
+            </label>
+            <label class="block">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Date</span>
+                <input type="date"
+                       class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
+                              focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+            </label>
+        </div>
+    </section>
+
+    {# Chart placeholder #}
+    <section class="rounded-xl bg-white p-6 shadow-sm">
+        <div class="mb-4 flex items-center gap-2">
+            <h2 class="text-base font-bold text-ink">Lorem Ipsum</h2>
+            <span class="text-xs text-slate-400">&#9432;</span>
+        </div>
+        <div class="flex h-56 items-end justify-center rounded-lg bg-gradient-to-b from-blush/20 to-transparent">
+            <p class="pb-20 text-sm text-slate-400">Chart placeholder</p>
+        </div>
+    </section>
 </div>
 {% endblock %}
