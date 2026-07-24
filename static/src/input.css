@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS-only modal: shown when its id is the URL :target (no JS). */
+.modal-overlay:target {
+    display: flex;
+}
+
 /* Space Grotesk — vendored locally (see static/fonts/), used for headings. */
 @font-face {
     font-family: 'Space Grotesk';

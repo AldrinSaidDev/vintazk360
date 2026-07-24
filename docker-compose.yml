@@ -34,7 +34,7 @@ services:
     working_dir: /app
     # Install deps, vendor Flowbite's JS locally, build CSS once, then watch.
     # tty keeps the --watch process alive in a detached container.
-    command: sh -c "npm install && mkdir -p static/js static/fonts && cp -f node_modules/flowbite/dist/flowbite.min.js static/js/flowbite.min.js && cp -f node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-{400,500,700}-normal.woff2 static/fonts/ && npm run build:css && npm run watch:css"
+    command: sh -c "npm install && mkdir -p static/fonts static/fontawesome/css static/fontawesome/fonts && for w in 400 500 700; do cp -f node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-$$w-normal.woff2 static/fonts/; done && cp -f node_modules/font-awesome/css/font-awesome.min.css static/fontawesome/css/ && cp -f node_modules/font-awesome/fonts/* static/fontawesome/fonts/ && npm run build:css && npm run watch:css"
     tty: true
     volumes:
       # Share the project so compiled CSS lands where Django reads it.

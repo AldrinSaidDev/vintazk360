@@ -16,8 +16,8 @@ db.sqlite3
 # Node — the image installs and builds these itself
 node_modules/
 static/css/output.css
-static/js/flowbite.min.js
 static/fonts/
+static/fontawesome/
 
 # Git & editor
 .git/

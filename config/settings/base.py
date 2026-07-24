@@ -40,6 +40,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'django_icons',
     'apps.core',
     'apps.dashboard',
     # Line-of-business (LOB) screens
@@ -163,6 +164,18 @@ LOGIN_URL = 'login'
 # Where users land after a successful login / logout.
 LOGIN_REDIRECT_URL = 'dashboard:home'
 LOGOUT_REDIRECT_URL = 'login'
+
+
+# Icons (django-icons) — render Font Awesome via {% icon 'name' %}.
+# https://django-icons.readthedocs.io/
+DJANGO_ICONS = {
+    'DEFAULTS': {
+        'renderer': 'fontawesome4',
+    },
+    'RENDERERS': {
+        'fontawesome4': 'FontAwesome4Renderer',
+    },
+}
 
 
 # Static files (CSS, JavaScript, Images)

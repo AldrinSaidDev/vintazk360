@@ -2,29 +2,103 @@
 
 {% block title %}Site Lead · Vintazk 360{% endblock %}
 {% block page_title %}Site Lead{% endblock %}
+{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">Site Lead</span>{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-5xl space-y-6">
-    <div class="rounded-xl bg-white p-6 shadow-sm">
-        <h2 class="font-heading text-xl font-bold text-ink">Site Lead</h2>
-        <p class="mt-2 text-sm text-slate-500">
-            This is the Site Lead line-of-business screen. KPI cards, charts, and
-            filters for this department will live here.
-        </p>
+<div class="space-y-6">
+
+    {# North Star banner #}
+    <div class="overflow-hidden rounded-2xl bg-gradient-to-br from-brand via-brand-light to-accent p-6 text-white shadow-sm sm:p-8">
+        <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:gap-6">
+            <h2 class="font-heading text-4xl font-black uppercase leading-none tracking-tight sm:text-5xl">Site Lead</h2>
+            <p class="max-w-xl text-sm font-medium leading-snug text-white/90">
+                <span class="font-bold">North Star:</span> Client SLA attainment — ≥95%
+                across all accounts, at every stage of the ramp.
+            </p>
+        </div>
     </div>
 
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div class="rounded-xl bg-white p-5 shadow-sm">
-            <p class="text-sm font-medium text-slate-500">Metric A</p>
-            <p class="mt-2 font-heading text-3xl font-bold text-ink">—</p>
-        </div>
-        <div class="rounded-xl bg-white p-5 shadow-sm">
-            <p class="text-sm font-medium text-slate-500">Metric B</p>
-            <p class="mt-2 font-heading text-3xl font-bold text-ink">—</p>
-        </div>
-        <div class="rounded-xl bg-white p-5 shadow-sm">
-            <p class="text-sm font-medium text-slate-500">Metric C</p>
-            <p class="mt-2 font-heading text-3xl font-bold text-ink">—</p>
+    {# KPI table #}
+    <div class="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <div class="overflow-x-auto">
+            <table class="w-full min-w-[880px] text-left text-sm">
+                <thead>
+                    <tr class="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                        <th class="px-4 py-3 font-semibold">KPI</th>
+                        <th class="px-4 py-3 font-semibold">Category</th>
+                        <th class="px-4 py-3 font-semibold">Definition</th>
+                        <th class="px-4 py-3 font-semibold">Formula</th>
+                        <th class="px-4 py-3 font-semibold">Target</th>
+                        <th class="px-4 py-3 font-semibold">Frequency</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 text-slate-600">
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Client Service Performance</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">Operational</span></td>
+                        <td class="px-4 py-4">Whether all accounts are consistently delivering the quality and service promised to clients.</td>
+                        <td class="px-4 py-4 text-slate-500">SLA Commitments Met ÷ Total SLA Commitments Due × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">≥95% SLA attainment</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Weekly and Monthly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Operational Efficiency</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">Operational</span></td>
+                        <td class="px-4 py-4">Measures how effectively scheduled workforce hours are converted into productive and client-billable hours.</td>
+                        <td class="px-4 py-4 text-slate-500">Actual Approved Billable Hours ÷ Planned Billable Hours × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">≥95%</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Monthly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Workforce Retention Rate</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-blush/30 px-2.5 py-0.5 text-xs font-medium text-brand-dark">People</span></td>
+                        <td class="px-4 py-4">Measures the site's ability to retain employees and maintain a stable workforce while supporting business growth.</td>
+                        <td class="px-4 py-4 text-slate-500">(Employees at End of Period − New Hires During Period) ÷ Employees at Start of Period × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">96.5% monthly retention</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Monthly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Growth and Capacity Readiness</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">Operational</span></td>
+                        <td class="px-4 py-4">Measures whether staffing, leadership, equipment, facilities, systems, and support resources are ready before hiring waves or account expansion.</td>
+                        <td class="px-4 py-4 text-slate-500">Fully Ready Capacity ÷ Forecasted Capacity Requirement × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">100% readiness before hiring or launch</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Quarterly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Client Retention Rate</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-brand-dark">Financial Impact</span></td>
+                        <td class="px-4 py-4">Measures the site's ability to retain existing clients and protect recurring revenue.</td>
+                        <td class="px-4 py-4 text-slate-500">(Clients at End of Period − New Clients Acquired) ÷ Clients at Start of Period × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">100%</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Quarterly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Revenue Target Attainment</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-brand-dark">Financial</span></td>
+                        <td class="px-4 py-4">Measures whether the site achieves the revenue committed in the approved financial and operational plan.</td>
+                        <td class="px-4 py-4 text-slate-500">Actual Site Revenue ÷ Budgeted Site Revenue × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">≥98%</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Monthly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Operational Risk and Business Continuity Compliance</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">Operational</span></td>
+                        <td class="px-4 py-4">Measures the site's preparedness to prevent, respond to, and recover from operational disruptions, compliance risks, and critical incidents.</td>
+                        <td class="px-4 py-4 text-slate-500">Completed and Passed Risk, Compliance, and BCP Requirements ÷ Total Requirements Due × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">100% compliance</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Quarterly</td>
+                    </tr>
+                    <tr class="align-top hover:bg-slate-50/60">
+                        <td class="px-4 py-4 font-semibold text-ink">Account Profitability</td>
+                        <td class="px-4 py-4"><span class="rounded-full bg-accent/20 px-2.5 py-0.5 text-xs font-medium text-brand-dark">Financial</span></td>
+                        <td class="px-4 py-4">Measures whether client accounts achieve or exceed the Finance-approved margin requirement.</td>
+                        <td class="px-4 py-4 text-slate-500">Accounts Meeting the Approved Margin Floor ÷ Total Active Accounts × 100</td>
+                        <td class="px-4 py-4 font-semibold text-ink">100%, with documented executive approval for exceptions</td>
+                        <td class="px-4 py-4 whitespace-nowrap">Monthly and Quarterly</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
