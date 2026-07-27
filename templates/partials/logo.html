@@ -1,0 +1,5 @@
+{% load static %}
+{# Vintazk 360 wordmark. The "VINTAZK" text is WHITE — only use this on dark surfaces. #}
+{# Size it by passing a height class: {% include "partials/logo.html" with class="h-8" %} #}
+<img src="{% static 'img/logo_vintazk_360.png' %}" alt="Vintazk 360"
+     class="{{ class|default:'h-20' }} w-auto select-none">

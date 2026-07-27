@@ -5,7 +5,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Vintazk 360{% endblock %}</title>
-    <link rel="icon" type="image/svg+xml" href="{% static 'favicon.svg' %}">
+    <link rel="icon" type="image/png" href="{% static 'img/logo_vintazk_360.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'img/logo_vintazk_360.png' %}">
     <link rel="stylesheet" href="{% static 'fontawesome/css/font-awesome.min.css' %}">
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
 </head>
@@ -19,9 +20,8 @@
 
         {# Logo #}
         <div class="flex items-center px-6 py-6">
-            <a href="{% url 'dashboard:home' %}" class="flex items-baseline gap-1.5 leading-none">
-                <span class="font-heading text-xl font-black tracking-tight text-white">VINTAZK</span>
-                <span class="font-heading text-xl font-black tracking-[0.15em] text-accent">360<span class="align-super text-[10px]">✦</span></span>
+            <a href="{% url 'dashboard:home' %}" class="block leading-none" title="Vintazk 360">
+                {% include "partials/logo.html" with class="h-8" %}
             </a>
         </div>
 
