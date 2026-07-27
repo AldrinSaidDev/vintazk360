@@ -8,6 +8,14 @@
 }
 
 /* Space Grotesk — vendored locally (see static/fonts/), used for headings. */
+/* 300 is the lightest face upstream ships; font-extralight/font-thin fall back to it. */
+@font-face {
+    font-family: 'Space Grotesk';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/static/fonts/space-grotesk-latin-300-normal.woff2') format('woff2');
+}
 @font-face {
     font-family: 'Space Grotesk';
     font-style: normal;
@@ -31,6 +39,27 @@
 }
 
 /* Montserrat — vendored locally (see static/fonts/), used as the body font. */
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 100;
+    font-display: swap;
+    src: url('/static/fonts/montserrat-latin-100-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 200;
+    font-display: swap;
+    src: url('/static/fonts/montserrat-latin-200-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/static/fonts/montserrat-latin-300-normal.woff2') format('woff2');
+}
 @font-face {
     font-family: 'Montserrat';
     font-style: normal;
