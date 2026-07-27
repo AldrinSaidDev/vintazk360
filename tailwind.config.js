@@ -12,8 +12,10 @@ module.exports = {
         // Default body font — Montserrat (vendored locally). Overrides Tailwind's
         // default `sans` stack so the whole app uses it without extra classes.
         sans: ['"Montserrat"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        // Display font for headings (vendored locally).
-        heading: ['"Space Grotesk"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        // Headings also use Montserrat — the app is single-typeface. The
+        // `font-heading` class is kept (and used across the templates) purely as
+        // a semantic hook, so a display face can be swapped back in here alone.
+        heading: ['"Montserrat"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       colors: {
         // Vintazk 360 brand palette.
