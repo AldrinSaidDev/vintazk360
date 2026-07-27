@@ -23,6 +23,18 @@ This file loads every session — keep it accurate.
 - **Charts: Chart.js** (v4, vendored `static/vendor/chart.umd.min.js`, copied by the tailwind container; no CDN). Loaded per-page in `{% block scripts %}`, fed data via `{{ ...|json_script:"id" }}`. Used for the Operations "Actual vs Target" horizontal bar chart (normalized % attainment, direction-aware, colored by status token).
 - Base shell `templates/base.html`: dark sidebar with **per-team dropdowns** (see below), top bar (page_title + `dept_badge` block + search + help + avatar dropdown), footer. **No sidebar collapse toggle** (removed).
 
+## Anti-Slop Design Guidelines
+**Every visual element must earn its place.** No gratuitous decoration, animation, or "creative" flourishes for their own sake. The goal is a professional, focused KPI dashboard for business users — not a tech demo.
+
+**Core principle:** Purpose > decoration. Clarity > complexity. Restraint > flashiness.
+
+- **Forms over flash:** Login, inputs, modals, and data-entry UIs must be scannable, fast, and task-focused. No twinkling stars, rotating orbs, glowing blobs, or constellation diagrams. Use spacing and typography to guide the eye, not animations.
+- **No "dashboard theater":** Real data, clear charts, and crisp tables beat sci-fi effects. Pulsing nodes, network diagrams, and rotating rings distract from the metrics.
+- **Color and gradients: sparingly.** The brand palette (ink, brand, accent, blush, surface, status tokens) is ample. Don't add extra shades, gradients, or shadows unless they create visual hierarchy or affordance.
+- **Animation restraint:** Use `transition` for state changes (hover, focus, active). Avoid continuous animations (float, pulse, spin, twinkle, drift) on interactive elements or in the background. If you use animation, keep it under 300ms and tied to user action.
+- **The "remove and test" rule:** If you can hide an element and the page still works exactly the same, remove it.
+- **Status over style:** When adding a visual effect, ask: "Does this communicate information or improve usability?" If the answer is "it looks cool," it probably stays out.
+
 ## Gotchas (learned the hard way)
 - Django `{# #}` comments are **single-line only** — multi-line ones render as visible text. (Bit us repeatedly — in the sidebar and the modal. Keep every `{# #}` on one line.)
 - Tailwind only compiles classes it finds as **literal strings** while scanning templates. Classes built dynamically in JS (e.g. `'bg-status-' + key`) get purged — reference each full class literally somewhere (it scans inside `<script>` too), or they won't exist in `output.css`.
