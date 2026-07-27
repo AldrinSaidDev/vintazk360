@@ -9,6 +9,9 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
+        // Default body font — Montserrat (vendored locally). Overrides Tailwind's
+        // default `sans` stack so the whole app uses it without extra classes.
+        sans: ['"Montserrat"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         // Display font for headings (vendored locally).
         heading: ['"Space Grotesk"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
@@ -26,6 +29,15 @@ module.exports = {
         },
         blush: '#DFADB6',      // dusty pink — soft highlight
         surface: '#202427',    // dark slate — sidebar / dark surfaces
+
+        // Semantic status colors — muted to sit harmoniously with the brand
+        // palette while still reading clearly as good / warning / bad.
+        // On-track deliberately reuses the brand purple to stay on-brand.
+        status: {
+          good: '#4F3D67',   // = brand — on track
+          warn: '#D9A441',   // muted amber — at risk
+          bad:  '#C25B6E',   // muted rose — below target
+        },
       },
       keyframes: {
         'fade-up': {

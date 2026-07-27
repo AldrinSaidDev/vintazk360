@@ -32,9 +32,9 @@ services:
   tailwind:
     image: node:22-slim
     working_dir: /app
-    # Install deps, vendor Flowbite's JS locally, build CSS once, then watch.
+    # Install deps, vendor fonts / Font Awesome / Chart.js locally, build CSS once, then watch.
     # tty keeps the --watch process alive in a detached container.
-    command: sh -c "npm install && mkdir -p static/fonts static/fontawesome/css static/fontawesome/fonts && for w in 400 500 700; do cp -f node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-$$w-normal.woff2 static/fonts/; done && cp -f node_modules/font-awesome/css/font-awesome.min.css static/fontawesome/css/ && cp -f node_modules/font-awesome/fonts/* static/fontawesome/fonts/ && npm run build:css && npm run watch:css"
+    command: sh -c "npm install && mkdir -p static/fonts static/fontawesome/css static/fontawesome/fonts static/vendor && for w in 400 500 700; do cp -f node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-$$w-normal.woff2 static/fonts/; done && for w in 400 500 600 700; do cp -f node_modules/@fontsource/montserrat/files/montserrat-latin-$$w-normal.woff2 static/fonts/; done && cp -f node_modules/font-awesome/css/font-awesome.min.css static/fontawesome/css/ && cp -f node_modules/font-awesome/fonts/* static/fontawesome/fonts/ && cp -f node_modules/chart.js/dist/chart.umd.js static/vendor/chart.umd.min.js && npm run build:css && npm run watch:css"
     tty: true
     volumes:
       # Share the project so compiled CSS lands where Django reads it.

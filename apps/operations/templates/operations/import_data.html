@@ -150,58 +150,205 @@
 
 {# ============ Add Performance Record modal — CSS-only via :target ============ #}
 <div id="addRecordModal"
-     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/40 p-4">
-    <div class="w-full max-w-md rounded-2xl bg-white shadow-xl">
-        <div class="flex items-center justify-between border-b border-slate-100 p-5">
-            <h3 class="font-heading text-lg font-bold text-ink">Add Performance Record</h3>
-            <a href="#" class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        {# Branded header #}
+        <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                </span>
+                <div>
+                    <h3 class="font-heading text-lg font-bold leading-tight">Add Performance Record</h3>
+                    <p class="text-xs text-white/70">Enter a KPI's raw figures — we'll calculate the result.</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white">
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </a>
         </div>
 
-        <form class="space-y-4 p-5">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">KPI Information</p>
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                    <label class="mb-1 block text-sm font-medium text-slate-700">KPI</label>
-                    <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                        <option value="">Select KPI…</option>
-                        <option>Attrition Rate</option><option>Client Retention Rate</option>
-                        <option>Billable Hours Achievement</option><option>CSAT</option>
-                        <option>EBR Completion</option><option>Seat Expansion</option>
-                    </select>
+        <form id="addRecordForm" class="flex-1 overflow-y-auto p-6">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+
+                {# ---- Left column: KPI + formula inputs + live calc ---- #}
+                <div class="space-y-4">
+                    <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        <span class="h-px flex-1 bg-slate-100"></span>KPI Information<span class="h-px flex-1 bg-slate-100"></span>
+                    </p>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI</label>
+                        <select id="record-kpi"
+                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                            <option value="">Select KPI…</option>
+                            {% for k in modal_kpis %}
+                            <option value="{{ k.name }}"
+                                    data-target="{{ k.target }}"
+                                    data-direction="{{ k.direction }}"
+                                    data-target-display="{{ k.target_display }}"
+                                    data-formula="{{ k.formula }}"
+                                    data-numerator="{{ k.numerator }}"
+                                    data-denominator="{{ k.denominator }}">{{ k.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Two raw formula inputs — labels change per KPI; hidden until one is picked. #}
+                    {# items-end so the inputs line up even when one label wraps to two lines. #}
+                    <div id="record-inputs" class="hidden items-end gap-3 sm:grid-cols-2 [&:not(.hidden)]:grid grid-cols-1">
+                        <div class="flex h-full flex-col">
+                            <label id="record-num-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Numerator</label>
+                            <input type="text" id="record-numerator" inputmode="decimal" placeholder="e.g. 7"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                        </div>
+                        <div class="flex h-full flex-col">
+                            <label id="record-den-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Denominator</label>
+                            <input type="text" id="record-denominator" inputmode="decimal" placeholder="e.g. 200"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                        </div>
+                    </div>
+
+                    {# Calculation preview — formula shows on KPI select; result fills in once both values are entered. #}
+                    <div id="record-calc" class="hidden rounded-xl border border-brand/15 bg-brand/5 p-4">
+                        <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
+                        <p id="record-calc-formula" class="font-mono text-xs leading-relaxed text-brand-dark"></p>
+                        <p id="record-calc-worked" class="mt-2 hidden font-mono text-base font-bold leading-relaxed text-ink"></p>
+                        <div class="mt-3 flex items-center justify-between border-t border-dashed border-brand/15 pt-3">
+                            <span class="text-xs text-slate-500">Target <span id="record-calc-target" class="font-semibold text-ink"></span></span>
+                            <span id="record-calc-status" class="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"></span>
+                            <span id="record-calc-hint" class="text-xs italic text-slate-400">Enter both values…</span>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <label class="mb-1 block text-sm font-medium text-slate-700">Actual Value</label>
-                    <input type="text" placeholder="e.g. 2.9%"
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+
+                {# ---- Right column: team + optional meta ---- #}
+                <div class="space-y-4">
+                    <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        <span class="h-px flex-1 bg-slate-100"></span>Details<span class="h-px flex-1 bg-slate-100"></span>
+                    </p>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Team</label>
+                        <select class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                            <option value="">Select team…</option>
+                            <option>BPAO</option><option>Adparlor</option><option>CS Reward (E-commerce)</option>
+                            <option>MediaOps</option><option>PubDev</option><option>WebDev</option>
+                            <option>JAC</option><option>RDAT</option><option>ASC</option><option>PDDL</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                        <textarea rows="3" placeholder="Add any context for this record…"
+                                  class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"></textarea>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Attachment <span class="font-normal text-slate-400">(Optional)</span></label>
+                        <label class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 px-3 py-4 text-sm text-slate-400 transition hover:border-brand hover:bg-brand/5 hover:text-brand">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
+                            Click or Paste <input type="file" class="hidden">
+                        </label>
+                    </div>
                 </div>
-            </div>
-            <div>
-                <label class="mb-1 block text-sm font-medium text-slate-700">Team</label>
-                <select class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                    <option value="">Select team…</option>
-                    <option>BPAO</option><option>Adparlor</option><option>CS Reward (E-commerce)</option>
-                    <option>MediaOps</option><option>PubDev</option><option>WebDev</option>
-                    <option>JAC</option><option>RDAT</option><option>ASC</option><option>PDDL</option>
-                </select>
-            </div>
-            <div>
-                <label class="mb-1 block text-sm font-medium text-slate-700">Remarks <span class="text-slate-400">(Optional)</span></label>
-                <textarea rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand"></textarea>
-            </div>
-            <div>
-                <label class="mb-1 block text-sm font-medium text-slate-700">Attachment <span class="text-slate-400">(Optional)</span></label>
-                <label class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-400 hover:border-brand hover:text-brand">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
-                    Click or Paste <input type="file" class="hidden">
-                </label>
-            </div>
-            <div class="flex items-center justify-between border-t border-slate-100 pt-4">
-                <a href="#" class="text-sm font-medium text-slate-500 hover:text-slate-700">Cancel</a>
-                <button type="submit" class="rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white hover:bg-brand-dark">Save</button>
             </div>
         </form>
+
+        {# Sticky footer #}
+        <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+            <button type="submit" form="addRecordForm" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                Save Record
+            </button>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const kpiSel   = document.getElementById('record-kpi');
+        const inputs   = document.getElementById('record-inputs');
+        const numEl    = document.getElementById('record-numerator');
+        const denEl    = document.getElementById('record-denominator');
+        const numLabel = document.getElementById('record-num-label');
+        const denLabel = document.getElementById('record-den-label');
+        const panel    = document.getElementById('record-calc');
+        const fEl      = document.getElementById('record-calc-formula');
+        const workedEl = document.getElementById('record-calc-worked');
+        const tEl      = document.getElementById('record-calc-target');
+        const sEl      = document.getElementById('record-calc-status');
+        const hintEl   = document.getElementById('record-calc-hint');
+        if (!kpiSel || !inputs || !panel) return;
+
+        // Status → pill classes (mirror the dashboard's semantic status colors).
+        const STATUS = {
+            on_track: { label: 'On Track',     cls: 'bg-status-good/10 text-status-good' },
+            at_risk:  { label: 'At Risk',      cls: 'bg-status-warn/15 text-status-warn' },
+            below:    { label: 'Below Target', cls: 'bg-status-bad/10 text-status-bad' },
+        };
+
+        // Trim trailing ".0" so "3.5" shows clean but "3.50" → "3.5".
+        const fmt = n => Number(n.toFixed(2)).toString();
+
+        function render() {
+            const opt = kpiSel.selectedOptions[0];
+
+            // No KPI chosen → hide inputs + panel.
+            if (!opt || !opt.value) {
+                inputs.classList.add('hidden');
+                panel.classList.add('hidden');
+                return;
+            }
+
+            // Relabel the two inputs to this KPI's formula parts, reveal them.
+            numLabel.textContent = opt.dataset.numerator;
+            denLabel.textContent = opt.dataset.denominator;
+            inputs.classList.remove('hidden');
+
+            const target     = parseFloat(opt.dataset.target);
+            const direction  = opt.dataset.direction;
+            const targetDisp = opt.dataset.targetDisplay;
+
+            // Panel visible with the generic formula + target as soon as a KPI is picked.
+            panel.classList.remove('hidden');
+            fEl.textContent = opt.dataset.formula;
+            tEl.textContent = targetDisp;
+
+            const num = parseFloat((numEl.value || '').replace(/[^0-9.]/g, ''));
+            const den = parseFloat((denEl.value || '').replace(/[^0-9.]/g, ''));
+
+            // Need both raw numbers (and a non-zero denominator) to compute.
+            if (isNaN(num) || isNaN(den) || den === 0) {
+                workedEl.classList.add('hidden');
+                sEl.classList.add('hidden'); sEl.classList.remove('inline-flex');
+                hintEl.classList.remove('hidden');
+                return;
+            }
+
+            // Compute the KPI value straight from its formula: num ÷ den × 100.
+            const value = num / den * 100;
+
+            // Direction-aware attainment vs target (matches the dashboard math).
+            const attainment = direction === 'down'
+                ? target / value * 100   // lower is better (e.g. attrition threshold)
+                : value / target * 100;  // higher is better
+
+            // Worked line shows the real formula math → resulting KPI value.
+            workedEl.textContent = `${fmt(num)} ÷ ${fmt(den)} × 100 = ${fmt(value)}%`;
+
+            const key = attainment >= 100 ? 'on_track' : (attainment >= 90 ? 'at_risk' : 'below');
+            const s = STATUS[key];
+
+            workedEl.classList.remove('hidden');
+            hintEl.classList.add('hidden');
+            sEl.textContent = s.label;
+            sEl.className = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ' + s.cls;
+        }
+
+        kpiSel.addEventListener('change', render);
+        numEl.addEventListener('input', render);
+        denEl.addEventListener('input', render);
+    })();
+</script>
 {% endblock %}
