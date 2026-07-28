@@ -55,9 +55,7 @@
         <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
             <div class="flex items-center gap-1.5">
                 <h2 class="font-heading text-base font-bold text-ink">Actual vs Target</h2>
-                <span class="text-slate-400" title="Each KPI shown as % of its target reached. 100% = on target. Attrition is inverted (under threshold is good).">
-                    <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-                </span>
+                {% include "partials/info_icon.html" with text="Each KPI shown as % of its target reached. 100% = on target. Attrition is inverted (under threshold is good)." align="left" %}
             </div>
             <div class="flex items-center gap-4 text-xs font-medium text-slate-500">
                 <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-good"></span>On track</span>
@@ -77,9 +75,7 @@
     <section>
         <div class="mb-3 flex items-center gap-1.5">
             <h2 class="font-heading text-base font-bold text-ink">KPI Scorecard</h2>
-            <span class="text-slate-400" title="Each KPI's actual performance against its target.">
-                <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
-            </span>
+            {% include "partials/info_icon.html" with text="Each KPI's actual performance against its target, with the gap to close." align="left" %}
         </div>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {% for kpi in kpis %}

@@ -1,0 +1,7 @@
+{# Page-level info note. Sits at the top of every Import Data page; the copy is per-department. #}
+<div class="rounded-lg bg-white">
+    <div class="flex items-start gap-2.5 rounded-lg border border-brand/15 bg-brand/10 px-4 py-3 text-sm text-slate-600">
+        {% include "partials/info_icon.html" with variant="outline" class="mt-0.5" %}
+        <p>{{ text|default:"Import, create, and update KPI records for each team. Add individual entries through a form or upload Excel files for bulk import to keep performance metrics accurate and up to date." }}</p>
+    </div>
+</div>

@@ -9,7 +9,7 @@
 
     {# Info banner #}
     <div class="flex items-start gap-2 rounded-lg bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
-        <span class="mt-0.5 text-brand">&#9432;</span>
+        {% include "partials/info_icon.html" with variant="outline" class="mt-0.5" %}
         <p>This dashboard provides a real-time overview of key performance indicators (KPIs).
            Use the filters to view metrics by Line of Business (LOB), department, or reporting period.</p>
     </div>
@@ -18,9 +18,7 @@
     <section class="rounded-xl bg-white p-6 shadow-sm">
         <div class="flex items-center gap-2">
             <h2 class="text-xl font-bold text-ink">Overall Goal</h2>
-            <span class="inline-flex h-4 w-4 items-center justify-center rounded-full bg-brand text-[10px] text-white">
-                {% icon 'info' %}
-            </span>
+            {% include "partials/info_icon.html" with text="Combined progress across every Line of Business for the current reporting period. 100% means every team hit its target." align="left" %}
         </div>
         <p class="mt-1 flex items-center gap-2 text-xs font-normal text-ink">
             {% icon 'long-arrow-up' %} +18 This Week
@@ -84,7 +82,7 @@
     <section class="rounded-xl bg-white p-6 shadow-sm">
         <div class="mb-4 flex items-center gap-2">
             <h2 class="text-base font-bold text-ink">Lorem Ipsum</h2>
-            <span class="text-xs text-slate-400">&#9432;</span>
+            {% include "partials/info_icon.html" with variant="outline" %}
         </div>
         <div class="flex h-56 items-end justify-center rounded-lg bg-gradient-to-b from-blush/20 to-transparent">
             <p class="pb-20 text-sm text-slate-400">Chart placeholder</p>
