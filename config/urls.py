@@ -24,6 +24,8 @@ urlpatterns = [
     # Built-in auth views: login, logout, password change/reset, etc.
     path('', include('django.contrib.auth.urls')),
     path('', include('apps.dashboard.urls')),
+    # Shared, non-LOB screens (activity log; future org-wide pages).
+    path('', include('apps.core.urls')),
 
     # Line-of-business (LOB) screens — each its own app.
     path('sales/', include('apps.sales.urls')),

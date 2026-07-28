@@ -1,4 +1,4 @@
-{% load static %}
+{% load static %}{% load icons %}
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
@@ -74,6 +74,14 @@
                     {% endwith %}
                 {% endif %}
             {% endfor %}
+
+            {% url 'core:logs' as logs_url %}
+            <a href="{{ logs_url }}" title="Logs"
+               class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                      {% if request.path == logs_url %}bg-brand text-white{% else %}text-slate-300 hover:bg-white/5 hover:text-white{% endif %}">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center text-base">{% icon 'history' %}</span>
+                <span class="sidebar-label">Logs</span>
+            </a>
 
             <a href="#" title="Settings"
                class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white">
