@@ -1,0 +1,268 @@
+{% extends 'base.html' %}
+
+{% block title %}Settings · Vintazk 360{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+{# Tabs are server-rendered off ?tab=. A reload keeps the tab, the password POST #}
+{# can return to its own tab with errors intact, and each tab is linkable. #}
+{% url 'core:settings' as settings_url %}
+<div class="mx-auto max-w-4xl space-y-6">
+
+    {% include "partials/info_banner.html" with text="Your account details, password, and a record of your own activity. Role and team assignments are managed by an administrator — contact one if they need to change." %}
+
+    {# ---- Profile card ---- #}
+    <section class="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        {# Gradient banner — same ramp as the North Star headers on the LOB dashboards. #}
+        <div class="h-20 bg-gradient-to-br from-brand via-brand-light to-accent"></div>
+
+        {# items-start (not -end): the avatar is pinned by its own -mt-12, so the text #}
+        {# block can be padded down on its own without dragging the avatar with it. #}
+        <div class="flex flex-col gap-4 px-6 pb-6 sm:flex-row sm:items-start">
+            {# Avatar sits over the banner edge. Initial, not a photo — there's no avatar upload. #}
+            <span class="relative -mt-12 flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-brand font-heading text-3xl font-bold text-white ring-4 ring-white">
+                {{ user.get_username|first|upper }}
+                {# Presence dot — hardcoded online; there's no session/presence tracking yet. #}
+                <span class="absolute bottom-1.5 right-1.5 h-4 w-4 rounded-full bg-emerald-500 ring-2 ring-white" title="Online"></span>
+            </span>
+            <div class="min-w-0 pt-4">
+                <h2 class="truncate font-heading text-xl font-bold text-ink">{{ user.get_full_name|default:user.get_username }}</h2>
+                <p class="truncate text-sm text-slate-500">{{ user.email|default:"No email on file" }}</p>
+                <p class="mt-0.5 truncate text-xs text-slate-400">
+                    {% if profile %}{{ profile.get_role_display }}{% else %}No role assigned{% endif %} · Nexzys Intelligence
+                </p>
+            </div>
+        </div>
+
+        {# ---- Tab bar ---- #}
+        <div class="flex gap-1 overflow-x-auto border-b border-slate-200 px-6">
+            {% with base="whitespace-nowrap border-b-2 px-4 py-3 text-sm transition" on="border-brand font-semibold text-brand" off="border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700" %}
+            <a href="{{ settings_url }}?tab=profile"  class="{{ base }} {% if tab == 'profile' %}{{ on }}{% else %}{{ off }}{% endif %}">Profile</a>
+            <a href="{{ settings_url }}?tab=account"  class="{{ base }} {% if tab == 'account' %}{{ on }}{% else %}{{ off }}{% endif %}">Account Settings</a>
+            <a href="{{ settings_url }}?tab=activity" class="{{ base }} {% if tab == 'activity' %}{{ on }}{% else %}{{ off }}{% endif %}">Activity</a>
+            {% endwith %}
+        </div>
+
+        {# ================= Profile ================= #}
+        {% if tab == 'profile' %}
+        <div class="p-6">
+            <div class="mb-4 flex items-center gap-1.5">
+                <h3 class="font-heading text-base font-bold text-ink">Basic Information</h3>
+                {% include "partials/info_icon.html" with text="These details come from your account record. Employee ID and role are set by an administrator and can't be edited here." align="left" %}
+            </div>
+
+            {# Values render as inputs so the tab reads like the rest of the app's forms, #}
+            {# but they're display-only: readonly (can't type) + pointer-events-none and #}
+            {# tabindex=-1 (can't click or tab into one). Nothing here is editable — role #}
+            {# and teams are admin-managed, the rest comes off the account record. #}
+            {% with label="mb-1.5 block text-sm font-medium text-slate-700" box="w-full cursor-default rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 pointer-events-none" %}
+            <dl class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+                <div>
+                    <dt class="{{ label }}">Employee ID</dt>
+                    <dd><input type="text" value="{{ user.get_username }}" readonly tabindex="-1" aria-label="Employee ID" class="{{ box }} font-medium text-ink"></dd>
+                </div>
+                <div>
+                    <dt class="{{ label }}">Full Name</dt>
+                    <dd><input type="text" value="{{ user.get_full_name|default:'—' }}" readonly tabindex="-1" aria-label="Full name" class="{{ box }}"></dd>
+                </div>
+                <div>
+                    <dt class="{{ label }}">Email</dt>
+                    <dd><input type="text" value="{{ user.email|default:'—' }}" readonly tabindex="-1" aria-label="Email" class="{{ box }}"></dd>
+                </div>
+                <div>
+                    <dt class="{{ label }}">Role</dt>
+                    <dd><input type="text" value="{% if profile %}{{ profile.get_role_display }}{% else %}Unassigned{% endif %}" readonly tabindex="-1" aria-label="Role" class="{{ box }}"></dd>
+                </div>
+                <div>
+                    <dt class="{{ label }}">Teams</dt>
+                    {# A div rather than an <input> so a long list wraps instead of being #}
+                    {# clipped — the field is display-only and unclickable, so nobody can #}
+                    {# scroll an input to read the rest. Styled to match the boxes above. #}
+                    <dd class="{{ box }} min-h-[2.75rem]">
+                        {% if profile.sees_all_teams %}All teams{% else %}{{ teams|join:", "|default:"—" }}{% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt class="{{ label }}">Member Since</dt>
+                    <dd><input type="text" value="{{ user.date_joined|date:'M j, Y' }}" readonly tabindex="-1" aria-label="Member since" class="{{ box }}"></dd>
+                </div>
+                <div>
+                    <dt class="{{ label }}">Last Sign-in</dt>
+                    <dd><input type="text" value="{{ user.last_login|date:'M j, Y · g:i A'|default:'—' }}" readonly tabindex="-1" aria-label="Last sign-in" class="{{ box }}"></dd>
+                </div>
+            </dl>
+            {% endwith %}
+        </div>
+
+        {# ================= Account Settings ================= #}
+        {% elif tab == 'account' %}
+        <div class="p-6">
+            <div class="mb-1 flex items-center gap-1.5">
+                <h3 class="font-heading text-base font-bold text-ink">Change Password</h3>
+                {% include "partials/info_icon.html" with text="You stay signed in on this device after changing your password. Any other active sessions are signed out." align="left" %}
+            </div>
+            <p class="mb-5 text-sm text-slate-500">Enter your current password, then choose a new one.</p>
+
+            {% for message in messages %}
+            <div class="mb-5 flex items-start gap-2.5 rounded-lg border border-status-good/20 bg-status-good/5 px-4 py-3 text-sm text-status-good">
+                {% include "partials/info_icon.html" with variant="outline" class="mt-0.5" %}
+                <p>{{ message }}</p>
+            </div>
+            {% endfor %}
+
+            <form method="post" action="{{ settings_url }}?tab=account" class="max-w-md space-y-5">
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                <div class="rounded-lg border border-status-bad/20 bg-status-bad/5 px-4 py-3 text-sm text-status-bad">
+                    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+                </div>
+                {% endif %}
+
+                {% for field in form %}
+                <div>
+                    <label for="{{ field.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">{{ field.label }}</label>
+                    {{ field }}
+
+                    {% if field.name == 'new_password1' %}
+                    {# Live rule checklist — ticks as you type. Replaces Django's static #}
+                    {# help text; the rules mirror apps/core/validators.py exactly. #}
+                    {% with row="flex items-center gap-2 transition-colors text-slate-400" %}
+                    <ul id="pw-rules" class="mt-2.5 space-y-1.5 text-xs">
+                        <li data-rule="length" class="{{ row }}">
+                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
+                            At least 6 characters
+                        </li>
+                        <li data-rule="upper" class="{{ row }}">
+                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
+                            One uppercase letter
+                        </li>
+                        <li data-rule="special" class="{{ row }}">
+                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
+                            One special character
+                        </li>
+                        <li data-rule="match" class="{{ row }}">
+                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
+                            Both new password fields match
+                        </li>
+                    </ul>
+                    {% endwith %}
+                    {% elif field.help_text %}
+                    <div class="mt-1.5 text-xs leading-relaxed text-slate-400">{{ field.help_text|safe }}</div>
+                    {% endif %}
+
+                    {% for error in field.errors %}
+                    <p class="mt-1.5 text-xs font-medium text-status-bad">{{ error }}</p>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+
+                <div class="flex justify-end gap-3 border-t border-slate-100 pt-5">
+                    <a href="{{ settings_url }}?tab=profile" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                    <button type="submit" class="rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">Update Password</button>
+                </div>
+            </form>
+        </div>
+
+        {# ================= Activity ================= #}
+        {% else %}
+        <div class="p-6">
+            <div class="mb-4 flex items-center gap-1.5">
+                <h3 class="font-heading text-base font-bold text-ink">Your Activity</h3>
+                {% include "partials/info_icon.html" with text="Only actions taken by this account. The full org-wide record lives on the Logs page." align="left" %}
+            </div>
+
+            <div class="overflow-x-auto rounded-lg border border-slate-100">
+                <table class="w-full min-w-[640px] text-left text-sm text-slate-600">
+                    <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                        <tr>
+                            <th class="px-4 py-3 font-semibold">Timestamp</th>
+                            <th class="px-4 py-3 font-semibold">Action</th>
+                            <th class="px-4 py-3 font-semibold">Module</th>
+                            <th class="px-4 py-3 font-semibold">Details</th>
+                            <th class="px-4 py-3 font-semibold">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        {% for entry in my_entries %}
+                        <tr class="transition hover:bg-slate-50/60">
+                            <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ entry.timestamp }}</td>
+                            <td class="px-4 py-3">{{ entry.action }}</td>
+                            <td class="px-4 py-3">
+                                <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">{{ entry.module }}</span>
+                            </td>
+                            <td class="px-4 py-3 text-slate-500">{{ entry.details }}</td>
+                            {# Same fixed-width pill as the Logs table so the column doesn't go ragged. #}
+                            <td class="w-32 px-4 py-3">
+                                {% with pill="inline-flex w-24 shrink-0 items-center justify-start gap-1.5 rounded-full py-1 pl-4 text-[11px] font-semibold" %}
+                                {% if entry.status == 'success' %}
+                                <span class="{{ pill }} bg-status-good/10 text-status-good">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-status-good"></span>Success
+                                </span>
+                                {% elif entry.status == 'warning' %}
+                                <span class="{{ pill }} bg-status-warn/15 text-status-warn">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-status-warn"></span>Warning
+                                </span>
+                                {% else %}
+                                <span class="{{ pill }} bg-status-bad/10 text-status-bad">
+                                    <span class="h-1.5 w-1.5 rounded-full bg-status-bad"></span>Failed
+                                </span>
+                                {% endif %}
+                                {% endwith %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td class="px-4 py-8 text-center text-slate-300" colspan="5">No activity recorded for this account yet.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Password rule checklist. Client-side hinting only — apps/core/validators.py
+    // is what actually enforces this on save; keep the two in sync.
+    (function () {
+        const list = document.getElementById('pw-rules');
+        if (!list) return;  // not on the Account tab
+
+        const pw1 = document.getElementById('id_new_password1');
+        const pw2 = document.getElementById('id_new_password2');
+
+        const RULES = {
+            length:  v => v.length >= 6,
+            upper:   v => /[A-Z]/.test(v),
+            special: v => /[^A-Za-z0-9]/.test(v),
+            match:   v => v.length > 0 && v === (pw2 ? pw2.value : ''),
+        };
+
+        // Full class strings written out literally — Tailwind purges classes it
+        // can't see as literals, and it does scan inside <script>.
+        const MET_TEXT = 'text-status-good';
+        const UNMET_TEXT = 'text-slate-400';
+        const MET_MARK = 'rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-status-good bg-status-good text-[9px] text-white';
+        const UNMET_MARK = 'rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]';
+
+        function render() {
+            const value = pw1 ? pw1.value : '';
+            list.querySelectorAll('li[data-rule]').forEach(li => {
+                const ok = RULES[li.dataset.rule](value);
+                li.classList.toggle(MET_TEXT, ok);
+                li.classList.toggle(UNMET_TEXT, !ok);
+                const mark = li.querySelector('.rule-mark');
+                mark.className = ok ? MET_MARK : UNMET_MARK;
+                mark.innerHTML = ok ? '<i class="fa fa-check"></i>' : '';
+            });
+        }
+
+        if (pw1) pw1.addEventListener('input', render);
+        if (pw2) pw2.addEventListener('input', render);
+        render();  // reflect any value the browser restored on reload
+    })();
+</script>
+{% endblock %}

@@ -1,5 +1,9 @@
+from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+from django.contrib.auth.forms import PasswordChangeForm
+from django.shortcuts import redirect, render
+from django.urls import reverse
 
 # Static placeholder rows — same directive as the KPI screens: no DB yet. When an
 # audit-log model lands, only this list is replaced; the template already loops.
@@ -45,4 +49,58 @@ def logs(request):
         'entries': _LOG_ENTRIES,
         'modules': _LOG_MODULES,
         'actions': _LOG_ACTIONS,
+    })
+
+
+# Settings tabs. Server-rendered via ?tab= rather than JS/CSS toggling, so the
+# active tab survives a reload and the password POST can land back on its own tab.
+_SETTINGS_TABS = ('profile', 'account', 'activity')
+
+# Shared input styling — applied to the password form's widgets so Django's
+# rendered fields match the hand-written inputs elsewhere in the app.
+_INPUT_CLASSES = (
+    'w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm '
+    'focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20'
+)
+
+
+@login_required
+def account_settings(request):
+    """Account settings: profile details, password change, and own activity.
+
+    Unlike the KPI screens this one is real — the password form is Django's
+    ``PasswordChangeForm`` and actually changes the password. Only the Activity
+    tab is placeholder, since it reads the same static log list as /logs/.
+    """
+    tab = request.GET.get('tab', 'profile')
+    if tab not in _SETTINGS_TABS:
+        tab = 'profile'
+
+    if request.method == 'POST':
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        tab = 'account'  # a failed submit must come back to the form it came from
+        if form.is_valid():
+            form.save()
+            # Changing the password rotates the session hash — without this the
+            # user is logged straight out after a successful change.
+            update_session_auth_hash(request, form.user)
+            messages.success(request, 'Your password has been updated.')
+            return redirect(f"{reverse('core:settings')}?tab=account")
+    else:
+        form = PasswordChangeForm(user=request.user)
+
+    for field in form.fields.values():
+        field.widget.attrs['class'] = _INPUT_CLASSES
+
+    profile = getattr(request.user, 'profile', None)
+    username = request.user.get_username()
+
+    return render(request, 'core/settings.html', {
+        'title': 'Settings',
+        'tab': tab,
+        'form': form,
+        'profile': profile,
+        'teams': profile.teams.all() if profile else [],
+        # This account's slice of the activity log (same static source as /logs/).
+        'my_entries': [e for e in _LOG_ENTRIES if e['user'] == username],
     })

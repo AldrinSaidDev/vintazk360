@@ -129,18 +129,12 @@ DATABASES = {
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
+# House rule only (see apps/core/validators.py): 6+ characters, one uppercase,
+# one special character. Django's four defaults are deliberately not used —
+# their combined help text was long and the rules overlapped this one.
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': 'apps.core.validators.PasswordPolicyValidator',
     },
 ]
 
