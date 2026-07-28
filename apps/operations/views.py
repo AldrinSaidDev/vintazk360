@@ -137,3 +137,36 @@ def kpi_reference(request):
 def import_data(request):
     """Operations — Import Data screen (static mockup for now)."""
     return render(request, 'operations/import_data.html', {'modal_kpis': _MODAL_KPIS})
+
+
+# How each KPI's direction reads on the management screen.
+_DIRECTION_LABEL = {'up': 'Higher is better', 'down': 'Lower is better'}
+
+# Picklists for the edit modal. Derived from the KPI list so a new category or
+# cadence shows up in the dropdowns without touching the template.
+_FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually']
+
+
+@login_required
+@team_required('operations')
+def kpi_management(request):
+    """Operations — KPI Management: edit targets/thresholds, formulas, cadence.
+
+    Static like the rest of the KPI screens: the table and edit modals render
+    from ``_OPERATIONS_KPIS`` and Save is not wired to anything yet. Swapping
+    in a KPI model later means changing this query only.
+    """
+    rows = [
+        {**kpi, 'direction_label': _DIRECTION_LABEL[kpi['direction']]}
+        for kpi in _OPERATIONS_KPIS
+    ]
+    categories = sorted({kpi['category'] for kpi in _OPERATIONS_KPIS})
+
+    return render(request, 'operations/kpi_management.html', {
+        'kpis': rows,
+        'kpi_count': len(rows),
+        'categories': categories,
+        # Union so any cadence already in use is selectable even if it's not
+        # one of the standard five.
+        'frequencies': sorted({*_FREQUENCIES, *(k['frequency'] for k in _OPERATIONS_KPIS)}),
+    })

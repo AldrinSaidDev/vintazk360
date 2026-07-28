@@ -13,6 +13,7 @@ _TEAM_SUBPAGES = [
     ('index', 'Dashboard'),
     ('import_data', 'Import Data'),
     ('kpis', 'KPI Definitions'),
+    ('kpi_management', 'KPI Management'),
 ]
 
 
