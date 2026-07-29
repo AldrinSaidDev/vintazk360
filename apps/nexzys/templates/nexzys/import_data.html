@@ -1,0 +1,436 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Data · Nexzys · Vintazk 360{% endblock %}
+{% block page_title %}Import Data{% endblock %}
+{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">Nexzys</span>{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    {% include "partials/info_banner.html" with text="Import, create, and update Nexzys KPI records. Add individual entries through a form or upload Excel files for bulk import to keep automation, uptime, service, and security metrics accurate and up to date." %}
+
+    {# Stat cards #}
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <span class="flex h-11 w-11 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.75h16.5m-16.5 4.5h16.5M4.5 4.5h15A1.5 1.5 0 0121 6v12a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18V6a1.5 1.5 0 011.5-1.5z"/></svg>
+            </span>
+            <div><p class="font-heading text-2xl font-bold text-ink">0</p><p class="text-xs text-slate-500">Total Records</p></div>
+        </div>
+        <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <span class="flex h-11 w-11 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            </span>
+            <div><p class="font-heading text-2xl font-bold text-ink">0</p><p class="text-xs text-slate-500">Added This Month</p></div>
+        </div>
+        <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <span class="flex h-11 w-11 items-center justify-center rounded-lg bg-blush/30 text-brand-dark">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0V11.25A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>
+            </span>
+            <div><p class="font-heading text-lg font-bold text-ink">July 2026</p><p class="text-xs text-slate-500">Reporting Period</p></div>
+        </div>
+        <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <span class="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </span>
+            <div><p class="font-heading text-lg font-bold text-ink">—</p><p class="text-xs text-slate-500">Last Import</p></div>
+        </div>
+    </div>
+
+    {# KPI Records #}
+    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="font-heading text-base font-bold text-ink">KPI Records</h2>
+
+            <div class="flex flex-wrap items-center gap-2">
+                {# Search #}
+                <div class="relative">
+                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+                    </div>
+                    <input type="search" placeholder="Search"
+                           class="w-40 rounded-lg border border-slate-300 bg-slate-50 py-1.5 pl-9 pr-3 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                </div>
+
+                {# Filter — plain select #}
+                <select class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                    <option>All statuses</option>
+                    <option>On track</option>
+                    <option>Below target</option>
+                    <option>No data</option>
+                </select>
+
+                {# Import (Excel) #}
+                <button type="button"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-green-600 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                    Import
+                </button>
+
+                {# + Add — opens the modal below via the anchor target #}
+                <a href="#addRecordModal"
+                   class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-white hover:bg-brand-dark">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                </a>
+            </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-lg border border-slate-100">
+            <table class="w-full min-w-[720px] text-left text-sm text-slate-600">
+                <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                        <th class="px-4 py-3 font-semibold">Function / System</th>
+                        <th class="px-4 py-3 font-semibold">KPI</th>
+                        <th class="px-4 py-3 font-semibold">Actual</th>
+                        <th class="px-4 py-3 font-semibold">Target</th>
+                        <th class="px-4 py-3 font-semibold">Period</th>
+                        <th class="px-4 py-3 font-semibold">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <tr><td class="px-4 py-8 text-center text-slate-300" colspan="6">No records yet — import an Excel file or add a record to get started.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        {% include "partials/pagination.html" with id="kpi-records" %}
+    </section>
+
+    {# Recent Import History #}
+    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="font-heading text-base font-bold text-ink">Recent Import History</h2>
+            <div class="flex items-center gap-2">
+                <div class="relative">
+                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+                    </div>
+                    <input type="search" placeholder="Search"
+                           class="w-40 rounded-lg border border-slate-300 bg-slate-50 py-1.5 pl-9 pr-3 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                </div>
+                <select class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                    <option>All time</option>
+                    <option>This month</option>
+                    <option>Last month</option>
+                </select>
+            </div>
+        </div>
+        <div class="overflow-x-auto rounded-lg border border-slate-100">
+            <table class="w-full min-w-[640px] text-left text-sm text-slate-600">
+                <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                        <th class="px-4 py-3 font-semibold">File</th>
+                        <th class="px-4 py-3 font-semibold">Function / System</th>
+                        <th class="px-4 py-3 font-semibold">Records</th>
+                        <th class="px-4 py-3 font-semibold">Imported By</th>
+                        <th class="px-4 py-3 font-semibold">Date</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    <tr><td class="px-4 py-8 text-center text-slate-300" colspan="5">No imports yet.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+{# ============ Add Performance Record modal — CSS-only via :target ============ #}
+<div id="addRecordModal"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        {# Branded header #}
+        <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                </span>
+                <div>
+                    <h3 class="font-heading text-lg font-bold leading-tight">Add Performance Record</h3>
+                    <p class="text-xs text-white/70">Enter a KPI's raw figures — we'll calculate the result.</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
+        </div>
+
+        <form id="addRecordForm" class="flex-1 overflow-y-auto p-6">
+            <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+
+                {# ---- Left column: KPI + formula inputs + live calc ---- #}
+                <div class="space-y-4">
+                    <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        <span class="h-px flex-1 bg-slate-100"></span>KPI Information<span class="h-px flex-1 bg-slate-100"></span>
+                    </p>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI</label>
+                        <select id="record-kpi"
+                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                            <option value="">Select KPI…</option>
+                            {% for k in modal_kpis %}
+                            <option value="{{ k.name }}"
+                                    data-kind="{{ k.kind }}"
+                                    data-unit="{{ k.unit }}"
+                                    data-target="{{ k.target }}"
+                                    data-direction="{{ k.direction }}"
+                                    data-target-display="{{ k.target_display }}"
+                                    data-formula="{{ k.formula }}"
+                                    data-a-label="{{ k.a_label }}"
+                                    data-a-ph="{{ k.a_placeholder }}"
+                                    data-b-label="{{ k.b_label }}"
+                                    data-b-ph="{{ k.b_placeholder }}"
+                                    data-suba-label="{{ k.sub_a_label|default:'' }}"
+                                    data-subb-label="{{ k.sub_b_label|default:'' }}">{{ k.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Raw formula inputs — labels/types change per KPI; hidden until one is picked. #}
+                    {# items-end so the inputs line up even when one label wraps to two lines. #}
+                    <div id="record-inputs" class="hidden items-end gap-3 sm:grid-cols-2 [&:not(.hidden)]:grid grid-cols-1">
+                        <div id="record-a-field" class="h-full flex-col [&:not(.hidden)]:flex">
+                            <label id="record-a-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Value</label>
+                            <input type="text" id="record-a" inputmode="decimal"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                        </div>
+                        <div id="record-b-field" class="h-full flex-col [&:not(.hidden)]:flex">
+                            <label id="record-b-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Value</label>
+                            <input type="text" id="record-b" inputmode="decimal"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                        </div>
+                    </div>
+
+                    {# Optional second measure (security training completion) — only shown when the KPI has one. #}
+                    <div id="record-sub" class="hidden items-end gap-3 sm:grid-cols-2 [&:not(.hidden)]:grid grid-cols-1">
+                        <div class="flex h-full flex-col">
+                            <label id="record-suba-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Value</label>
+                            <input type="text" id="record-suba" inputmode="decimal"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                        </div>
+                        <div class="flex h-full flex-col">
+                            <label id="record-subb-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Value</label>
+                            <input type="text" id="record-subb" inputmode="decimal"
+                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                        </div>
+                    </div>
+
+                    {# Calculation preview — formula shows on KPI select; result fills in once the values are entered. #}
+                    <div id="record-calc" class="hidden rounded-xl border border-brand/15 bg-brand/5 p-4">
+                        <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
+                        <p id="record-calc-formula" class="font-mono text-xs leading-relaxed text-brand-dark"></p>
+                        <p id="record-calc-worked" class="mt-2 hidden font-mono text-base font-bold leading-relaxed text-ink"></p>
+                        <p id="record-calc-sub" class="mt-1 hidden font-mono text-xs leading-relaxed text-slate-500"></p>
+                        <div class="mt-3 flex items-center justify-between border-t border-dashed border-brand/15 pt-3">
+                            <span class="text-xs text-slate-500">Target <span id="record-calc-target" class="font-semibold text-ink"></span></span>
+                            <span id="record-calc-status" class="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"></span>
+                            <span id="record-calc-hint" class="text-xs italic text-slate-400">Enter the values…</span>
+                        </div>
+                    </div>
+                </div>
+
+                {# ---- Right column: function + optional meta ---- #}
+                <div class="space-y-4">
+                    <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        <span class="h-px flex-1 bg-slate-100"></span>Details<span class="h-px flex-1 bg-slate-100"></span>
+                    </p>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Function / System</label>
+                        <select class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                            <option value="">Select function…</option>
+                            <option>Automation</option><option>AI Enablement</option><option>Infrastructure</option>
+                            <option>IT Service Desk</option><option>Workstations</option><option>Onboarding</option>
+                            <option>Security</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                        <textarea rows="3" placeholder="Add any context for this record…"
+                                  class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"></textarea>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Attachment <span class="font-normal text-slate-400">(Optional)</span></label>
+                        <label class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 px-3 py-4 text-sm text-slate-400 transition hover:border-brand hover:bg-brand/5 hover:text-brand">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
+                            Click or Paste <input type="file" class="hidden">
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        {# Sticky footer #}
+        <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+            <button type="submit" form="addRecordForm" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                Save Record
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const kpiSel   = document.getElementById('record-kpi');
+        const inputs   = document.getElementById('record-inputs');
+        const aField   = document.getElementById('record-a-field');
+        const bField   = document.getElementById('record-b-field');
+        const aEl      = document.getElementById('record-a');
+        const bEl      = document.getElementById('record-b');
+        const aLabel   = document.getElementById('record-a-label');
+        const bLabel   = document.getElementById('record-b-label');
+        const sub      = document.getElementById('record-sub');
+        const subAEl   = document.getElementById('record-suba');
+        const subBEl   = document.getElementById('record-subb');
+        const subALbl  = document.getElementById('record-suba-label');
+        const subBLbl  = document.getElementById('record-subb-label');
+        const panel    = document.getElementById('record-calc');
+        const fEl      = document.getElementById('record-calc-formula');
+        const workedEl = document.getElementById('record-calc-worked');
+        const subLine  = document.getElementById('record-calc-sub');
+        const tEl      = document.getElementById('record-calc-target');
+        const sEl      = document.getElementById('record-calc-status');
+        const hintEl   = document.getElementById('record-calc-hint');
+        if (!kpiSel || !inputs || !panel) return;
+
+        // Status → pill classes (mirror the dashboard's semantic status colors).
+        const STATUS = {
+            on_track: { label: 'On Track',     cls: 'bg-status-good/10 text-status-good' },
+            at_risk:  { label: 'At Risk',      cls: 'bg-status-warn/15 text-status-warn' },
+            below:    { label: 'Below Target', cls: 'bg-status-bad/10 text-status-bad' },
+        };
+
+        const DAY_MS = 86400000;
+
+        // Trim trailing zeros so "3.50" reads as "3.5".
+        const fmt = n => Number(n.toFixed(2)).toString();
+        const num = el => {
+            const v = parseFloat((el.value || '').replace(/[^0-9.\-]/g, ''));
+            return isNaN(v) ? null : v;
+        };
+        const date = el => {
+            const t = Date.parse(el.value);  // yyyy-mm-dd parses as UTC midnight
+            return isNaN(t) ? null : t;
+        };
+
+        // Nexzys KPIs come in several formula shapes — each `kind` computes the
+        // KPI value differently and words the worked line to match.
+        function evaluate(kind, unit) {
+            if (kind === 'days') {
+                const ready = date(aEl), zero = date(bEl);
+                if (ready === null || zero === null) return null;
+                const value = Math.round((ready - zero) / DAY_MS);
+                return { value: value, worked: `${aEl.value} − ${bEl.value} = ${value} day${value === 1 ? '' : 's'}` };
+            }
+
+            const a = num(aEl);
+            if (a === null) return null;
+
+            if (kind === 'count') {
+                return { value: a, worked: `${fmt(a)} major incident${a === 1 ? '' : 's'} this period` };
+            }
+
+            const b = num(bEl);
+            if (b === null) return null;
+
+            if (kind === 'difference') {
+                const value = a - b;
+                return { value: value, worked: `${fmt(a)} − ${fmt(b)} = ${fmt(value)} ${unit} saved` };
+            }
+            if (b === 0) return null;  // divisor KPIs need a non-zero denominator
+            if (kind === 'ratio') {
+                const value = a / b;
+                return { value: value, worked: `${fmt(a)} ÷ ${fmt(b)} = ${fmt(value)}${unit}` };
+            }
+            // percent
+            const value = a / b * 100;
+            return { value: value, worked: `${fmt(a)} ÷ ${fmt(b)} × 100 = ${fmt(value)}${unit}` };
+        }
+
+        // Direction-aware attainment vs target (matches the dashboard math).
+        function attainment(value, target, direction) {
+            if (direction === 'down') {
+                if (target === 0) return value === 0 ? 100 : 0;  // zero-tolerance KPI
+                if (value <= 0) return 100;                      // nothing beats none
+                return target / value * 100;
+            }
+            return target ? value / target * 100 : 0;
+        }
+
+        function render() {
+            const opt = kpiSel.selectedOptions[0];
+
+            // No KPI chosen → hide inputs + panel.
+            if (!opt || !opt.value) {
+                inputs.classList.add('hidden');
+                sub.classList.add('hidden');
+                panel.classList.add('hidden');
+                return;
+            }
+
+            const kind = opt.dataset.kind;
+
+            // Relabel/retype the inputs to this KPI's formula parts, reveal them.
+            aLabel.textContent = opt.dataset.aLabel;
+            bLabel.textContent = opt.dataset.bLabel;
+            aEl.placeholder = opt.dataset.aPh;
+            bEl.placeholder = opt.dataset.bPh;
+            aEl.type = bEl.type = kind === 'days' ? 'date' : 'text';
+            // A count KPI has no second figure — drop the field entirely.
+            bField.classList.toggle('hidden', kind === 'count');
+            aField.classList.remove('hidden');
+            inputs.classList.remove('hidden');
+
+            // Optional second measure (e.g. security-training completion).
+            const hasSub = !!opt.dataset.subaLabel;
+            sub.classList.toggle('hidden', !hasSub);
+            if (hasSub) {
+                subALbl.textContent = opt.dataset.subaLabel;
+                subBLbl.textContent = opt.dataset.subbLabel;
+            }
+
+            const target     = parseFloat(opt.dataset.target);
+            const direction  = opt.dataset.direction;
+
+            // Panel visible with the generic formula + target as soon as a KPI is picked.
+            panel.classList.remove('hidden');
+            fEl.textContent = opt.dataset.formula;
+            tEl.textContent = opt.dataset.targetDisplay;
+
+            // Second measure reads independently of the main formula.
+            const subA = num(subAEl), subB = num(subBEl);
+            if (hasSub && subA !== null && subB) {
+                const pct = subA / subB * 100;
+                subLine.textContent = `Training completion: ${fmt(subA)} ÷ ${fmt(subB)} × 100 = ${fmt(pct)}% (target 100%)`;
+                subLine.classList.remove('hidden');
+            } else {
+                subLine.classList.add('hidden');
+            }
+
+            const result = evaluate(kind, opt.dataset.unit);
+            if (!result) {
+                workedEl.classList.add('hidden');
+                sEl.classList.add('hidden'); sEl.classList.remove('inline-flex');
+                hintEl.classList.remove('hidden');
+                return;
+            }
+
+            const pct = attainment(result.value, target, direction);
+            const key = pct >= 100 ? 'on_track' : (pct >= 90 ? 'at_risk' : 'below');
+            const s = STATUS[key];
+
+            workedEl.textContent = result.worked;
+            workedEl.classList.remove('hidden');
+            hintEl.classList.add('hidden');
+            sEl.textContent = s.label;
+            sEl.className = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ' + s.cls;
+        }
+
+        kpiSel.addEventListener('change', render);
+        [aEl, bEl, subAEl, subBEl].forEach(el => el.addEventListener('input', render));
+    })();
+</script>
+{% endblock %}

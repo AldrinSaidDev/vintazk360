@@ -52,7 +52,7 @@ This file loads every session — keep it accurate.
 - Enforced in TWO places: the sidebar (context processor `apps/core/context_processors.navigation` → `nav_teams`) shows only accessible teams; each LOB view is guarded `@login_required` + `@team_required('<slug>')` (403 otherwise). Profiles auto-created via a `post_save` signal.
 
 ## Sidebar navigation (BUILT)
-- Each accessible team renders as a **collapsible dropdown** (native `<details>`) of its sub-pages; a team with only one page renders as a plain link. Sub-links are data-driven: the context processor includes a page only if its URL resolves (`<slug>:index` / `:import_data` / `:kpis`), so new per-team pages appear automatically. Operations = Dashboard / Import Data / KPI Definitions; other teams = Dashboard only.
+- Each accessible team renders as a **collapsible dropdown** (native `<details>`) of its sub-pages; a team with only one page renders as a plain link. Sub-links are data-driven: the context processor includes a page only if its URL resolves (`<slug>:index` / `:import_data` / `:kpis` / `:kpi_management`), so new per-team pages appear automatically. Operations and Nexzys = Dashboard / Import Data / KPI Definitions / KPI Management; other teams = Dashboard only.
 
 ## Domain model — LINES OF BUSINESS (LOBs)
 Each LOB = its own app under `apps/`, each a login-protected screen:
@@ -73,12 +73,19 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - **Operations is the reference implementation.** Its pages (all data-driven from `_OPERATIONS_KPIS` in `apps/operations/views.py`, still static placeholder data): **Dashboard** (`:index`) = summary tiles + Actual-vs-Target bar chart + KPI cards grid; **Import Data** (`:import_data`) = stat cards, KPI Records table, Recent Import History, and an **Add Performance Record modal**; **KPI Definitions** (`:kpis`) = data-driven definition cards (name/category/description/Target/Frequency/"How it's calculated" formula).
 - **Add Performance Record modal** (Import Data): pick a KPI → two inputs relabel to that KPI's formula parts (numerator/denominator) → live "How it's calculated" panel computes `num ÷ den × 100`, then direction-aware attainment vs target + status pill. All client-side JS, no persistence yet (Save is a mockup).
 - **Attainment math** (shared by dashboard + modal): `up` KPIs = actual/target×100; `down` KPIs (e.g. Attrition threshold) = target/actual×100. Status: ≥100 on-track, 90–99 at-risk, <100 (else) below.
+### Nexzys specifics
+- **Nexzys = the internal technology / automation LOB.** Full four-page set built the same way as Operations (data-driven from `_NEXZYS_KPIS` in `apps/nexzys/views.py`, static placeholder values): **Dashboard** (`:index`), **Import Data** (`:import_data`), **KPI Definitions** (`:kpis`, also shows a "Data needed" chip list per KPI), **KPI Management** (`:kpi_management`).
+- 8 KPIs: Automation Hours Saved, Automation ROI, System Uptime, IT SLA Compliance, New-Hire Provisioning, Workstation Readiness, AI Copilot Adoption, Security Incidents. Categories: Automation & AI / Infrastructure / Service Delivery / Security.
+- **Not every Nexzys KPI is a percentage** — unlike Operations. Each modal KPI declares a `kind` that drives the Add-Record math and wording: `percent` (a÷b×100), `ratio` (a÷b, e.g. "3.4×"), `difference` (a−b hours saved), `days` (two date inputs, ready date − day 0), `count` (single input, major incidents). Security Incidents also carries an optional second pair for training-completion %.
+- **Attainment edge cases handled in `apps/nexzys/views.py`:** zero-target KPIs (Security Incidents) are hit/miss, and attainment is bucketed on the *unrounded* value (`_shown()` keeps a 99.96%-vs-99.99% uptime miss from rounding up to "On Track"). Operations' copy of this math still rounds before bucketing.
+- **Nexzys has no North Star metric yet** — the dashboard/definitions banner carries a descriptive line instead.
+
 - **Site Lead** now has a data-driven KPI Definitions page (matches Operations' definitions layout; 8 KPIs in `apps/sitelead/views.py`) but no dashboard/import pages yet — still otherwise deferred.
 
 ## Current state / directives
 - **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.
 - **DB models that ARE built:** `core.Team` + `core.UserProfile` (access control) — these are real, migrated, admin-managed. Only KPI *values/definitions* remain static.
-- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; per-team dashboards beyond Operations; the Employee-ID → external-API auth wiring.
+- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; per-team dashboards beyond Operations and Nexzys; the Employee-ID → external-API auth wiring.
 - **Ask before committing** — confirm scope with the user.
 
 ## Detailed memory
