@@ -53,6 +53,7 @@ This file loads every session — keep it accurate.
 
 ## Sidebar navigation (BUILT)
 - Each accessible team renders as a **collapsible dropdown** (native `<details>`) of its sub-pages; a team with only one page renders as a plain link. Sub-links are data-driven: the context processor includes a page only if its URL resolves (`<slug>:index` / `:import_data` / `:kpis` / `:kpi_management`), so new per-team pages appear automatically. Operations and Nexzys = Dashboard / Import Data / KPI Definitions / KPI Management; other teams = Dashboard only.
+- **Teams can split into branches** (sub-teams) — the dropdown then nests one level deeper. Convention: the LOB app exposes `NAV_BRANCHES = [(slug, name), …]` from `apps/<slug>/branches.py`, and its URLs provide `branch_index` / `branch_import_data` / `branch_kpis` / `branch_kpi_management` taking the branch slug. The context processor discovers this by import — no registry in `core` to keep in sync. A branch team's own `:index` link is relabelled **Overview** so it doesn't read as a sibling of each branch's Dashboard. Sales is the only branch team today.
 
 ## Domain model — LINES OF BUSINESS (LOBs)
 Each LOB = its own app under `apps/`, each a login-protected screen:
@@ -80,12 +81,20 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - **Attainment edge cases handled in `apps/nexzys/views.py`:** zero-target KPIs (Security Incidents) are hit/miss, and attainment is bucketed on the *unrounded* value (`_shown()` keeps a 99.96%-vs-99.99% uptime miss from rounding up to "On Track"). Operations' copy of this math still rounds before bucketing.
 - **Nexzys has no North Star metric yet** — the dashboard/definitions banner carries a descriptive line instead.
 
+### Sales specifics
+- **Sales is the first LOB that splits into branches:** `seo` (SEO & Google Ads), `leadgen` (Lead Generation), `transitions` (Transitions Team). All KPI data lives in `apps/sales/branches.py`; `apps/sales/views.py` holds the math and five views. URLs: `/sales/` (overview) + `/sales/<branch>/{,kpis/,import/,manage/}`.
+- **Four templates serve all three branches** (`sales/dashboard|kpi_definitions|import_data|kpi_management.html`), driven by the `branch` context var — adding a fourth branch means one entry in `BRANCHES`, no new templates. `/sales/` renders `overview.html`: one card per branch with its status split and links into its four pages.
+- **Sales targets are RANGES, not single numbers** ("40–80/month"). `_attainment()` in `apps/sales/views.py` scores a band: inside the band = 100%; outside it, measured against the edge that was missed, direction-aware. CPL is the one `down` KPI (band ₱750–₱1,500 — a reduction journey, not a ceiling).
+- **Some Sales KPIs have no target** (`target_min`/`target_max` = None): the derived rates, plus anything the business hasn't numbered yet. These get a fourth status, `monitored` ("No Target") — neutral slate, no progress bar, excluded from the chart and from the on-track/at-risk/below tallies. Any LOB with derived KPIs will need this.
+- Modal `kind`s here: `count` (single tally — most Sales KPIs), `percent`, `cost` (a÷b shown as ₱).
+- **Two data judgement calls, both flagged to the user:** "New Logos / Headcount" was split into two KPIs (Lead Gen 9–44 HC, Referral 4–18 HC) because the source row carried two bands; and CTR is `monitored` because the presentation's target is a click volume (500–1,000) while the formula is a percentage.
+
 - **Site Lead** now has a data-driven KPI Definitions page (matches Operations' definitions layout; 8 KPIs in `apps/sitelead/views.py`) but no dashboard/import pages yet — still otherwise deferred.
 
 ## Current state / directives
 - **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.
 - **DB models that ARE built:** `core.Team` + `core.UserProfile` (access control) — these are real, migrated, admin-managed. Only KPI *values/definitions* remain static.
-- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; per-team dashboards beyond Operations and Nexzys; the Employee-ID → external-API auth wiring.
+- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; per-team dashboards beyond Operations, Nexzys and the three Sales branches; the Employee-ID → external-API auth wiring.
 - **Ask before committing** — confirm scope with the user.
 
 ## Detailed memory

@@ -1,12 +1,14 @@
 """Template context processors for the shared shell (base.html)."""
+from importlib import import_module
+
 from django.urls import NoReverseMatch, reverse
 
 from .access import accessible_teams
 
 # Per-team sub-navigation. Each team's dropdown shows a Dashboard link plus any
-# of these extra pages whose URL actually resolves for that team's app. Only
-# Operations has Import / KPI Definitions pages built today; other teams simply
-# fall back to Dashboard-only because their reverse() lookups fail here.
+# of these extra pages whose URL actually resolves for that team's app. Teams
+# without those pages built simply fall back to Dashboard-only because their
+# reverse() lookups fail here.
 #
 # (url_name, label) — resolved against the team's slug as the URL namespace.
 _TEAM_SUBPAGES = [
@@ -16,27 +18,82 @@ _TEAM_SUBPAGES = [
     ('kpi_management', 'KPI Management'),
 ]
 
+# The same four screens, for teams that split into sub-teams ("branches" — see
+# apps/sales/branches.py). These URLs take the branch slug as an argument.
+_BRANCH_SUBPAGES = [
+    ('branch_index', 'Dashboard'),
+    ('branch_import_data', 'Import Data'),
+    ('branch_kpis', 'KPI Definitions'),
+    ('branch_kpi_management', 'KPI Management'),
+]
 
-def _team_nav(team):
-    """Build a team's dropdown: name + the sub-links that actually resolve."""
+
+def _branches_of(team_slug):
+    """A team's sub-teams as ``[(slug, name), …]``, or [] if it has none.
+
+    Convention: an LOB app that splits into branches exposes ``NAV_BRANCHES``
+    from ``apps/<slug>/branches.py``. Anything else is a flat team.
+    """
+    try:
+        module = import_module(f'apps.{team_slug}.branches')
+    except ModuleNotFoundError:
+        return []
+    return getattr(module, 'NAV_BRANCHES', [])
+
+
+def _links(namespace, subpages, args=()):
+    """Reverse each (url_name, label), skipping the pages that aren't built."""
     links = []
-    for url_name, label in _TEAM_SUBPAGES:
+    for url_name, label in subpages:
         try:
-            url = reverse(f'{team.slug}:{url_name}')
+            url = reverse(f'{namespace}:{url_name}', args=args)
         except NoReverseMatch:
             continue  # that page isn't built for this team yet — skip it
         links.append({'label': label, 'url': url})
-    return {'name': team.name, 'slug': team.slug, 'links': links}
+    return links
+
+
+def _team_nav(team, path):
+    """Build a team's dropdown: its own links plus any branch sub-dropdowns."""
+    links = _links(team.slug, _TEAM_SUBPAGES)
+
+    branches = []
+    for slug, name in _branches_of(team.slug):
+        branch_links = _links(team.slug, _BRANCH_SUBPAGES, args=(slug,))
+        if not branch_links:
+            continue
+        branches.append({
+            'name': name,
+            'slug': slug,
+            'links': branch_links,
+            'active': any(link['url'] == path for link in branch_links),
+        })
+
+    # With branches, the team-level page is a rollup — say so, so it doesn't
+    # read as a sibling of each branch's own Dashboard.
+    if branches and links and links[0]['label'] == 'Dashboard':
+        links[0] = {**links[0], 'label': 'Overview'}
+
+    return {
+        'name': team.name,
+        'slug': team.slug,
+        'links': links,
+        'branches': branches,
+        'active': any(link['url'] == path for link in links)
+                  or any(branch['active'] for branch in branches),
+    }
 
 
 def navigation(request):
     """Expose the LOB teams (with sub-links) the current user may see.
 
-    ``nav_teams`` is a list of dicts: ``{name, slug, links: [{label, url}]}``.
-    The sidebar renders each as a collapsible dropdown. The shared Dashboard
-    link is rendered unconditionally in the template.
+    ``nav_teams`` is a list of dicts:
+    ``{name, slug, active, links: [{label, url}], branches: [{name, slug, active, links}]}``.
+    The sidebar renders each as a collapsible dropdown — branches nest one level
+    deeper. The shared Dashboard link is rendered unconditionally in the template.
     """
     user = getattr(request, 'user', None)
     if user is None or not user.is_authenticated:
         return {'nav_teams': []}
-    return {'nav_teams': [_team_nav(t) for t in accessible_teams(user)]}
+    path = request.path
+    return {'nav_teams': [_team_nav(t, path) for t in accessible_teams(user)]}
