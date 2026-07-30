@@ -115,6 +115,8 @@ FUNCTIONS = [
 ]
 
 SCOPE = {
+    'north_star': 'Cash runway — always ≥3 months of full payroll, at every headcount level.',
+    'icons': ['money', 'line-chart', 'calculator'],
     'title': 'Finance',
     'badge': 'Finance',
     'blurb': 'Payroll accuracy and timeliness, cash in and out, budget discipline, and how reliably the numbers get reported.',

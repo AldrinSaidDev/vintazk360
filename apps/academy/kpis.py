@@ -89,6 +89,11 @@ PROGRAMS = [
 ]
 
 SCOPE = {
+    # Reserved: the Academy North Star is still being defined.
+    'north_star': 'To be defined',
+    'north_star_pending': True,
+    'lead_shift': 'far',  # sits further off the right edge
+    'icons': ['graduation-cap', 'book', 'certificate'],
     'title': 'VINTAZK Academy',
     'badge': 'Academy',
     'blurb': 'Trainees through the program, how well they perform after it, and how fast they get to production standard.',

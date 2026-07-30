@@ -144,6 +144,9 @@ MODAL_SPECS = [
 ]
 
 SCOPE = {
+    'north_star': 'Client SLA attainment — ≥95% across all accounts, at every stage of the ramp.',
+    'lead_size': 'sm',   # dense glyph — dial it down
+    'icons': ['building', 'users', 'map-marker'],
     'title': 'Site Lead',
     'badge': 'Site Lead',
     'blurb': 'Site-level ownership: revenue and margin, client satisfaction, the workforce, and whether commitments '

@@ -3,6 +3,9 @@ from django.shortcuts import render
 
 from apps.core.access import team_required
 
+# Glyph cluster behind the banner header (FA4 names, largest first).
+BANNER_ICONS = ['cogs', 'tasks', 'line-chart']
+
 
 # --- PLACEHOLDER DATA -------------------------------------------------------
 # Sample Operations KPIs with fake "actual" numbers so the scorecard + chart
@@ -105,6 +108,7 @@ def index(request):
     """Operations — team dashboard (KPI scorecard: actual vs target + status)."""
     kpis = _operations_kpis()
     context = {
+        'banner_icons': BANNER_ICONS,
         'kpis': kpis,
         'on_track_count': sum(1 for k in kpis if k['status'] == 'on_track'),
         'below_count': sum(1 for k in kpis if k['status'] == 'below'),
@@ -125,6 +129,7 @@ def index(request):
 def kpi_reference(request):
     """Operations — KPI definitions reference (North Star + formulas/targets)."""
     context = {
+        'banner_icons': BANNER_ICONS,
         'lob_name': 'Operations',
         'kpis': _OPERATIONS_KPIS,
         'kpi_count': len(_OPERATIONS_KPIS),

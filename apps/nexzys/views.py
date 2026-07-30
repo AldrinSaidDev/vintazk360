@@ -3,6 +3,9 @@ from django.shortcuts import render
 
 from apps.core.access import team_required
 
+# Glyph cluster behind the banner header (FA4 names, largest first).
+BANNER_ICONS = ['code', 'microchip', 'laptop']
+
 
 # --- PLACEHOLDER DATA -------------------------------------------------------
 # Nexzys (internal technology / automation) KPIs with fake "actual" numbers so
@@ -192,6 +195,7 @@ def index(request):
     """Nexzys — team dashboard (KPI scorecard: actual vs target + status)."""
     kpis = _nexzys_kpis()
     context = {
+        'banner_icons': BANNER_ICONS,
         'kpis': kpis,
         'on_track_count': sum(1 for k in kpis if k['status'] == 'on_track'),
         'below_count': sum(1 for k in kpis if k['status'] == 'below'),
@@ -212,6 +216,7 @@ def index(request):
 def kpi_reference(request):
     """Nexzys — KPI definitions reference (targets, cadence, formulas, inputs)."""
     context = {
+        'banner_icons': BANNER_ICONS,
         'lob_name': 'Nexzys',
         'kpis': _NEXZYS_KPIS,
         'kpi_count': len(_NEXZYS_KPIS),

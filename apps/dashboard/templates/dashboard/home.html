@@ -5,9 +5,13 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-5xl space-y-6">
+{# Extra side gutters on top of <main>'s own padding — this page is full-width #}
+{# (no max-w cap), so its panels would otherwise sit right on the edges. #}
+<div class="space-y-6 sm:px-4 lg:px-8">
 
-    {% include "partials/info_banner.html" with text="This dashboard provides a real-time overview of key performance indicators (KPIs). Use the filters to view metrics by Line of Business (LOB), department, or reporting period." %}
+    {% include "partials/welcome_header.html" with name=display_name today=today %}
+
+    {% include "partials/info_banner.html" with text="The shared, organization-wide view — everyone lands here after signing in, from agents to site leadership. It rolls every Line of Business up into a single Overall Goal for the current reporting period, so you can see where the company stands at a glance. Use the global filters to narrow it down, or open a team from the sidebar for its own KPI scorecard." %}
 
     {# Overall Goal #}
     <section class="rounded-xl bg-white p-6 shadow-sm">

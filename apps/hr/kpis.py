@@ -105,12 +105,15 @@ MODAL_SPECS = [
 
 # Which part of the org a record belongs to.
 DEPARTMENTS = [
-    'Operations', 'Site Lead', 'Sales', 'HR', 'VINTAZK Academy', 'Finance',
+    'Operations', 'Site Lead', 'Sales', 'Human Resources', 'VINTAZK Academy', 'Finance',
     'Visual and Content Team', 'Social Media Management', 'Content Writing', 'Nexzys',
 ]
 
 SCOPE = {
-    'title': 'HR',
-    'badge': 'HR',
+    'north_star': 'Net Headcount vs Plan – Maintain at least 95% of planned monthly headcount.',
+    'lead_size': 'sm',   # dense glyph — dial it down
+    'icons': ['users', 'user-plus', 'id-card-o'],
+    'title': 'Human Resources',
+    'badge': 'Human Resources',
     'blurb': 'Headcount against plan, hiring speed and quality, retention, and how the workforce feels about working here.',
 }

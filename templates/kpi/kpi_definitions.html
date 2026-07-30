@@ -10,20 +10,7 @@
 {% block content %}
 <div class="space-y-6">
 
-    {# Header — scope context + how many KPIs it defines #}
-    <div class="overflow-hidden rounded-2xl bg-gradient-to-br from-brand via-brand-light to-accent px-6 py-6 text-white shadow-sm sm:px-8">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/70">{{ scope.badge }}</p>
-                <h2 class="mt-1 font-heading text-2xl font-black leading-tight tracking-tight sm:text-3xl">{{ scope.title }}</h2>
-                <p class="mt-1 max-w-2xl text-sm text-white/80">The metrics below define how this team measures success — each with its target, cadence, formula, and the raw data it needs.</p>
-            </div>
-            <div class="shrink-0 rounded-xl bg-white/10 px-5 py-3 text-center backdrop-blur-sm">
-                <p class="font-heading text-3xl font-black">{{ kpi_count }}</p>
-                <p class="text-xs font-medium uppercase tracking-wide text-white/70">KPIs tracked</p>
-            </div>
-        </div>
-    </div>
+    {% include "partials/lob_banner.html" with department=scope.title north_star=scope.north_star north_star_pending=scope.north_star_pending blurb=scope.blurb icons=scope.icons lead_size=scope.lead_size lead_shift=scope.lead_shift count=kpi_count %}
 
     {# KPI definition cards — one per KPI, driven by view data #}
     <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">

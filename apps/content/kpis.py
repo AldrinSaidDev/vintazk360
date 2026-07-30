@@ -66,6 +66,8 @@ MODAL_SPECS = [
 CHANNELS = ['Website / Blog', 'Facebook', 'Instagram', 'LinkedIn', 'Email', 'Sales Collateral']
 
 SCOPE = {
+    'north_star': 'Qualified client opportunities generated through content and social media per month',
+    'icons': ['pencil-square-o', 'file-text-o', 'quote-right'],
     'title': 'Content Writing',
     'badge': 'Content',
     'blurb': 'Content engagement, sales-enablement delivery, and leads generated from content campaigns.',

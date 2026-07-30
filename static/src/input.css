@@ -7,6 +7,44 @@
     display: flex;
 }
 
+/* LOB banner texture — fine dust/grain over a soft corner glow.
+   The grain is an inline SVG: fractal-noise turbulence desaturated to grey and
+   laid over the gradient at low opacity, tiling seamlessly (stitchTiles). It
+   gives the banner a surface without drawing any shapes of its own.
+   STATIC ON PURPOSE: no animation (see the anti-slop guidelines). */
+.lob-banner-texture {
+    background-image:
+        radial-gradient(120% 140% at 100% 0%, rgba(255, 255, 255, 0.15) 0%, transparent 55%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='d' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23d)' opacity='0.5'/%3E%3C/svg%3E");
+    background-size: 100% 100%, 200px 200px;
+    background-repeat: no-repeat, repeat;
+    /* Soft-light lets the grain sit in the gradient rather than on top of it. */
+    mix-blend-mode: soft-light;
+    opacity: 0.9;
+}
+
+/* Sidebar sparkle — the login screen's North Star, carried into the shell as a
+   four-point sparkle next to the logo. It sits on the dark sidebar, so the glow
+   is white/blush like the login sky. It's an SVG, so the glow is drop-shadow
+   rather than text-shadow. Deliberately at rest for most of the cycle with one
+   short glint, so it reads as a brand mark rather than something continuously
+   moving in the corner of the eye. */
+.twinkle-star {
+    display: inline-block;
+    animation: star-twinkle 5s ease-in-out infinite;
+}
+/* The glint turns a full 90° — a four-point star is symmetric at 90°, so the
+   loop lands exactly where it started and never visibly snaps back. */
+@keyframes star-twinkle {
+    0%, 72% { opacity: 0.65; transform: scale(1) rotate(0deg);     filter: none; }
+    82%     { opacity: 1;    transform: scale(1.3) rotate(45deg);  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 14px rgba(223, 173, 182, 0.7)); }
+    91%     { opacity: 0.85; transform: scale(1.05) rotate(72deg); filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.4)); }
+    100%    { opacity: 0.65; transform: scale(1) rotate(90deg);    filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .twinkle-star { animation: none; }
+}
+
 /* Sidebar nav scroller. The nav is the only scrolling part of the sidebar (the
    logo and Log Out sit outside it), so with several team dropdowns open the list
    scrolls instead of running off the bottom of the screen. Thin, muted bar so it

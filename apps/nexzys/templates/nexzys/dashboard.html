@@ -2,20 +2,13 @@
 {% load static %}
 
 {% block title %}Nexzys Dashboard · Vintazk 360{% endblock %}
-{% block page_title %}Nexzys Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 {% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">Nexzys</span>{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
-    {# Header banner — department mandate (North Star metric TBC) #}
-    <div class="overflow-hidden rounded-2xl bg-gradient-to-br from-brand via-brand-light to-accent p-6 text-white shadow-sm sm:p-8">
-        <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/70">Nexzys Intelligence</p>
-        <h2 class="mt-1 font-heading text-3xl font-black leading-tight tracking-tight sm:text-4xl">
-            Automation, Uptime &amp; Secure Enablement
-        </h2>
-        <p class="mt-1 text-sm text-white/80">Systems that stay available, work that runs itself, people set up on day one.</p>
-    </div>
+    {% include "partials/lob_banner.html" with department="Nexzys" north_star="Productive hours returned through automation and AI — ramp to 1,000 hours per month by July 2027." blurb="Systems that stay available, work that runs itself, people set up on day one." icons=banner_icons %}
 
     {# Summary tiles #}
     <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -69,6 +69,8 @@ MODAL_SPECS = [
 CHANNELS = ['Facebook', 'Instagram', 'LinkedIn', 'TikTok', 'YouTube', 'Website / Blog', 'Email']
 
 SCOPE = {
+    'north_star': 'Qualified client opportunities generated through content and social media per month',
+    'icons': ['paint-brush', 'picture-o', 'magic'],
     'title': 'Visual and Content Team',
     'badge': 'Visual and Content Team',
     'blurb': 'Creative quality and turnaround, employer brand perception, and campaign-driven leads.',

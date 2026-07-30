@@ -5,18 +5,13 @@
 {# counts, and chart_data — see apps/core/kpi.dashboard_context(). #}
 
 {% block title %}{{ scope.title }} Dashboard · Vintazk 360{% endblock %}
-{% block page_title %}{{ scope.title }} Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 {% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
-    {# Header banner #}
-    <div class="overflow-hidden rounded-2xl bg-gradient-to-br from-brand via-brand-light to-accent p-6 text-white shadow-sm sm:p-8">
-        <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/70">{{ scope.badge }}</p>
-        <h2 class="mt-1 font-heading text-3xl font-black leading-tight tracking-tight sm:text-4xl">{{ scope.title }}</h2>
-        <p class="mt-1 max-w-2xl text-sm text-white/80">{{ scope.blurb }}</p>
-    </div>
+    {% include "partials/lob_banner.html" with department=scope.title north_star=scope.north_star north_star_pending=scope.north_star_pending blurb=scope.blurb icons=scope.icons lead_size=scope.lead_size lead_shift=scope.lead_shift %}
 
     {# Summary tiles #}
     <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">

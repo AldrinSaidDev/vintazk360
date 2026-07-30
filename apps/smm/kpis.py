@@ -49,6 +49,8 @@ MODAL_SPECS = [
 CHANNELS = ['Facebook', 'Instagram', 'LinkedIn', 'TikTok', 'YouTube', 'X / Twitter', 'Messenger']
 
 SCOPE = {
+    'north_star': 'Qualified client opportunities generated through content and social media per month',
+    'icons': ['share-alt', 'comments-o', 'thumbs-o-up'],
     'title': 'Social Media Management',
     'badge': 'SMM',
     'blurb': 'Applicant and client lead capture from social, plus how fast the community gets a response.',

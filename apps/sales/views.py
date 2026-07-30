@@ -6,6 +6,9 @@ from apps.core.access import team_required
 
 from .branches import BRANCHES, get_branch, modal_kpis
 
+# Glyph cluster behind the banner header (FA4 names, largest first).
+BANNER_ICONS = ['line-chart', 'bullhorn', 'handshake-o']
+
 # Sales KPI values are still static placeholders (see branches.py) — these
 # helpers turn that data into scorecard rows. Swapping in a KPI model later
 # means changing where `branch['kpis']` comes from, nothing else.
@@ -118,6 +121,7 @@ def branch_index(request, branch):
     branch = _resolve(branch)
     rows = _scorecard(branch)
     context = {
+        'banner_icons': BANNER_ICONS,
         'branch': branch,
         'kpis': rows,
         **_counts(rows),
@@ -138,6 +142,7 @@ def branch_kpis(request, branch):
     """Sales branch — KPI definitions reference (targets, cadence, formulas)."""
     branch = _resolve(branch)
     return render(request, 'sales/kpi_definitions.html', {
+        'banner_icons': BANNER_ICONS,
         'branch': branch,
         'kpis': branch['kpis'],
         'kpi_count': len(branch['kpis']),
