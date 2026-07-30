@@ -113,12 +113,16 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - `apps/finance/kpis.py`, 9 KPIs on the shared kit. Categories: Payroll / Receivables / Payables / Controls / Planning.
 - Finance is what forced the four extra modal kinds: `net_percent` (payroll + invoice accuracy), `scaled` (DSO's three inputs), `variance` (budget variance), `accuracy` (cash-flow forecast).
 
-- **Site Lead** now has a data-driven KPI Definitions page (matches Operations' definitions layout; 8 KPIs in `apps/sitelead/views.py`) but no dashboard/import pages yet — still otherwise deferred.
+### Site Lead specifics
+- All four screens on the shared kit, **12 KPIs** in `apps/sitelead/kpis.py`. Categories: Financial / Client / People / Operational / Governance. This replaced an earlier 8-KPI definitions-only page whose KPI set the business superseded.
+- **Half the targets have no number.** Six are stated as "≥ Company Target" / "≥ Target Margin" / "Meet/Exceed Budget" / "Positive" (EBITDA Margin, NPS, Employee Engagement, Attrition, Operational Efficiency, Profitability) → `target: None`, so they show "No Target" and sit out the scoring. Filling in a number is the only change needed to start scoring them.
+- **No `dimensions` list** — records are per site and the site names haven't been supplied, so the Function/Team dropdown and its table column are simply omitted (`import_context` handles an empty list).
+- Its Attrition Rate deliberately has no ceiling while HR's is scored at ≤4.0% — same metric, two owners, only one target given.
 
 ## Current state / directives
 - **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.
 - **DB models that ARE built:** `core.Team` + `core.UserProfile` (access control) — these are real, migrated, admin-managed. Only KPI *values/definitions* remain static.
-- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; Site Lead's dashboard/import/management screens (it has KPI Definitions only — every other LOB now has all four); the Employee-ID → external-API auth wiring.
+- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; the Employee-ID → external-API auth wiring. **Every LOB now has all four KPI screens.**
 - **Ask before committing** — confirm scope with the user.
 
 ## Detailed memory

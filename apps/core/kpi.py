@@ -79,10 +79,12 @@ def attainment(kpi):
 
     if not actual:
         return 0.0
+    # A zero end on a higher-is-better KPI can't be divided into — treat any
+    # value past it as met rather than blowing up.
     if actual < low:
-        return actual / low * 100
+        return 0.0 if low == 0 else actual / low * 100
     if actual > high:
-        return actual / high * 100    # over the band still beats target
+        return 100.0 if high == 0 else actual / high * 100  # over the band still beats target
     return 100.0
 
 
