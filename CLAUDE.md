@@ -53,7 +53,7 @@ This file loads every session — keep it accurate.
 
 ## Sidebar navigation (BUILT)
 - Each accessible team renders as a **collapsible dropdown** (native `<details>`) of its sub-pages; a team with only one page renders as a plain link. Sub-links are data-driven: the context processor includes a page only if its URL resolves (`<slug>:index` / `:import_data` / `:kpis` / `:kpi_management`), so new per-team pages appear automatically. Operations and Nexzys = Dashboard / Import Data / KPI Definitions / KPI Management; other teams = Dashboard only.
-- **Teams can split into branches** (sub-teams) — the dropdown then nests one level deeper. Convention: the LOB app exposes `NAV_BRANCHES = [(slug, name), …]` from `apps/<slug>/branches.py`, and its URLs provide `branch_index` / `branch_import_data` / `branch_kpis` / `branch_kpi_management` taking the branch slug. The context processor discovers this by import — no registry in `core` to keep in sync. A branch team's own `:index` link is relabelled **Overview** so it doesn't read as a sibling of each branch's Dashboard. Sales is the only branch team today.
+- **Teams can split into branches** (sub-teams) — the dropdown then nests one level deeper. Convention: the LOB app exposes `NAV_BRANCHES = [(slug, name), …]` from `apps/<slug>/branches.py`, and its URLs provide `branch_index` / `branch_import_data` / `branch_kpis` / `branch_kpi_management` taking the branch slug. The context processor discovers this by import — no registry in `core` to keep in sync. A branch team's own `:index` link is relabelled **Overview** so it doesn't read as a sibling of each branch's Dashboard. Branch teams today: **Sales** (seo / leadgen / transitions) and **VCT** (smm / content / visual).
 
 ## Domain model — LINES OF BUSINESS (LOBs)
 Each LOB = its own app under `apps/`, each a login-protected screen:
@@ -89,12 +89,31 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - Modal `kind`s here: `count` (single tally — most Sales KPIs), `percent`, `cost` (a÷b shown as ₱).
 - **Two data judgement calls, both flagged to the user:** "New Logos / Headcount" was split into two KPIs (Lead Gen 9–44 HC, Referral 4–18 HC) because the source row carried two bands; and CTR is `monitored` because the presentation's target is a click volume (500–1,000) while the formula is a percentage.
 
+### Shared KPI page kit (use this for NEW LOBs)
+- Operations, Nexzys and Sales each carry their own copy of the math + four templates (built one at a time, before the shape settled). **Everything since — HR, VINTAZK Academy, VCT — runs on a shared kit instead**, so a new LOB is a data module + a thin views.py, no new templates.
+- `apps/core/kpi.py` — the math (`attainment`/`status`/`shown`/`scorecard`/`counts`) plus one context builder per screen (`dashboard_context`, `definitions_context`, `import_context`, `management_context`). Single targets and Sales-style **range** targets are unified: a single `target` is treated as a band of width zero, so one function serves both. `target=None` → `monitored` ("No Target").
+- `templates/kpi/{dashboard,kpi_definitions,import_data,kpi_management,branch_overview}.html` — driven by a `scope` dict `{title, badge, blurb}` plus the context builder's output. `branch_overview` takes branches with pre-resolved URLs so it stays app-agnostic.
+- `static/js/kpi-chart.js` + `static/js/kpi-record-modal.js` — the chart and Add-Record calculator, shared. **`./static/js/**/*.js` is in the Tailwind content globs** because the modal script builds status-pill class strings; without it they'd be purged. Vendored libs are deliberately NOT scanned.
+- Modal `kind`s the shared script understands: `percent` (a÷b×100), `count` (single tally, second field hidden), `average` (a÷b + unit suffix — days, ratings), `ratio` ("3.4×"), `cost` (₱), `difference` (a−b), `days` (two date inputs), `net_percent` ((a−b)÷a×100 — accuracy net of errors), `variance` ((a−b)÷b×100, signed display but graded on |value|), `accuracy` ((1−|a−b|÷b)×100), `scaled` ((a÷b)×c — the only kind with a **third** input, added for DSO).
+- `evaluate()` in the modal script may return a `score` separate from `value`, for KPIs where the number shown isn't the number graded (a −3.2% budget variance shows signed, grades as 3.2 against a ±5 tolerance). `apps/core/kpi.py` does the same server-side by storing the magnitude in `actual` and the signed string in `actual_display`.
+- **Two-sided tolerances** ("within ±5%") are modelled as a `down` KPI over a `target_min=0 / target_max=5` band on the absolute value — so overspend and underspend are both penalised past the tolerance, and anything inside it is 100%. Verified: 0/3.2/5 → 100%, 6.5 → 76.9%, 12 → 41.7%.
+- Migrating Operations/Nexzys/Sales onto this kit is still outstanding — they work, so they were left alone.
+
+### HR / Academy / VCT specifics
+- **HR** (`apps/hr/kpis.py`, 9 KPIs) and **VINTAZK Academy** (`apps/academy/kpis.py`, 7 KPIs) are flat LOBs on the shared kit. Both use the `average` kind for day-count KPIs (time-to-fill, speed-to-proficiency) and Academy uses it for the 5-point satisfaction rating; HR's eNPS is a `difference` (% promoters − % detractors).
+- **VCT (Visual Communication Team) = the `marketing` app** — the second branch LOB after Sales: `smm`, `content`, `visual`. Same `NAV_BRANCHES` convention, data in `apps/marketing/branches.py`.
+- **The `marketing` Team row is still named "Social Media & Marketing"** in the DB, so that's what the sidebar shows while the pages say VCT. Rename the Team in admin if VCT is the real name.
+- **Three source mismatches flagged, not silently resolved:** SMM's "Social Media Client Lead Contribution" is `monitored` (target is a lead count, formula is a percentage); Content's "Link Click Performance" is `monitored` (target is "meet/exceed campaign target"); and Content Engagement Rate's target says "of followers" while the formula divides by reach (scored against reach, noted in its description).
+### Finance specifics
+- `apps/finance/kpis.py`, 9 KPIs on the shared kit. Categories: Payroll / Receivables / Payables / Controls / Planning.
+- Finance is what forced the four extra modal kinds: `net_percent` (payroll + invoice accuracy), `scaled` (DSO's three inputs), `variance` (budget variance), `accuracy` (cash-flow forecast).
+
 - **Site Lead** now has a data-driven KPI Definitions page (matches Operations' definitions layout; 8 KPIs in `apps/sitelead/views.py`) but no dashboard/import pages yet — still otherwise deferred.
 
 ## Current state / directives
 - **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.
 - **DB models that ARE built:** `core.Team` + `core.UserProfile` (access control) — these are real, migrated, admin-managed. Only KPI *values/definitions* remain static.
-- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; per-team dashboards beyond Operations, Nexzys and the three Sales branches; the Employee-ID → external-API auth wiring.
+- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; Site Lead's dashboard/import/management screens (it has KPI Definitions only — every other LOB now has all four); the Employee-ID → external-API auth wiring.
 - **Ask before committing** — confirm scope with the user.
 
 ## Detailed memory

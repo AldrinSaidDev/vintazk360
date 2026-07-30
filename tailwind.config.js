@@ -5,6 +5,10 @@ module.exports = {
   content: [
     './templates/**/*.html',
     './apps/**/templates/**/*.html',
+    // Shared page scripts build class strings (status pills), so they have to
+    // be scanned too or those classes get purged. Vendored libs are NOT listed
+    // — scanning minified bundles invents junk classes.
+    './static/js/**/*.js',
   ],
   theme: {
     extend: {

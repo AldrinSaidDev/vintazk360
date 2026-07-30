@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{# Shared LOB dashboard. Context: scope {title, badge, blurb}, kpis, the status #}
+{# counts, and chart_data — see apps/core/kpi.dashboard_context(). #}
+
+{% block title %}{{ scope.title }} Dashboard · Vintazk 360{% endblock %}
+{% block page_title %}{{ scope.title }} Dashboard{% endblock %}
+{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    {# Header banner #}
+    <div class="overflow-hidden rounded-2xl bg-gradient-to-br from-brand via-brand-light to-accent p-6 text-white shadow-sm sm:p-8">
+        <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/70">{{ scope.badge }}</p>
+        <h2 class="mt-1 font-heading text-3xl font-black leading-tight tracking-tight sm:text-4xl">{{ scope.title }}</h2>
+        <p class="mt-1 max-w-2xl text-sm text-white/80">{{ scope.blurb }}</p>
+    </div>
+
+    {# Summary tiles #}
+    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">KPIs On Track</p>
+                <span class="h-2 w-2 rounded-full bg-status-good"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-status-good">{{ on_track_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">of {{ kpi_count }} KPIs</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">At Risk</p>
+                <span class="h-2 w-2 rounded-full bg-status-warn"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-status-warn">{{ at_risk_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">90–99% of target</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">Below Target</p>
+                <span class="h-2 w-2 rounded-full bg-status-bad"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-status-bad">{{ below_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">needs attention</p>
+        </div>
+        {% if monitored_count %}
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">No Target</p>
+                <span class="h-2 w-2 rounded-full bg-slate-300"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-slate-400">{{ monitored_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">tracked, not scored</p>
+        </div>
+        {% else %}
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <p class="text-xs font-medium text-slate-500">Reporting Period</p>
+            <p class="mt-2 font-heading text-xl font-bold text-ink">July 2026</p>
+            <p class="mt-1 text-xs text-slate-400">current</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {# KPI attainment chart — Actual vs Target as % of target reached #}
+    {% if chart_data %}
+    <section class="rounded-xl border border-slate-100 bg-white shadow-sm">
+        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <div class="flex items-center gap-1.5">
+                <h2 class="font-heading text-base font-bold text-ink">Actual vs Target</h2>
+                {% include "partials/info_icon.html" with text="Each KPI shown as % of its target reached. 100% = on target. Lower-is-better KPIs (days, attrition) are inverted. KPIs with no target aren't charted." align="left" %}
+            </div>
+            <div class="flex items-center gap-4 text-xs font-medium text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-good"></span>On track</span>
+                <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-warn"></span>At risk</span>
+                <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-bad"></span>Below</span>
+            </div>
+        </div>
+        <div class="px-4 py-5 sm:px-6">
+            <div class="relative h-80">
+                <canvas id="kpiChart"></canvas>
+            </div>
+            <p class="mt-3 text-center text-xs italic text-slate-400">
+                Placeholder data — not real performance yet.{% if monitored_count %} {{ monitored_count }} KPI{{ monitored_count|pluralize }} without a target {{ monitored_count|pluralize:"is,are" }} not charted.{% endif %}
+            </p>
+        </div>
+    </section>
+    {% endif %}
+
+    {# KPI scorecard — one card per KPI #}
+    <section>
+        <div class="mb-3 flex items-center gap-1.5">
+            <h2 class="font-heading text-base font-bold text-ink">KPI Scorecard</h2>
+            {% include "partials/info_icon.html" with text="Each KPI's actual performance against its target, with the gap to close." align="left" %}
+        </div>
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {% for kpi in kpis %}
+            {# Status → color is resolved inline per element so Tailwind sees literal classes. #}
+            <div class="group flex flex-col rounded-xl border border-slate-100 bg-white p-5 shadow-sm transition hover:shadow-md">
+                <div class="flex items-start justify-between gap-2">
+                    <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">{{ kpi.category }}</span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold {% if kpi.status == 'on_track' %}bg-status-good/10 text-status-good{% elif kpi.status == 'at_risk' %}bg-status-warn/15 text-status-warn{% elif kpi.status == 'below' %}bg-status-bad/10 text-status-bad{% else %}bg-slate-100 text-slate-500{% endif %}">
+                        <span class="h-1.5 w-1.5 rounded-full {% if kpi.status == 'on_track' %}bg-status-good{% elif kpi.status == 'at_risk' %}bg-status-warn{% elif kpi.status == 'below' %}bg-status-bad{% else %}bg-slate-300{% endif %}"></span>{{ kpi.status_label }}
+                    </span>
+                </div>
+                <h3 class="mt-3 font-heading text-sm font-bold text-ink">{{ kpi.name }}</h3>
+
+                {% if kpi.status == 'monitored' %}
+                    {# No target to score against — lead with the measured value instead. #}
+                    <div class="mt-2 flex items-end justify-between">
+                        <p class="font-heading text-3xl font-black text-ink">{{ kpi.actual_display }}</p>
+                        <p class="pb-1 text-xs text-slate-400">this period</p>
+                    </div>
+                    <div class="mt-3 h-1.5 w-full rounded-full bg-slate-100"></div>
+                    <div class="mt-3 text-xs text-slate-500">Target <span class="font-semibold text-ink">{{ kpi.target_display }}</span></div>
+                {% else %}
+                    <div class="mt-2 flex items-end justify-between">
+                        <p class="font-heading text-3xl font-black {% if kpi.status == 'on_track' %}text-status-good{% elif kpi.status == 'at_risk' %}text-status-warn{% else %}text-status-bad{% endif %}">{{ kpi.attainment }}%</p>
+                        <p class="pb-1 text-xs text-slate-400">of target</p>
+                    </div>
+                    <div class="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div class="h-full rounded-full {% if kpi.status == 'on_track' %}bg-status-good{% elif kpi.status == 'at_risk' %}bg-status-warn{% else %}bg-status-bad{% endif %}" style="width: {{ kpi.bar_pct }}%"></div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between gap-3 text-xs">
+                        <span class="text-slate-500">Actual <span class="font-semibold text-ink">{{ kpi.actual_display }}</span></span>
+                        <span class="text-right text-slate-500">Target <span class="font-semibold text-ink">{{ kpi.target_display }}</span></span>
+                    </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+{# Chart data as JSON — single source of truth, read by static/js/kpi-chart.js. #}
+{{ chart_data|json_script:"kpi-chart-data" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script>
+<script src="{% static 'js/kpi-chart.js' %}"></script>
+{% endblock %}
