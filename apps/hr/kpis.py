@@ -105,8 +105,8 @@ MODAL_SPECS = [
 
 # Which part of the org a record belongs to.
 DEPARTMENTS = [
-    'Operations', 'Site Lead', 'Sales', 'HR', 'VINTAZK Academy',
-    'Finance', 'VCT (Social Media & Marketing)', 'Nexzys',
+    'Operations', 'Site Lead', 'Sales', 'HR', 'VINTAZK Academy', 'Finance',
+    'Visual and Content Team', 'Social Media Management', 'Content Writing', 'Nexzys',
 ]
 
 SCOPE = {

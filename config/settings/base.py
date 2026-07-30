@@ -50,7 +50,10 @@ INSTALLED_APPS = [
     'apps.operations',
     'apps.finance',
     'apps.sitelead',
-    'apps.marketing',
+    # VCT / SMM / Content Writing are three separate departments, not one team.
+    'apps.vct',
+    'apps.smm',
+    'apps.content',
     'apps.nexzys',
     'django.contrib.admin',
     'django.contrib.auth',

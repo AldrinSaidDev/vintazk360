@@ -53,12 +53,14 @@ This file loads every session — keep it accurate.
 
 ## Sidebar navigation (BUILT)
 - Each accessible team renders as a **collapsible dropdown** (native `<details>`) of its sub-pages; a team with only one page renders as a plain link. Sub-links are data-driven: the context processor includes a page only if its URL resolves (`<slug>:index` / `:import_data` / `:kpis` / `:kpi_management`), so new per-team pages appear automatically. Operations and Nexzys = Dashboard / Import Data / KPI Definitions / KPI Management; other teams = Dashboard only.
-- **Teams can split into branches** (sub-teams) — the dropdown then nests one level deeper. Convention: the LOB app exposes `NAV_BRANCHES = [(slug, name), …]` from `apps/<slug>/branches.py`, and its URLs provide `branch_index` / `branch_import_data` / `branch_kpis` / `branch_kpi_management` taking the branch slug. The context processor discovers this by import — no registry in `core` to keep in sync. A branch team's own `:index` link is relabelled **Overview** so it doesn't read as a sibling of each branch's Dashboard. Branch teams today: **Sales** (seo / leadgen / transitions) and **VCT** (smm / content / visual).
+- **Teams can split into branches** (sub-teams) — the dropdown then nests one level deeper. Convention: the LOB app exposes `NAV_BRANCHES = [(slug, name), …]` from `apps/<slug>/branches.py`, and its URLs provide `branch_index` / `branch_import_data` / `branch_kpis` / `branch_kpi_management` taking the branch slug. The context processor discovers this by import — no registry in `core` to keep in sync. A branch team's own `:index` link is relabelled **Overview** so it doesn't read as a sibling of each branch's Dashboard. **Sales is the only branch team** (seo / leadgen / transitions). VCT was briefly modelled this way too — it isn't; see the VCT/SMM/Content note below.
 
 ## Domain model — LINES OF BUSINESS (LOBs)
 Each LOB = its own app under `apps/`, each a login-protected screen:
-`sales, hr, academy, operations, finance, sitelead, marketing, nexzys` (+ `dashboard` overview, `core` shared).
-Display names: Operations, Site Lead, Sales, HR, VINTAZK Academy, Finance, Social Media (&Marketing), Nexzys.
+`sales, hr, academy, operations, finance, sitelead, vct, smm, content, nexzys` (+ `dashboard` overview, `core` shared).
+Display names: Operations, Site Lead, Sales, HR, VINTAZK Academy, Finance, Visual and Content Team, Social Media Management, Content Writing, Nexzys.
+**Always spell "Visual and Content Team" out in the UI** — "VCT" is for slugs, app names, and code only (migration `core.0004`).
+There is **no `marketing` app** — it was split into `vct` / `smm` / `content` (migration `core.0003`).
 
 ### Two-dashboard model
 - **Overall Dashboard** (`apps/dashboard`) — org-wide rollup, shared to EVERYONE, default landing on login.
@@ -90,7 +92,7 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - **Two data judgement calls, both flagged to the user:** "New Logos / Headcount" was split into two KPIs (Lead Gen 9–44 HC, Referral 4–18 HC) because the source row carried two bands; and CTR is `monitored` because the presentation's target is a click volume (500–1,000) while the formula is a percentage.
 
 ### Shared KPI page kit (use this for NEW LOBs)
-- Operations, Nexzys and Sales each carry their own copy of the math + four templates (built one at a time, before the shape settled). **Everything since — HR, VINTAZK Academy, VCT — runs on a shared kit instead**, so a new LOB is a data module + a thin views.py, no new templates.
+- Operations, Nexzys and Sales each carry their own copy of the math + four templates (built one at a time, before the shape settled). **Everything since — HR, VINTAZK Academy, Finance, VCT, SMM, Content Writing — runs on a shared kit instead**, so a new LOB is a data module + a thin views.py, no new templates.
 - `apps/core/kpi.py` — the math (`attainment`/`status`/`shown`/`scorecard`/`counts`) plus one context builder per screen (`dashboard_context`, `definitions_context`, `import_context`, `management_context`). Single targets and Sales-style **range** targets are unified: a single `target` is treated as a band of width zero, so one function serves both. `target=None` → `monitored` ("No Target").
 - `templates/kpi/{dashboard,kpi_definitions,import_data,kpi_management,branch_overview}.html` — driven by a `scope` dict `{title, badge, blurb}` plus the context builder's output. `branch_overview` takes branches with pre-resolved URLs so it stays app-agnostic.
 - `static/js/kpi-chart.js` + `static/js/kpi-record-modal.js` — the chart and Add-Record calculator, shared. **`./static/js/**/*.js` is in the Tailwind content globs** because the modal script builds status-pill class strings; without it they'd be purged. Vendored libs are deliberately NOT scanned.
@@ -99,10 +101,13 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - **Two-sided tolerances** ("within ±5%") are modelled as a `down` KPI over a `target_min=0 / target_max=5` band on the absolute value — so overspend and underspend are both penalised past the tolerance, and anything inside it is 100%. Verified: 0/3.2/5 → 100%, 6.5 → 76.9%, 12 → 41.7%.
 - Migrating Operations/Nexzys/Sales onto this kit is still outstanding — they work, so they were left alone.
 
-### HR / Academy / VCT specifics
+### HR / Academy specifics
 - **HR** (`apps/hr/kpis.py`, 9 KPIs) and **VINTAZK Academy** (`apps/academy/kpis.py`, 7 KPIs) are flat LOBs on the shared kit. Both use the `average` kind for day-count KPIs (time-to-fill, speed-to-proficiency) and Academy uses it for the 5-point satisfaction rating; HR's eNPS is a `difference` (% promoters − % detractors).
-- **VCT (Visual Communication Team) = the `marketing` app** — the second branch LOB after Sales: `smm`, `content`, `visual`. Same `NAV_BRANCHES` convention, data in `apps/marketing/branches.py`.
-- **The `marketing` Team row is still named "Social Media & Marketing"** in the DB, so that's what the sidebar shows while the pages say VCT. Rename the Team in admin if VCT is the real name.
+
+### VCT / SMM / Content Writing — three separate departments
+- **VCT *is* the Visual and Content Team.** SMM and Content Writing are their own departments, NOT branches under it. They were first built as three branches of a single `marketing` LOB; that was wrong and has been undone — don't reintroduce it.
+- Three flat apps on the shared kit: `apps/vct` (5 KPIs, `/vct/`), `apps/smm` (3 KPIs, `/smm/`), `apps/content` (5 KPIs, `/content/`). The old `apps/marketing` is deleted and `/marketing/` now 404s.
+- Migration `core.0003_split_marketing_into_departments` **repurposes the old `marketing` Team row as `vct`** (keeping its PK so user assignments survive) and adds `smm` + `content`. Team slugs must match the URL namespace — the sidebar and `team_required` both key off them, so a new department needs a Team row or every user gets a 403.
 - **Three source mismatches flagged, not silently resolved:** SMM's "Social Media Client Lead Contribution" is `monitored` (target is a lead count, formula is a percentage); Content's "Link Click Performance" is `monitored` (target is "meet/exceed campaign target"); and Content Engagement Rate's target says "of followers" while the formula divides by reach (scored against reach, noted in its description).
 ### Finance specifics
 - `apps/finance/kpis.py`, 9 KPIs on the shared kit. Categories: Payroll / Receivables / Payables / Controls / Planning.

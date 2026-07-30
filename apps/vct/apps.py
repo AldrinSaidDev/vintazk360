@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 
 
-class MarketingConfig(AppConfig):
+class VctConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'apps.marketing'
-    label = 'marketing'
+    name = 'apps.vct'
+    label = 'vct'
