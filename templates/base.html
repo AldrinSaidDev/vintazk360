@@ -15,18 +15,21 @@
 <div id="app-shell" class="flex h-full min-h-screen">
 
     {# ============ Sidebar ============ #}
+    {# Capped at viewport height and pinned, so opening several team dropdowns #}
+    {# scrolls the nav instead of pushing the list off the bottom of the screen. #}
     <aside id="sidebar"
-           class="hidden w-64 shrink-0 flex-col bg-surface text-slate-300 transition-all duration-200 md:flex">
+           class="hidden w-64 shrink-0 flex-col bg-surface text-slate-300 transition-all duration-200 md:sticky md:top-0 md:flex md:h-screen">
 
-        {# Logo #}
-        <div class="flex items-center px-6 py-6">
+        {# Logo — outside the scroller, so it never scrolls away. #}
+        <div class="sticky top-0 z-10 flex shrink-0 items-center bg-surface px-6 py-6">
             <a href="{% url 'dashboard:home' %}" class="block leading-none" title="Vintazk 360">
                 {% include "partials/logo.html" with class="h-8" %}
             </a>
         </div>
 
-        {# Nav #}
-        <nav class="flex-1 space-y-1 px-3">
+        {# Nav — the only scrolling region. min-h-0 lets this flex child shrink #}
+        {# below its content height, which is what makes overflow-y-auto engage. #}
+        <nav class="sidebar-scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-2">
             {% url 'dashboard:home' as home_url %}
             <a href="{{ home_url }}" title="Dashboard"
                class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
@@ -116,8 +119,8 @@
             </a>
         </nav>
 
-        {# Log out #}
-        <div class="border-t border-white/10 px-3 py-4">
+        {# Log out — pinned below the scroller so it's always reachable. #}
+        <div class="shrink-0 border-t border-white/10 px-3 py-4">
             <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
                 <button type="submit" title="Log Out"
