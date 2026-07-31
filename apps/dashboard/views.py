@@ -10,6 +10,25 @@ from django.shortcuts import render
 SITE_TZ = ZoneInfo('Asia/Manila')
 
 
+# Global filter picklists. FRONT-END ONLY for now — nothing is wired to a
+# queryset, so these are the shape of the controls rather than live options.
+# They live here so there's one source to swap when filtering becomes real.
+#
+# Periods are named rather than dates because KPIs are scored per reporting
+# period (monthly / quarterly), not per calendar day — a single date can't
+# address a monthly KPI.
+#
+# 'Custom range' pairs with the From/To inputs beside it: presets cover the
+# routine questions, the range covers the ones they don't — daily data (the
+# outbound call logs) and arbitrary windows like "the week of the escalation".
+FILTER_PERIODS = [
+    'This Month', 'Last Month', 'This Quarter', 'Last Quarter', 'Year to Date',
+    'Custom range',
+]
+FILTER_STATUSES = ['On Track', 'At Risk', 'Below Target', 'No Target']
+FILTER_COMPARISONS = ['Previous period', 'Same period last year']
+
+
 @login_required
 def home(request):
     """Landing page for the dashboard (requires authentication)."""
@@ -37,4 +56,7 @@ def home(request):
         'goal_completed': goal_completed,
         'goal_remaining': goal_remaining,
         'goal_progress': goal_progress,
+        'filter_periods': FILTER_PERIODS,
+        'filter_statuses': FILTER_STATUSES,
+        'filter_comparisons': FILTER_COMPARISONS,
     })

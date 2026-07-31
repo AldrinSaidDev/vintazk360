@@ -5,40 +5,57 @@
 {# Icon tiles match the Import Data stat cards so the two screens read as one system. #}
 <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
-    <div class="flex items-start gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
         <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-lg text-accent">{% icon 'list-ul' %}</span>
         <div class="min-w-0">
             <p class="font-heading text-2xl font-bold leading-none text-ink">{{ kpi_count }}</p>
             <p class="mt-1.5 text-xs font-medium text-slate-500">Total KPIs</p>
-            <p class="mt-0.5 truncate text-[11px] text-slate-400">defined on this scorecard</p>
+            <p class="mt-0.5 truncate text-[11px] text-slate-400">Defined on this scorecard</p>
         </div>
     </div>
 
-    <div class="flex items-start gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
         <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-lg text-accent">{% icon 'tags' %}</span>
         <div class="min-w-0">
             <p class="font-heading text-2xl font-bold leading-none text-ink">{{ categories|length }}</p>
             <p class="mt-1.5 text-xs font-medium text-slate-500">Categories</p>
-            {# The names themselves, truncated — more use than the bare count. #}
-            <p class="mt-0.5 truncate text-[11px] text-slate-400" title="{{ categories|join:" · " }}">{{ categories|join:" · " }}</p>
+            {# The names themselves — as chips rather than a dot-joined string that #}
+            {# truncated mid-word. Full list on hover. Same chip language as the KPI cards. #}
+            {# Kept to THREE pills total so this never wraps to a second row: a taller #}
+            {# card here stretches the whole grid row and leaves the other three padded #}
+            {# out with dead space. Three names when there are three, else two + a count. #}
+            <div class="mt-1 flex flex-wrap gap-1" title="{{ categories|join:" · " }}">
+                {% if categories|length > 3 %}
+                    {% for category in categories|slice:":2" %}
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{{ category }}</span>
+                    {% endfor %}
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">+{{ categories|length|add:"-2" }} more</span>
+                {% else %}
+                    {% for category in categories %}
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{{ category }}</span>
+                    {% endfor %}
+                {% endif %}
+            </div>
         </div>
     </div>
 
-    <div class="flex items-start gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
         <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-lg text-accent">{% icon 'calendar' %}</span>
         <div class="min-w-0">
             <p class="font-heading text-lg font-bold leading-none text-ink">July 2026</p>
             <p class="mt-1.5 text-xs font-medium text-slate-500">Reporting Period</p>
-            <p class="mt-0.5 truncate text-[11px] text-slate-400">current</p>
+            <p class="mt-0.5 truncate text-[11px] text-slate-400">Current period</p>
         </div>
     </div>
 
-    <div class="flex items-start gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
         <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-lg text-accent">{% icon 'clock-o' %}</span>
         <div class="min-w-0">
+            {# The label has to name WHAT was updated — on its own, "Last Updated" #}
+            {# over a date left the caption reading as though the date were a formula. #}
             <p class="font-heading text-lg font-bold leading-none text-ink">July 2026</p>
-            <p class="mt-1.5 text-xs font-medium text-slate-500">Last Updated</p>
-            <p class="mt-0.5 truncate text-[11px] text-slate-400">targets &amp; formulas</p>
+            <p class="mt-1.5 text-xs font-medium text-slate-500">Definitions Last Updated</p>
+            <p class="mt-0.5 truncate text-[11px] text-slate-400">Targets, formulas &amp; cadence</p>
         </div>
     </div>
 </div>

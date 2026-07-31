@@ -107,11 +107,51 @@ def _resolve(slug):
 @login_required
 @team_required('sales')
 def index(request):
-    """Sales — overview of the three branches and where each one stands."""
+    """Sales — the team-level Dashboard: all three branches rolled up.
+
+    Same shape as any other LOB dashboard (summary tiles + Actual vs Target),
+    scored across every branch's KPIs at once, with the per-branch cards below
+    as the way into each one.
+    """
     cards = []
+    all_rows = []
     for branch in BRANCHES.values():
-        cards.append({**branch, **_counts(_scorecard(branch))})
-    return render(request, 'sales/overview.html', {'branches': cards})
+        rows = _scorecard(branch)
+        all_rows += rows
+
+        # A branch's headline number is the mean attainment of its SCORED KPIs.
+        # 'No Target' KPIs have nothing to average against, so they're left out
+        # rather than dragged in as zero — a branch of only-unscored KPIs simply
+        # has no attainment and reports as 'monitored'.
+        scored = [row['attainment'] for row in rows if row['attainment'] is not None]
+        average = round(sum(scored) / len(scored), 1) if scored else None
+        status = _status(average)
+        cards.append({
+            **branch,
+            **_counts(rows),
+            'scored_count': len(scored),
+            'attainment': average,
+            'bar_pct': 0 if average is None else min(int(average), 100),
+            'status': status,
+            'status_label': _STATUS_LABEL[status],
+        })
+
+    return render(request, 'sales/overview.html', {
+        'banner_icons': BANNER_ICONS,
+        'branches': cards,
+        'branch_count': len(cards),
+        # Tiles tally every Sales KPI, not just the scored ones.
+        **_counts(all_rows),
+        # One bar per branch rather than per KPI: the per-KPI breakdown already
+        # lives on each branch's own dashboard, so repeating all 17 here would
+        # just be the same chart three times over.
+        'chart_data': [
+            {'name': card['name'], 'attainment': card['attainment'], 'status': card['status'],
+             'actual_display': f"{card['on_track_count']} of {card['scored_count']} KPIs on target",
+             'target_display': '100%'}
+            for card in cards if card['attainment'] is not None
+        ],
+    })
 
 
 @login_required

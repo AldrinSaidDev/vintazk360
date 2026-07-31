@@ -69,10 +69,10 @@ def _team_nav(team, path):
             'active': any(link['url'] == path for link in branch_links),
         })
 
-    # With branches, the team-level page is a rollup — say so, so it doesn't
-    # read as a sibling of each branch's own Dashboard.
-    if branches and links and links[0]['label'] == 'Dashboard':
-        links[0] = {**links[0], 'label': 'Overview'}
+    # The team-level page of a branch team stays "Dashboard": it IS one — a
+    # rollup of every branch — and the nesting already tells you it sits above
+    # each branch's own. (It read "Overview" before that page grew tiles and a
+    # chart; the label no longer matched what's on it.)
 
     return {
         'name': team.name,

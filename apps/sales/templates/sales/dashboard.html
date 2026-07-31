@@ -18,7 +18,7 @@
                 <span class="h-2 w-2 rounded-full bg-status-good"></span>
             </div>
             <p class="mt-2 font-heading text-3xl font-bold text-status-good">{{ on_track_count }}</p>
-            <p class="mt-1 text-xs text-slate-400">of {{ kpi_count }} KPIs</p>
+            <p class="mt-1 text-xs text-slate-400">Out of {{ kpi_count }} KPIs</p>
         </div>
         <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">
@@ -34,15 +34,15 @@
                 <span class="h-2 w-2 rounded-full bg-status-bad"></span>
             </div>
             <p class="mt-2 font-heading text-3xl font-bold text-status-bad">{{ below_count }}</p>
-            <p class="mt-1 text-xs text-slate-400">needs attention</p>
+            <p class="mt-1 text-xs text-slate-400">Needs attention</p>
         </div>
         <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">
-                <p class="text-xs font-medium text-slate-500">No Target</p>
+                <p class="text-xs font-medium text-slate-500">No Target Set</p>
                 <span class="h-2 w-2 rounded-full bg-slate-300"></span>
             </div>
             <p class="mt-2 font-heading text-3xl font-bold text-slate-400">{{ monitored_count }}</p>
-            <p class="mt-1 text-xs text-slate-400">tracked, not scored</p>
+            <p class="mt-1 text-xs text-slate-400">Awaiting a target value</p>
         </div>
     </div>
 

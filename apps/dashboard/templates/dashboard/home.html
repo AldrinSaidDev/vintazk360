@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load icons %}
+{% load static %}
 
 {% block title %}Dashboard · Vintazk 360{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
@@ -11,7 +12,9 @@
 
     {% include "partials/welcome_header.html" with name=display_name today=today %}
 
-    {% include "partials/info_banner.html" with text="The shared, organization-wide view — everyone lands here after signing in, from agents to site leadership. It rolls every Line of Business up into a single Overall Goal for the current reporting period, so you can see where the company stands at a glance. Use the global filters to narrow it down, or open a team from the sidebar for its own KPI scorecard." %}
+    {# Wording stays access-neutral on purpose: a Sales user sees one department in #}
+    {# the sidebar, leadership sees ten, and the same sentence has to be true for both. #}
+    {% include "partials/info_banner.html" with text="Vintazk 360 brings company performance into a single view. The Overall Goal below is the rollup for the current reporting period, drawn from the KPI scorecards of every department you have access to. Open a department in the sidebar for its own scorecard — definitions, targets, actuals, and the records behind each number." %}
 
     {# Overall Goal #}
     <section class="rounded-xl bg-white p-6 shadow-sm">
@@ -59,23 +62,71 @@
         </div>
     </section>
 
-    {# Global Filters #}
+    {# Global Filters. Front-end only — options come from the view's picklists #}
+    {# (see FILTER_* there); nothing is wired to a queryset yet. #}
     <section class="rounded-xl bg-white p-6 shadow-sm">
-        <h2 class="mb-4 text-sm font-semibold text-slate-600">Global Filters</h2>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="mb-4 flex items-center gap-1.5">
+            <h2 class="text-sm font-semibold text-slate-600">Global Filters</h2>
+            {% include "partials/info_icon.html" with text="Narrows every figure on this page. Reporting period is the primary control, since KPIs are scored per period; the custom range covers daily data and any window the presets don't." align="left" %}
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {# Period leads: it sets the window every other figure is read against. #}
             <label class="block">
-                <span class="mb-1 block text-xs font-medium text-slate-500">Line of Businesses and Departments</span>
+                <span class="mb-1 block text-xs font-medium text-slate-500">Reporting Period</span>
                 <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
                                focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                    <option>All</option>
+                    {% for period in filter_periods %}<option>{{ period }}</option>{% endfor %}
                 </select>
             </label>
+
+            {# Companion to "Custom range" above — presets can't express an arbitrary #}
+            {# window, and the daily data (call activity logs) needs one. One field #}
+            {# in the card; the popover handles day range / month / year. #}
+            {% include "partials/date_range_picker.html" with label="Custom Range" name="period" %}
+
+            {# Sourced from nav_teams, so this lists exactly the departments the #}
+            {# signed-in user can actually open — same access rule as the sidebar. #}
             <label class="block">
-                <span class="mb-1 block text-xs font-medium text-slate-500">Date</span>
-                <input type="date"
-                       class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
-                              focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Line of Business / Department</span>
+                <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
+                               focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                    <option>All departments</option>
+                    {% for team in nav_teams %}<option>{{ team.name }}</option>{% endfor %}
+                </select>
             </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Status</span>
+                <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
+                               focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                    <option>All statuses</option>
+                    {% for status in filter_statuses %}<option>{{ status }}</option>{% endfor %}
+                </select>
+            </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Compare To</span>
+                <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm
+                               focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                    <option>No comparison</option>
+                    {% for comparison in filter_comparisons %}<option>{{ comparison }}</option>{% endfor %}
+                </select>
+            </label>
+
+            {# Actions share the last grid cell — Reset sits next to Apply rather #}
+            {# than orphaned up in the header. Both flex-1 with basis-0 so they split #}
+            {# the cell evenly regardless of label length. #}
+            <div class="flex items-end gap-2">
+                <button type="button"
+                        class="flex-1 basis-0 rounded-md bg-brand px-12 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
+                    Apply Filters
+                </button>
+                <button type="button"
+                        class="flex-1 basis-0 rounded-md px-4 py-2 text-sm font-medium text-slate-500 transition hover:border-slate-400 hover:text-slate-700">
+                    Reset
+                </button>
+            </div>
         </div>
     </section>
 
@@ -191,4 +242,8 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'js/date-range-picker.js' %}"></script>
 {% endblock %}
