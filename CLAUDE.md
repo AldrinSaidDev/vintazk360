@@ -4,7 +4,7 @@ A Django 6 **KPI dashboard** for a BPO/outsourcing org (Nexzys Intelligence / VI
 This file loads every session — keep it accurate.
 
 ## Stack & how to run
-- **Dev = Docker only** (Postgres in a container). Prod = Supabase (`DATABASE_URL`). No SQLite.
+- **Dev = Docker only** (Postgres in a container). Staging/prod = Supabase (`DATABASE_URL`). No SQLite.
 - Start: `docker compose up --build`. App at http://localhost:8000.
 - All Django commands run in the container: `docker compose exec web python manage.py <cmd>`.
 - **No rebuild for code/template/CSS changes** — bind mount + auto-reload + tailwind watcher pick them up. Rebuild only for dependency / Dockerfile / compose changes. If the reloader wedges on an app rename, `docker compose restart web`.
@@ -14,7 +14,7 @@ This file loads every session — keep it accurate.
 
 ## Layout / conventions
 - Apps live under `apps/` (import path `apps.<name>`, but each keeps a short `label` so DB tables stay unprefixed).
-- Settings split: `config/settings/{base,dev,prod}.py` (dev is default).
+- Settings split: `config/settings/{base,dev,staging,prod}.py` (dev is default; staging inherits prod).
 - Frontend: **Tailwind** via real Node build (not CDN). Source `static/src/input.css` → `static/css/output.css` (gitignored). Heading font **Space Grotesk** (vendored `static/fonts/`, Tailwind `font-heading`).
 - **NO Flowbite** — it was removed (JS didn't init reliably). Don't reintroduce. Interactivity in plain Tailwind: dropdown → `<select>`, avatar menu → native `<details>`, modal → CSS `:target` (`.modal-overlay:target{display:flex}`, open via `href="#id"`, close via `href="#"`).
 - **Icons: django-icons + Font Awesome 4** (`{% load icons %}{% icon 'home' %}` → `<i class="fa fa-home">`). FA 4.7 CSS+webfonts vendored to `static/fontawesome/`, loaded in base.html. Use `{% icon %}` for new icons (fa4 names). Existing inline Heroicon SVGs may be migrated over time.
@@ -118,6 +118,17 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - **Half the targets have no number.** Six are stated as "≥ Company Target" / "≥ Target Margin" / "Meet/Exceed Budget" / "Positive" (EBITDA Margin, NPS, Employee Engagement, Attrition, Operational Efficiency, Profitability) → `target: None`, so they show "No Target" and sit out the scoring. Filling in a number is the only change needed to start scoring them.
 - **No `dimensions` list** — records are per site and the site names haven't been supplied, so the Function/Team dropdown and its table column are simply omitted (`import_context` handles an empty list).
 - Its Attrition Rate deliberately has no ceiling while HR's is scored at ≤4.0% — same metric, two owners, only one target given.
+
+## Supabase wiring (BUILT — connection only, no data yet)
+- **Two independent channels, don't conflate them:** (1) `DATABASE_URL` = Django ORM ↔ Postgres; (2) `SUPABASE_URL` + `SUPABASE_ANON_KEY` = the Supabase HTTP API (PostgREST/Auth/Storage/Realtime). **Dev stays on the Docker Postgres for both** — Supabase is the *staging* target.
+- `apps/core/supabase.py` — `get_client(service_role=False)` (`lru_cache`d), `is_configured()`, `has_service_role()`, `reset_clients()`. Client is built **lazily** and imports `supabase` inside the function, so missing/unreachable creds can never block boot. `SupabaseNotConfigured` (an `ImproperlyConfigured`) carries the fix in its message. Nothing reads or writes yet — this is wiring only.
+- Settings in `config/settings/base.py`: `SUPABASE_{URL,ANON_KEY,SERVICE_ROLE_KEY,SCHEMA,TIMEOUT,ENABLED}`. `_supabase_env()` accepts the **`REACT_APP_` prefix** too — the keys were handed over React-style, and both forms work.
+- `config/settings/staging.py` — inherits prod hardening, HSTS off by default (sticky on a throwaway domain), and **refuses to start unless Supabase is configured**.
+- `manage.py supabase_status [--ping]` (`apps/core/management/commands/`) — prints masked config, which DB the ORM points at, whether clients build, and optionally hits `/auth/v1/health`. Verified 200 against the live project.
+- `supabase==2.31.0` in `requirements/base.txt` → **needs `docker compose up --build`**, not just a restart.
+- **Staging DB verified 2026-08-04** (Postgres 17.6, `ap-southeast-1`, 0 tables — nothing migrated yet). The real `DATABASE_URL` sits **commented** in `.env` so dev can't drift onto it; set it in the staging server's env. Two gotchas baked into that line: the direct host `db.<ref>.supabase.co` is **IPv6-only** (unreachable from Docker) so use `aws-0-ap-southeast-1.pooler.supabase.com`, and **port 5432 = session mode** (supports the prepared statements psycopg uses; 6543 transaction mode would need extra Django config). Password contains `@` → `%40` in the URL.
+- **Before the first `migrate` against Supabase:** PostgREST auto-exposes `public` tables to the anon key, and Django-created tables land with RLS **off** — `auth_user` would be readable over HTTPS. Revoke anon/authenticated grants (or enable RLS) as part of that deploy.
+- Service-role key is stored **commented** in `.env` — nothing uses it, and enabling it in dev only creates a way to bypass RLS by accident.
 
 ## Current state / directives
 - **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.

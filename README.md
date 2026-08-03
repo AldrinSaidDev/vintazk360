@@ -120,21 +120,32 @@ docker compose run --rm tailwind npm run build:css
 
 ---
 
-## Switching to Supabase (production)
+## Supabase (staging / production)
 
-The database is chosen entirely by the `DATABASE_URL` environment variable —
-no code changes needed.
+Supabase is reached over **two independent channels**. Mixing them up is the
+usual source of confusion, so they are kept separate:
+
+| Channel | Configured by | Used for |
+|---------|---------------|----------|
+| **Postgres (Django ORM)** | `DATABASE_URL` | Models, migrations, the admin — everything Django already does. |
+| **Supabase HTTP API** | `SUPABASE_URL` + `SUPABASE_ANON_KEY` | PostgREST / Auth / Storage / Realtime, via [`apps/core/supabase.py`](apps/core/supabase.py). |
+
+**Development is unaffected by either** — it stays on the Docker Postgres
+container. Supabase is the staging target.
+
+### 1. Point the ORM at Supabase Postgres
+
+The database is chosen entirely by `DATABASE_URL` — no code changes needed.
 
 1. In your Supabase project: **Project Settings → Database → Connection string**
    and copy the connection pooler URL.
-2. Set `DATABASE_URL` (and the production `SECRET_KEY` / `ALLOWED_HOSTS`) in your
-   host's environment:
+2. Set it, plus the Django secrets, in the staging host's environment:
 
    ```
    DATABASE_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-0-YOUR_REGION.pooler.supabase.com:6543/postgres
-   DJANGO_SETTINGS_MODULE=config.settings.prod
-   SECRET_KEY=your-production-secret
-   ALLOWED_HOSTS=your-domain.com
+   DJANGO_SETTINGS_MODULE=config.settings.staging
+   SECRET_KEY=your-staging-secret
+   ALLOWED_HOSTS=staging.your-domain.com
    ```
 
 3. Run migrations against it:
@@ -147,8 +158,31 @@ SSL is required automatically for any non-local host (see
 [`config/settings/base.py`](config/settings/base.py)), so Supabase connections
 are encrypted with no extra config.
 
-> **Note:** The Docker `db` service is for local development only. In
-> production you point `DATABASE_URL` at Supabase and never run the `db`
+### 2. The Supabase API client
+
+`SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env` are all that is needed. The
+client is built lazily on first use, so an unset or unreachable project can
+never stop the app from booting:
+
+```python
+from apps.core.supabase import get_client, is_configured
+
+client = get_client()                      # anon key — Row Level Security applies
+admin  = get_client(service_role=True)     # service-role key — RLS BYPASSED, server-side only
+```
+
+Check the wiring at any time:
+
+```bash
+docker compose exec web python manage.py supabase_status          # show config
+docker compose exec web python manage.py supabase_status --ping   # + reach the API
+```
+
+> The **service-role key** bypasses Row Level Security. Keep it in the server
+> environment only, never in a template, JS bundle, or the repo.
+
+> **Note:** The Docker `db` service is for local development only. In staging
+> and production you point `DATABASE_URL` at Supabase and never run the `db`
 > container.
 
 ---
@@ -159,9 +193,18 @@ are encrypted with no extra config.
 |----------|----------|-------------|
 | `DATABASE_URL` | Yes | Postgres connection string (Docker Postgres for dev, Supabase for prod). See [`.env.example`](.env.example). |
 | `DATABASE_SSL` | No | `require` or `disable` to force SSL on/off. Auto-detected by default (off for `localhost`/`db`, on for remote hosts like Supabase). |
-| `DJANGO_SETTINGS_MODULE` | No | `config.settings.dev` (default) or `config.settings.prod`. |
-| `SECRET_KEY` | Prod | Required when using `config.settings.prod`. |
-| `ALLOWED_HOSTS` | Prod | Comma-separated hostnames; required in production. |
+| `DJANGO_SETTINGS_MODULE` | No | `config.settings.dev` (default), `.staging`, or `.prod`. |
+| `SECRET_KEY` | Staging/Prod | Required by `config.settings.staging` and `.prod`. |
+| `ALLOWED_HOSTS` | Staging/Prod | Comma-separated hostnames; required outside development. |
+| `SUPABASE_URL` | Staging | Supabase project URL, e.g. `https://<ref>.supabase.co`. |
+| `SUPABASE_ANON_KEY` | Staging | Public API key; Row Level Security still applies to it. |
+| `SUPABASE_SERVICE_ROLE_KEY` | No | Privileged key that **bypasses RLS** — server-side only. |
+| `SUPABASE_SCHEMA` | No | Postgres schema the API queries (default `public`). |
+| `SUPABASE_TIMEOUT` | No | Supabase HTTP timeout in seconds (default `10`). |
+
+The `SUPABASE_*` variables are also accepted with the `REACT_APP_` prefix they
+are often handed over with (`REACT_APP_SUPABASE_URL` etc.), so either form
+works in `.env`.
 
 `.env` is gitignored. Never commit real secrets — commit changes to
 [`.env.example`](.env.example) instead.
@@ -177,8 +220,9 @@ vintazk360/
 │   └── dashboard/           # Dashboard app — home page + templates
 ├── config/                  # Django project package
 │   ├── settings/            # Split settings
-│   │   ├── base.py          # Shared settings
+│   │   ├── base.py          # Shared settings (incl. Supabase config)
 │   │   ├── dev.py           # Development (default)
+│   │   ├── staging.py       # Staging — runs against Supabase
 │   │   └── prod.py          # Production hardening
 │   ├── urls.py
 │   ├── wsgi.py
@@ -214,5 +258,8 @@ Settings are split under `config/settings/`. Choose one via the
 
 - `config.settings.dev` — **default** everywhere (manage.py / wsgi / asgi fall
   back to it), so a fresh clone runs with zero config.
+- `config.settings.staging` — staging on Supabase. Inherits production's
+  hardening (minus sticky HSTS) and additionally refuses to start without
+  `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
 - `config.settings.prod` — production. Requires `SECRET_KEY` and `ALLOWED_HOSTS`
   in the environment and refuses to start without them.

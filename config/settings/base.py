@@ -129,6 +129,43 @@ DATABASES = {
 }
 
 
+# Supabase
+# https://supabase.com/docs/reference/python/introduction
+#
+# Two INDEPENDENT channels to the same Supabase project — don't confuse them:
+#   1. DATABASE_URL (above) — Django's ORM speaking Postgres. Development keeps
+#      pointing this at the local Docker container; staging points it at
+#      Supabase Postgres.
+#   2. The settings below — the Supabase HTTP API (PostgREST / Auth / Storage /
+#      Realtime), used through ``apps.core.supabase``. Staging is the target;
+#      leaving them set in development is harmless because nothing calls out
+#      until a feature does.
+#
+# The keys were handed over with React's ``REACT_APP_`` prefix. This is Django,
+# so the unprefixed names are canonical and the prefixed ones stay accepted as
+# aliases — pasting either form into .env works.
+
+def _supabase_env(name, default=''):
+    """Read ``SUPABASE_<name>``, falling back to the REACT_APP_ alias."""
+    value = os.environ.get(f'SUPABASE_{name}') or os.environ.get(f'REACT_APP_SUPABASE_{name}')
+    return (value or default).strip()
+
+
+SUPABASE_URL = _supabase_env('URL').rstrip('/')
+# Public/browser-safe key. Row Level Security still applies to it.
+SUPABASE_ANON_KEY = _supabase_env('ANON_KEY')
+# Privileged key — BYPASSES Row Level Security. Server-side only, optional.
+SUPABASE_SERVICE_ROLE_KEY = _supabase_env('SERVICE_ROLE_KEY')
+
+# Postgres schema PostgREST queries, and the client's HTTP timeout in seconds.
+SUPABASE_SCHEMA = _supabase_env('SCHEMA', 'public')
+SUPABASE_TIMEOUT = int(_supabase_env('TIMEOUT', '10'))
+
+# True once a URL and at least the anon key are present. Feature code should
+# ask ``apps.core.supabase.is_configured()`` rather than reading this directly.
+SUPABASE_ENABLED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
