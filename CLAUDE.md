@@ -4,7 +4,7 @@ A Django 6 **KPI dashboard** for a BPO/outsourcing org (Nexzys Intelligence / VI
 This file loads every session — keep it accurate.
 
 ## Stack & how to run
-- **Dev = Docker only** (Postgres in a container). Staging/prod = Supabase (`DATABASE_URL`). No SQLite.
+- **Dev = Docker only** (Postgres in a container). Staging = **Render** web service + **Render Postgres** (`DATABASE_URL`), files in **Cloudflare R2**. No SQLite.
 - Start: `docker compose up --build`. App at http://localhost:8000.
 - All Django commands run in the container: `docker compose exec web python manage.py <cmd>`.
 - **No rebuild for code/template/CSS changes** — bind mount + auto-reload + tailwind watcher pick them up. Rebuild only for dependency / Dockerfile / compose changes. If the reloader wedges on an app rename, `docker compose restart web`.
@@ -119,16 +119,19 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - **No `dimensions` list** — records are per site and the site names haven't been supplied, so the Function/Team dropdown and its table column are simply omitted (`import_context` handles an empty list).
 - Its Attrition Rate deliberately has no ceiling while HR's is scored at ≤4.0% — same metric, two owners, only one target given.
 
-## Supabase wiring (BUILT — connection only, no data yet)
-- **Two independent channels, don't conflate them:** (1) `DATABASE_URL` = Django ORM ↔ Postgres; (2) `SUPABASE_URL` + `SUPABASE_ANON_KEY` = the Supabase HTTP API (PostgREST/Auth/Storage/Realtime). **Dev stays on the Docker Postgres for both** — Supabase is the *staging* target.
-- `apps/core/supabase.py` — `get_client(service_role=False)` (`lru_cache`d), `is_configured()`, `has_service_role()`, `reset_clients()`. Client is built **lazily** and imports `supabase` inside the function, so missing/unreachable creds can never block boot. `SupabaseNotConfigured` (an `ImproperlyConfigured`) carries the fix in its message. Nothing reads or writes yet — this is wiring only.
-- Settings in `config/settings/base.py`: `SUPABASE_{URL,ANON_KEY,SERVICE_ROLE_KEY,SCHEMA,TIMEOUT,ENABLED}`. `_supabase_env()` accepts the **`REACT_APP_` prefix** too — the keys were handed over React-style, and both forms work.
-- `config/settings/staging.py` — inherits prod hardening, HSTS off by default (sticky on a throwaway domain), and **refuses to start unless Supabase is configured**.
-- `manage.py supabase_status [--ping]` (`apps/core/management/commands/`) — prints masked config, which DB the ORM points at, whether clients build, and optionally hits `/auth/v1/health`. Verified 200 against the live project.
-- `supabase==2.31.0` in `requirements/base.txt` → **needs `docker compose up --build`**, not just a restart.
-- **Staging DB verified 2026-08-04** (Postgres 17.6, `ap-southeast-1`, 0 tables — nothing migrated yet). The real `DATABASE_URL` sits **commented** in `.env` so dev can't drift onto it; set it in the staging server's env. Two gotchas baked into that line: the direct host `db.<ref>.supabase.co` is **IPv6-only** (unreachable from Docker) so use `aws-0-ap-southeast-1.pooler.supabase.com`, and **port 5432 = session mode** (supports the prepared statements psycopg uses; 6543 transaction mode would need extra Django config). Password contains `@` → `%40` in the URL.
-- **Before the first `migrate` against Supabase:** PostgREST auto-exposes `public` tables to the anon key, and Django-created tables land with RLS **off** — `auth_user` would be readable over HTTPS. Revoke anon/authenticated grants (or enable RLS) as part of that deploy.
-- Service-role key is stored **commented** in `.env` — nothing uses it, and enabling it in dev only creates a way to bypass RLS by accident.
+## Staging infra — Render + Cloudflare R2 (WIRED — connection only, no data yet)
+- **Supabase is GONE** (removed 2026-08-05, replaced before any data existed). Don't reintroduce `apps/core/supabase.py`, the `supabase` package, `SUPABASE_*` settings, or the `supabase_status` command.
+- **Two independent channels, don't conflate them:** (1) `DATABASE_URL` = Django ORM ↔ Postgres (dev: Docker container · staging: **Render Postgres**); (2) `R2_*` = uploaded files over the **S3 API** to **Cloudflare R2**. Dev keeps files on local disk.
+- `apps/core/storage.py` — `get_client()` (`lru_cache`d), `is_configured()`, `bucket_name()`, `upload_fileobj()`, `signed_url()`, `object_exists()`, `delete_object()`, `reset_clients()`. Client is built **lazily** and imports `boto3` inside the function, so missing/unreachable creds can never block boot. `R2NotConfigured` (an `ImproperlyConfigured`) carries the fix in its message. Nothing reads or writes yet — wiring only.
+- **Why boto3, not django-storages/`FileField`:** `db_schema.txt` models the pointer explicitly (`kpi_import_batch.storage_provider/_bucket/_path`), so a plain S3 client is the smaller fit.
+- **R2 gotcha baked in:** botocore ≥1.36 sends a CRC32 checksum on every upload by default, which S3-compatible providers can reject — the client passes `request_checksum_calculation='when_required'` (guarded by `try/except TypeError` for older botocore). R2 has no regions: `region_name='auto'`, endpoint derived as `https://<account_id>.r2.cloudflarestorage.com`.
+- Settings in `config/settings/base.py`: `R2_{ACCOUNT_ID,ACCESS_KEY_ID,SECRET_ACCESS_KEY,BUCKET,ENDPOINT_URL,REGION,TIMEOUT,SIGNED_URL_TTL,ENABLED}`. Four env vars are all that's needed; the rest have defaults.
+- `config/settings/prod.py` — adds **WhiteNoise** (static files; no nginx in front of gunicorn on Render) and auto-trusts Render's `RENDER_EXTERNAL_HOSTNAME` in `ALLOWED_HOSTS` + `CSRF_TRUSTED_ORIGINS`, so a fresh deploy works before anyone types the generated URL anywhere.
+- `config/settings/staging.py` — inherits prod hardening, HSTS off by default (sticky on a throwaway domain), and **refuses to start unless R2 is configured**.
+- `manage.py storage_status [--ping]` (`apps/core/management/commands/`) — prints masked R2 config, which DB the ORM points at, whether the client builds, and optionally `head_bucket`s. **Not yet run against a live bucket** (no credentials issued yet).
+- `render.yaml` (Blueprint: free Postgres + Docker web service, `DATABASE_URL` injected, `SECRET_KEY` generated, R2 secrets `sync: false`) + `render-start.sh` (migrate → collectstatic → gunicorn). Both run **at container start**, not in the Docker build — the build has no `DATABASE_URL`. No `healthCheckPath`: `SECURE_SSL_REDIRECT` would 301 a plain-HTTP probe.
+- `boto3` in `requirements/base.txt`, `gunicorn` + `whitenoise` in `prod.txt` → **needs `docker compose up --build`**, not just a restart.
+- **The bucket must stay private** — no r2.dev URL, no public custom domain. Downloads go through a Django view that re-checks team access and returns a short-lived signed URL.
 
 ## Current state / directives
 - **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.

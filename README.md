@@ -1,12 +1,13 @@
 # Vintazk360
 
 A Django 6 project with a Tailwind CSS frontend. **Development runs on Docker
-Compose (Postgres); production runs on Supabase (hosted Postgres).**
+Compose (Postgres); staging runs on Render (web service + Postgres) with
+uploaded files in Cloudflare R2.**
 
-| Environment | Database | How |
-|-------------|----------|-----|
-| **Development** | Local Postgres (Docker container) | `docker compose up` |
-| **Production / staging** | Supabase (hosted Postgres) | `DATABASE_URL` → Supabase |
+| Environment | Database | File storage | How |
+|-------------|----------|--------------|-----|
+| **Development** | Local Postgres (Docker container) | local disk | `docker compose up` |
+| **Staging / production** | Render Postgres | Cloudflare R2 | `DATABASE_URL` + `R2_*` |
 
 Postgres is used everywhere, so dev matches production. Styling is built with
 [Tailwind CSS](https://tailwindcss.com/) — see [Styling (Tailwind)](#styling-tailwind).
@@ -120,70 +121,79 @@ docker compose run --rm tailwind npm run build:css
 
 ---
 
-## Supabase (staging / production)
+## Staging: Render + Cloudflare R2
 
-Supabase is reached over **two independent channels**. Mixing them up is the
+Staging is reached over **two independent channels**. Mixing them up is the
 usual source of confusion, so they are kept separate:
 
 | Channel | Configured by | Used for |
 |---------|---------------|----------|
-| **Postgres (Django ORM)** | `DATABASE_URL` | Models, migrations, the admin — everything Django already does. |
-| **Supabase HTTP API** | `SUPABASE_URL` + `SUPABASE_ANON_KEY` | PostgREST / Auth / Storage / Realtime, via [`apps/core/supabase.py`](apps/core/supabase.py). |
+| **Postgres (Django ORM)** | `DATABASE_URL` → Render Postgres | Models, migrations, the admin — everything Django already does. |
+| **Object storage** | `R2_*` → Cloudflare R2 | Uploaded KPI import files, via [`apps/core/storage.py`](apps/core/storage.py). The database stores only a pointer. |
 
 **Development is unaffected by either** — it stays on the Docker Postgres
-container. Supabase is the staging target.
+container with files on local disk.
 
-### 1. Point the ORM at Supabase Postgres
+### 1. Deploy to Render
 
-The database is chosen entirely by `DATABASE_URL` — no code changes needed.
+The repo ships a Blueprint at [`render.yaml`](render.yaml). In the Render
+dashboard: **New → Blueprint**, point it at this repo, and it provisions the
+Postgres instance and the Docker web service already wired together. It prompts
+for the R2 secrets (step 2) and generates `SECRET_KEY` itself.
 
-1. In your Supabase project: **Project Settings → Database → Connection string**
-   and copy the connection pooler URL.
-2. Set it, plus the Django secrets, in the staging host's environment:
+- `DATABASE_URL` is injected from the provisioned database — never typed by hand.
+- `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS` are derived from Render's
+  `RENDER_EXTERNAL_HOSTNAME` (see [`config/settings/prod.py`](config/settings/prod.py)),
+  so the generated `*.onrender.com` URL works with no extra config. Set them
+  explicitly only when you attach a custom domain.
+- Migrations and `collectstatic` run at container start in
+  [`render-start.sh`](render-start.sh), then gunicorn takes over. The Docker
+  build cannot run them — it has no `DATABASE_URL`.
+- SSL to Postgres is required automatically for any non-local host (see
+  [`config/settings/base.py`](config/settings/base.py)).
 
-   ```
-   DATABASE_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-0-YOUR_REGION.pooler.supabase.com:6543/postgres
-   DJANGO_SETTINGS_MODULE=config.settings.staging
-   SECRET_KEY=your-staging-secret
-   ALLOWED_HOSTS=staging.your-domain.com
-   ```
+To connect from your laptop instead (psql, a GUI, a one-off migrate), use the
+**External** Database URL from Render → your database → *Connections*; the
+internal hostname only resolves inside Render.
 
-3. Run migrations against it:
+### 2. Cloudflare R2
 
-   ```bash
-   python manage.py migrate
-   ```
+Create a **private** bucket in Cloudflare → R2, then an **Account API token**
+with *Object Read & Write* scoped to it (R2 → API → Manage API tokens). That
+gives you four values:
 
-SSL is required automatically for any non-local host (see
-[`config/settings/base.py`](config/settings/base.py)), so Supabase connections
-are encrypted with no extra config.
+```
+R2_ACCOUNT_ID=          # R2 Overview → right sidebar → Account ID
+R2_ACCESS_KEY_ID=       # from the API token
+R2_SECRET_ACCESS_KEY=   # shown ONCE when the token is created
+R2_BUCKET=vintazk360-imports
+```
 
-### 2. The Supabase API client
-
-`SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env` are all that is needed. The
-client is built lazily on first use, so an unset or unreachable project can
-never stop the app from booting:
+Put them in `.env` locally, and in the Render service's **Environment** tab for
+staging. The client is built lazily on first use, so unset or unreachable
+storage can never stop the app from booting:
 
 ```python
-from apps.core.supabase import get_client, is_configured
+from apps.core import storage
 
-client = get_client()                      # anon key — Row Level Security applies
-admin  = get_client(service_role=True)     # service-role key — RLS BYPASSED, server-side only
+storage.upload_fileobj(f, 'operations/2026/08/attrition-<uuid>.csv')
+url = storage.signed_url('operations/2026/08/attrition-<uuid>.csv')  # short-lived
 ```
 
 Check the wiring at any time:
 
 ```bash
-docker compose exec web python manage.py supabase_status          # show config
-docker compose exec web python manage.py supabase_status --ping   # + reach the API
+docker compose exec web python manage.py storage_status          # show config
+docker compose exec web python manage.py storage_status --ping   # + reach the bucket
 ```
 
-> The **service-role key** bypasses Row Level Security. Keep it in the server
-> environment only, never in a template, JS bundle, or the repo.
+> Keep the bucket **private** — no public `r2.dev` URL, no public custom domain.
+> Downloads go through a Django view that re-checks team access and returns a
+> signed URL; a public bucket would make every team's raw performance data
+> readable by anyone with the link.
 
-> **Note:** The Docker `db` service is for local development only. In staging
-> and production you point `DATABASE_URL` at Supabase and never run the `db`
-> container.
+> **Note:** The Docker `db` service is for local development only. On Render you
+> point `DATABASE_URL` at Render Postgres and never run the `db` container.
 
 ---
 
@@ -191,20 +201,20 @@ docker compose exec web python manage.py supabase_status --ping   # + reach the 
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | Yes | Postgres connection string (Docker Postgres for dev, Supabase for prod). See [`.env.example`](.env.example). |
-| `DATABASE_SSL` | No | `require` or `disable` to force SSL on/off. Auto-detected by default (off for `localhost`/`db`, on for remote hosts like Supabase). |
+| `DATABASE_URL` | Yes | Postgres connection string (Docker Postgres for dev, Render Postgres for staging). See [`.env.example`](.env.example). |
+| `DATABASE_SSL` | No | `require` or `disable` to force SSL on/off. Auto-detected by default (off for `localhost`/`db`, on for remote hosts like Render). |
 | `DJANGO_SETTINGS_MODULE` | No | `config.settings.dev` (default), `.staging`, or `.prod`. |
 | `SECRET_KEY` | Staging/Prod | Required by `config.settings.staging` and `.prod`. |
-| `ALLOWED_HOSTS` | Staging/Prod | Comma-separated hostnames; required outside development. |
-| `SUPABASE_URL` | Staging | Supabase project URL, e.g. `https://<ref>.supabase.co`. |
-| `SUPABASE_ANON_KEY` | Staging | Public API key; Row Level Security still applies to it. |
-| `SUPABASE_SERVICE_ROLE_KEY` | No | Privileged key that **bypasses RLS** — server-side only. |
-| `SUPABASE_SCHEMA` | No | Postgres schema the API queries (default `public`). |
-| `SUPABASE_TIMEOUT` | No | Supabase HTTP timeout in seconds (default `10`). |
-
-The `SUPABASE_*` variables are also accepted with the `REACT_APP_` prefix they
-are often handed over with (`REACT_APP_SUPABASE_URL` etc.), so either form
-works in `.env`.
+| `ALLOWED_HOSTS` | Staging/Prod | Comma-separated hostnames. On Render, `RENDER_EXTERNAL_HOSTNAME` is added automatically. |
+| `CSRF_TRUSTED_ORIGINS` | No | Comma-separated origins with scheme. The Render hostname is added automatically. |
+| `R2_ACCOUNT_ID` | Staging | Cloudflare account ID — the endpoint is derived from it. |
+| `R2_ACCESS_KEY_ID` | Staging | R2 API token key ID. |
+| `R2_SECRET_ACCESS_KEY` | Staging | R2 API token secret — server-side only. |
+| `R2_BUCKET` | Staging | Bucket name (default `vintazk360-imports`). Must be private. |
+| `R2_ENDPOINT_URL` | No | Override only for jurisdiction-specific endpoints. |
+| `R2_TIMEOUT` | No | S3 API timeout in seconds (default `10`). |
+| `R2_SIGNED_URL_TTL` | No | Download-link lifetime in seconds (default `300`). |
+| `WEB_CONCURRENCY` | No | gunicorn worker count on Render (default `2`). |
 
 `.env` is gitignored. Never commit real secrets — commit changes to
 [`.env.example`](.env.example) instead.
@@ -220,10 +230,10 @@ vintazk360/
 │   └── dashboard/           # Dashboard app — home page + templates
 ├── config/                  # Django project package
 │   ├── settings/            # Split settings
-│   │   ├── base.py          # Shared settings (incl. Supabase config)
+│   │   ├── base.py          # Shared settings (incl. database + R2 config)
 │   │   ├── dev.py           # Development (default)
-│   │   ├── staging.py       # Staging — runs against Supabase
-│   │   └── prod.py          # Production hardening
+│   │   ├── staging.py       # Staging — Render + Cloudflare R2
+│   │   └── prod.py          # Production hardening (+ Render/WhiteNoise)
 │   ├── urls.py
 │   ├── wsgi.py
 │   └── asgi.py
@@ -244,7 +254,9 @@ vintazk360/
 ├── tailwind.config.js       # Tailwind configuration
 ├── Dockerfile               # Web app image (Tailwind build + Python stages)
 ├── docker-compose.yml       # Local dev stack (db + web + tailwind)
-├── entrypoint.sh            # Container startup: migrate + runserver
+├── entrypoint.sh            # Dev container startup: migrate + runserver
+├── render.yaml              # Render Blueprint (web service + Postgres)
+├── render-start.sh          # Render startup: migrate + collectstatic + gunicorn
 └── .env.example             # Template for your local .env
 ```
 
@@ -258,8 +270,8 @@ Settings are split under `config/settings/`. Choose one via the
 
 - `config.settings.dev` — **default** everywhere (manage.py / wsgi / asgi fall
   back to it), so a fresh clone runs with zero config.
-- `config.settings.staging` — staging on Supabase. Inherits production's
-  hardening (minus sticky HSTS) and additionally refuses to start without
-  `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+- `config.settings.staging` — staging on Render. Inherits production's
+  hardening (minus sticky HSTS) and additionally refuses to start without the
+  Cloudflare R2 credentials.
 - `config.settings.prod` — production. Requires `SECRET_KEY` and `ALLOWED_HOSTS`
   in the environment and refuses to start without them.

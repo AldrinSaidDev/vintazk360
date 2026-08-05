@@ -1,0 +1,863 @@
+# Vintazk 360 — KPI Database Schema
+
+**Version:** 2 · **Status:** proposal for review · **Date:** 2026-08-04
+**Target:** PostgreSQL 15+ (dev: Docker · staging: Render Postgres)
+**File storage:** Cloudflare R2 (private bucket, S3 API)
+
+---
+
+## At a glance
+
+| | |
+|---|---|
+| **What this enables** | Managers create their own KPIs — including the formula — download a matching CSV, fill it in, upload it, and see it scored on the dashboard |
+| **New tables** | 13, in a new `apps/kpi` Django app |
+| **Existing tables changed** | 1 — `core_userprofile.role` narrows from four roles to three |
+| **Key idea** | A formula is stored as an **expression over named inputs**, and those inputs *are* the CSV columns |
+| **Pre-installed KPIs** | 2 (Attrition Rate, Billable Hours). The other ~80 sit in a library managers adopt from |
+| **File storage** | Uploaded CSVs go to external object storage; the database holds a pointer |
+
+**The schema is six moving parts:**
+
+| Part | Tables | What it does |
+|---|---|---|
+| **KPI Library** | `kpi_preset`, `kpi_preset_input` | The ~80 known KPIs, offered for one-click adoption |
+| **KPI Definitions** | `kpi_definition`, `kpi_input`, `kpi_branch`, `kpi_category` | A team's own KPIs, their formulas, and their operands |
+| **Formula History** | `kpi_formula_history` | Every formula a KPI has ever had, and when it changed |
+| **Target History** | `kpi_target_history` | Every target a KPI has ever had, and why it changed |
+| **Import History** | `kpi_import_batch`, `kpi_import_issue`, `kpi_record`, `kpi_record_input` | Uploads, the actuals they produced, and the rows they rejected |
+| **Audit Logs** | `audit_log` | One generic trail for every change anywhere in the system |
+
+Formula History and Target History are complementary: together they answer *"what formula and what target
+was this period actually judged by?"* — neither answers it alone.
+
+---
+
+## Context
+
+Today every KPI in Vintazk 360 is a **Python dictionary hard-coded in a view file** — roughly 80 of
+them across 10 lines of business. Nothing is stored, nothing can be created by a manager, and no
+actual performance number has anywhere to live: the "Add Performance Record" modal computes a value
+in the browser and throws it away.
+
+The workflow this schema has to support:
+
+```
+  1. A manager CREATES a KPI          →  name, category, target, cadence, and a FORMULA THEY BUILD
+                                          themselves — a + b ÷ c, in whatever order they need
+  2. The system GENERATES a CSV       →  its columns come from that KPI's own formula inputs
+     template from that formula
+  3. The team FILLS IN the CSV        →  they type raw numbers only, never a computed %
+  4. A manager UPLOADS it             →  the file identifies itself; rows are parsed, validated,
+                                          scored, and attached to the correct KPI
+  5. Dashboards read the stored       →  Actual vs Target + status, from real data
+     records
+```
+
+End to end, in tables:
+
+```
+Manager
+    ↓
+Choose preset OR Create From Scratch
+    ↓
+kpi_definition
+    ↓
+kpi_input
+    ↓
+Download CSV
+    ↓
+Upload CSV
+    ↓
+kpi_import_batch
+    ↓
+kpi_record
+    ↓
+kpi_record_input
+    ↓
+Dashboard
+```
+
+Two ideas carry the whole design:
+
+**A formula must be data, not prose.** The current `formula` field is a sentence —
+`"Total exits ÷ Average headcount × 100"`. A sentence cannot generate a CSV header and cannot tell a
+parser which column is the numerator. So a KPI stores an **expression** over **named inputs**, and
+those inputs *are* the CSV columns.
+
+**The formula must be author-able by a manager, not a developer.** Anything less than a real
+expression — a fixed menu of shapes — runs out the first time someone needs `(a + b) ÷ c`.
+
+Intended outcome: KPI definitions and KPI actuals become real, queryable, per-team database records,
+and the business defines its own metrics without touching code.
+
+---
+
+## Design principles
+
+1. **The formula is open, not a menu.** A manager composes an expression with their own operands and
+   their own order of operations. Presets exist as UI convenience only.
+2. **Store raw inputs, not just the answer.** A record keeps `12` and `380`, not only `3.1%`.
+   Correct a formula or a target later and every historical value can be recomputed. Store only the
+   percentage and that is gone forever.
+3. **One identifier, three jobs.** `kpi_input.key` is simultaneously the variable name in the
+   expression, the CSV column header, and the form field's name. `total_exits / average_headcount`
+   is the formula *and* describes the spreadsheet.
+4. **Targets are always bands.** A single target is a band of width zero — one piece of math serves
+   `95%`, `40–80/month`, and `within ±5%` alike. `NULL / NULL` means tracked but not scored.
+5. **Scores are cached, never authoritative.** `attainment` and `status` sit on the record so charts
+   don't recompute per page load, but are always re-derivable.
+6. **Everything is scoped to a Team.** `core_team.slug` already drives the sidebar and the access
+   guard; KPI rows hang off it, so access control needs no new concepts.
+7. **Nothing is destroyed.** `is_active` retires a KPI; batches keep their file and their errors;
+   formula and target changes append rather than overwrite; `audit_log` records who did it.
+
+---
+
+## Where it lives
+
+A new Django app, **`apps/kpi`** (`label = 'kpi'`), holding the 13 tables below with explicit
+`db_table` names (`kpi_definition`, `kpi_record`, …). `apps/core` stays what it is: access control
+(`Team`, `UserProfile`) plus shared helpers — and it is the natural home for `audit_log`'s writer
+helper, since the whole system calls it.
+
+The existing scoring module `apps/core/kpi.py` moves to `apps/kpi/scoring.py` — the band/attainment/
+status math is correct and in production across 7 LOBs; only its home changes. A new
+`apps/kpi/formula.py` holds the expression parser and evaluator.
+
+---
+
+## Entity relationship
+
+```mermaid
+erDiagram
+    TEAM              ||--o{ KPI_BRANCH        : "splits into"
+    TEAM              ||--o{ KPI_CATEGORY      : groups
+    TEAM              ||--o{ KPI_DEFINITION    : owns
+    TEAM              ||--o{ KPI_IMPORT_BATCH  : receives
+    TEAM              ||--o{ AUDIT_LOG         : "scoped to"
+
+    KPI_preset     ||--|{ KPI_preset_INPUT : "operands"
+    KPI_preset     ||--o{ KPI_DEFINITION      : "adopted as"
+
+    KPI_BRANCH        ||--o{ KPI_DEFINITION    : scopes
+    KPI_CATEGORY      ||--o{ KPI_DEFINITION    : classifies
+
+    KPI_DEFINITION    ||--|{ KPI_INPUT           : "formula operands (1..N)"
+    KPI_DEFINITION    ||--o{ KPI_RECORD          : "actuals over time"
+    KPI_DEFINITION    ||--o{ KPI_TARGET_HISTORY  : "target changes"
+    KPI_DEFINITION    ||--o{ KPI_FORMULA_HISTORY : "formula changes"
+
+    KPI_RECORD        ||--|{ KPI_RECORD_INPUT  : "raw numbers entered"
+    KPI_INPUT         ||--o{ KPI_RECORD_INPUT  : "typed as"
+
+    KPI_IMPORT_BATCH  ||--o{ KPI_RECORD        : produced
+    KPI_IMPORT_BATCH  ||--o{ KPI_IMPORT_ISSUE  : "rejected rows"
+
+    USER              ||--o{ KPI_DEFINITION    : created
+    USER              ||--o{ KPI_RECORD        : entered
+    USER              ||--o{ KPI_IMPORT_BATCH  : uploaded
+    USER              ||--o{ AUDIT_LOG         : acted
+```
+
+---
+
+# PART A — The formula engine
+
+Read this before the tables — it explains what most of them exist to serve.
+
+## A.1 · How a manager builds a formula
+
+A KPI is defined by **an ordered list of named inputs** plus **one expression** that combines them.
+
+**Example — a manager creating "Quality Score" from scratch:**
+
+| Step | What they do | What is stored |
+|---|---|---|
+| 1 | Add input: *"QA audit score"* | `kpi_input(key='qa_score', label='QA audit score', position=1)` |
+| 2 | Add input: *"Attendance score"* | `kpi_input(key='attendance', label='Attendance score', position=2)` |
+| 3 | Add input: *"Number of audits"* | `kpi_input(key='audits', label='Number of audits', position=3)` |
+| 4 | Build the formula | `expression = '(qa_score + attendance) / audits'` |
+| 5 | Choose display | `display_format = 'percent'`, `precision = 1` |
+
+That KPI now generates a CSV with columns `period, qa_score, attendance, audits` and computes
+itself. **No code was written.** The importer never learns what "Quality Score" means.
+
+## A.2 · The expression language
+
+Deliberately tiny — large enough for any KPI in the business, small enough to be safe.
+
+| Allowed | |
+|---|---|
+| Input keys | `total_exits`, `qa_score` — any `kpi_input.key` on this KPI |
+| Numbers | `100`, `0.5`, `500` — constants live in the formula, no table needed |
+| Operators | `+` `-` `*` `/` and parentheses `( )` for explicit ordering |
+| Functions | `abs()` `min()` `max()` `round()` `days_between()` |
+
+**Not allowed:** names, attributes, calls, or comparisons of any other kind.
+
+**Evaluation is by whitelisted AST walk, never `eval()`.** The string is parsed with Python's `ast`
+module and every node is checked against the list above; anything else is rejected at save time.
+`eval()` on a manager-supplied string would be a remote-code-execution hole in a login-protected
+admin tool — this is not a theoretical concern.
+
+Validation at save time also confirms: every name in the expression matches an input on this KPI,
+every input is referenced at least once, and the expression evaluates against a sample row.
+
+## A.3 · "What comes first" — ordering
+
+Parentheses carry the order, exactly as in Excel. `(a + b) / c` and `a + (b / c)` are different
+formulas and both are expressible.
+
+**Recommendation on the UI:** build a visual step/token builder — pick an input, pick an operator,
+pick the next input, wrap a group in brackets — and have it **emit the expression string**. When the
+manager reopens the KPI to edit, parse the string back into the builder.
+
+**Do not store the builder's steps as separate rows.** A step table plus an expression string is two
+sources of truth for one fact, and they will drift the first time anyone edits either. The
+expression is the single stored form; the builder is a view over it. `apps/kpi/formula.py` owns both
+directions.
+
+## A.4 · Presets — the common shapes, offered as starting points
+
+Eleven shapes cover the overwhelming majority of KPIs in the business. They appear as **starter
+templates** in the Add-KPI form, pre-filling `expression` and `display_format`; managers pick one
+most of the time and hand-build the rest. The table also demonstrates that the expression model
+covers every KPI currently defined anywhere in the app:
+
+| Preset | `expression` | `display_format` | `unit` |
+|---|---|---|---|
+| Percentage | `a / b * 100` | `percent` | |
+| Simple count | `a` | `integer` | |
+| Average | `a / b` | `number` | ` days` |
+| Ratio | `a / b` | `ratio` | `×` |
+| Cost per unit | `a / b` | `currency` | `₱` |
+| Difference | `a - b` | `number` | |
+| Days between | `days_between(a, b)` | `days` | ` days` |
+| Accuracy net of errors | `(a - b) / a * 100` | `percent` | |
+| Variance vs budget | `(a - b) / b * 100` | `percent` | |
+| Forecast accuracy | `(1 - abs(a - b) / b) * 100` | `percent` | |
+| Scaled (3 inputs) | `a / b * c` | `number` | ` days` |
+
+**Why calculation and display are two separate fields.** Look at rows 1, 3, 4 and 5: *Percentage*,
+*Average*, *Ratio* and *Cost per unit* are all the same sum — `a ÷ b` — differing only in how the
+answer prints ("93%", "8.6 days", "3.4×", "₱1,240"). Any model that treats those as four different
+*calculation* types is both bloated and, at the same time, unable to express a formula nobody
+anticipated. Separating `expression` from `display_format` makes the model smaller and unbounded.
+
+## A.5 · Aggregation — many rows into one number
+
+Not every KPI has one row per period. Two examples, with completely different row shapes:
+
+| | Attrition Rate | Headcount |
+|---|---|---|
+| A CSV row is… | the whole month | **one hire** |
+| Rows → records | 1 row = 1 record | **many rows → 1 record** |
+| The value is… | `exits / headcount * 100` on that row | **a count of the rows** |
+
+So each input declares how its column collapses over a period:
+
+| `kpi_input.aggregation` | Meaning |
+|---|---|
+| `none` | exactly one row per period; more than one is an error |
+| `sum` | add the column across the period's rows — *"+1, +2, +1" → 4* |
+| `count` | count the rows; the column may be empty — *one row per hire → headcount* |
+| `avg` · `min` · `max` · `last` | the obvious |
+
+Attrition Rate uses `none` on both inputs. Headcount uses `count` (or `sum` over a `+1/+2` delta
+column). Same table, same importer, no special cases.
+
+**Flow vs stock.** `kpi_definition.accumulation` decides whether a period stands alone or carries
+forward:
+
+| Value | Meaning |
+|---|---|
+| `period` | the value is that period's own figure (attrition, CSAT) — **default** |
+| `cumulative` | running total: this period's value + everything before it, from `baseline_value` |
+
+Headcount is the classic `cumulative` case — +2 in July means *last month's total + 2*, not `2`.
+This is cheap to include now and painful to retrofit once there is data.
+
+## A.6 · Changing a formula — template versioning
+
+A formula is not frozen; a manager may rename an operand, add one, or fix the maths. Three rules
+keep old and new data from colliding:
+
+1. **Every formula change appends a `kpi_formula_history` row** — the previous expression, its
+   `formula_text`, and its `template_version` are preserved before the new one is written.
+2. **Every formula change increments `kpi_definition.template_version`.** Any edit to `expression`,
+   `score_expression`, or to the KPI's `kpi_input` set (adding, removing, renaming, or reordering a
+   key) bumps it. Cosmetic edits — description, sort order, category — do not.
+3. **Newly generated CSV templates always carry the latest version**, and the importer rejects a
+   file whose `template=` header is lower than the KPI's current `template_version` unless the
+   upload is explicitly marked as legacy. An old template's columns no longer match the current
+   operands, so accepting it would silently write the wrong numbers into the wrong inputs.
+
+Because `kpi_record_input` stores the raw operands and `kpi_formula_history` stores the formula that
+was in force, historical records can be **recalculated** against a corrected formula rather than
+discarded.
+
+---
+
+# PART B — The tables
+
+## Already built (unchanged except roles)
+
+| Table | Purpose |
+|---|---|
+| `core_team` | One row per LOB. `slug` = URL namespace = access key. |
+| `core_userprofile` | `role` — **three values, see Part C** |
+| `core_userprofile_teams` | M2M — which teams a user may reach |
+| `auth_user` | Django auth. Employee ID is the username for now. |
+
+---
+
+## 1 · `kpi_preset` — the adoptable KPI library
+
+The ~80 KPIs currently hardcoded are the **right** KPIs — but they should not be force-installed
+into every team. They live here as **global presets** a manager browses and adopts with one
+click, then sets their own target on. Adopting copies the preset into `kpi_definition`; editing
+the copy never touches the preset.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `name` | varchar(120) | "Client Retention Rate" |
+| `slug` | varchar(120) UNIQUE | |
+| `suggested_category` | varchar(80) | "Financial" |
+| `description` | text | |
+| `expression` | varchar(255) | `a / b * 100` |
+| `display_format` | varchar(12) | see `kpi_definition` |
+| `unit` | varchar(16) | |
+| `direction` | varchar(4) | `up` \| `down` |
+| `frequency` | varchar(12) | suggested cadence |
+| `suggested_target_min` / `_max` | numeric(14,4) NULL | a hint; the manager overrides |
+| `applies_to_team_id` | FK → `core_team` NULL | NULL = offered to every team |
+| `is_seeded` | boolean | true for Attrition Rate + Billable Hours (auto-installed) |
+| `is_active` | boolean | |
+
+## 2 · `kpi_preset_input`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `preset_id` | FK → `kpi_preset` | CASCADE |
+| `key` | varchar(60) | `total_exits` |
+| `label` | varchar(120) | "Total exits" |
+| `placeholder` | varchar(60) | "e.g. 12" |
+| `data_type` | varchar(10) | `number` \| `integer` \| `date` \| `currency` |
+| `aggregation` | varchar(8) | default `none` |
+| `position` | smallint | |
+
+`UNIQUE (preset_id, key)`
+
+---
+
+## 3 · `kpi_branch` — sub-teams
+
+Sales splits into SEO / Lead Gen / Transitions via a hardcoded list today. As data, a new branch is
+a row rather than a deploy.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `team_id` | FK → `core_team` | CASCADE |
+| `name` / `slug` | varchar(100) / varchar(50) | slug matches the URL segment |
+| `order` | smallint | sidebar sort |
+| `is_active` | boolean | |
+
+`UNIQUE (team_id, slug)`
+
+---
+
+## 4 · `kpi_category` — grouping within a team
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `team_id` | FK → `core_team` | CASCADE |
+| `name` | varchar(80) | "Client Impact" |
+| `order` | smallint | |
+
+`UNIQUE (team_id, name)` — a table rather than a free string so the Add-KPI dropdown grows without a
+deploy and a typo can't silently spawn a category.
+
+---
+
+## 5 · `kpi_definition` — the KPI itself ★
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `team_id` | FK → `core_team` | PROTECT · **never NULL** |
+| `branch_id` | FK → `kpi_branch` NULL | NULL = team-level KPI |
+| `category_id` | FK → `kpi_category` NULL | SET NULL |
+| `preset_id` | FK → `kpi_preset` NULL | provenance if adopted; NULL if hand-built |
+| `name` | varchar(120) | "Attrition Rate" |
+| `slug` | varchar(120) | **stable — the CSV binds to this** |
+| `description` | text | |
+| **`expression`** | varchar(255) | **`total_exits / average_headcount * 100`** ★ |
+| `score_expression` | varchar(255) NULL | when the graded number ≠ the shown number — e.g. `abs(value)` for a signed variance |
+| `display_format` | varchar(12) | `percent` \| `number` \| `integer` \| `currency` \| `ratio` \| `days` |
+| `unit` | varchar(16) | ` days`, `×`, `₱` — display suffix |
+| `precision` | smallint | decimal places, default 1 |
+| `accumulation` | varchar(10) | `period` (default) \| `cumulative` |
+| `baseline_value` | numeric(14,4) NULL | starting point when `cumulative` |
+| `direction` | varchar(4) | `up` \| `down` |
+| `frequency` | varchar(12) | daily / weekly / monthly / quarterly / annually |
+| `target_min` | numeric(14,4) NULL | |
+| `target_max` | numeric(14,4) NULL | single target ⇒ `min = max`; both NULL ⇒ *monitored* |
+| `target_display` | varchar(60) | "≥95%", "40–80 / month", "Threshold 3.5%" |
+| `formula_text` | varchar(255) | prose for humans — **generated from the expression**, not typed |
+| `template_version` | smallint | **incremented on every formula or input change** (A.6), so stale CSVs are rejected |
+| `is_active` | boolean | retire without deleting |
+| `sort_order` | smallint | card order on the scorecard |
+| `created_by_id` | FK → `auth_user` NULL | SET NULL |
+| `created_at` / `updated_at` | timestamptz | |
+
+`UNIQUE (team_id, branch_id, slug)`
+`CHECK (target_min IS NULL OR target_max IS NULL OR target_min <= target_max)`
+`CHECK (accumulation <> 'cumulative' OR baseline_value IS NOT NULL)`
+Index on `(team_id, is_active)`
+
+> `formula_text` exists only because the KPI Definitions screen shows a readable sentence. It is
+> **rendered from** `expression` + the input labels on save — never hand-typed, so it can never
+> disagree with the maths the way a free-text field can.
+
+---
+
+## 6 · `kpi_input` — the operands = the CSV columns ★★
+
+The keystone. One row per operand, **1..N** per KPI.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `kpi_id` | FK → `kpi_definition` | CASCADE |
+| **`key`** | varchar(60) | **`total_exits` — the expression variable AND the CSV header** ★ |
+| `label` | varchar(120) | "Total exits" — the form field's label |
+| `placeholder` | varchar(60) | "e.g. 12" |
+| `data_type` | varchar(10) | `number` \| `integer` \| `date` \| `currency` |
+| `aggregation` | varchar(8) | `none` \| `sum` \| `count` \| `avg` \| `min` \| `max` \| `last` |
+| `position` | smallint | display order in the form and the CSV |
+| `help_text` | varchar(160) NULL | guidance in the CSV's instruction block |
+| `is_required` | boolean | a blank cell is an error vs. treated as 0 |
+
+`UNIQUE (kpi_id, key)` · `key` must match `^[a-z][a-z0-9_]*$` (a valid identifier — it goes into the
+expression)
+
+**Worked example — Attrition Rate**, `expression = 'total_exits / average_headcount * 100'`:
+
+| key | label | data_type | aggregation | position |
+|---|---|---|---|---|
+| `total_exits` | Total exits | integer | none | 1 |
+| `average_headcount` | Average headcount | integer | none | 2 |
+
+**Worked example — HR Headcount**, `expression = 'new_hires'`, `accumulation = 'cumulative'`:
+
+| key | label | data_type | aggregation | position |
+|---|---|---|---|---|
+| `new_hires` | Hires this row | integer | **sum** | 1 |
+
+One CSV row per hire carrying `1`, or one row carrying `2` — both sum to the same monthly figure,
+then accumulate onto the running total.
+
+---
+
+## 7 · `kpi_record` — one actual, for one KPI, one period ★
+
+**What the dashboards read.**
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `kpi_id` | FK → `kpi_definition` | CASCADE |
+| `period_start` | date | first day of the reporting period |
+| `period_end` | date | derived from `frequency` on save |
+| `value` | numeric(14,4) | the expression's result |
+| `score` | numeric(14,4) NULL | `score_expression`'s result when it differs from `value` |
+| `value_display` | varchar(40) | "3.1%", "8.6 days", "₱1,240" |
+| `attainment` | numeric(7,2) NULL | cached % of target; NULL when unscored |
+| `status` | varchar(12) | `on_track` \| `at_risk` \| `below` \| `monitored` — cached |
+| `source` | varchar(10) | `manual` \| `import` \| `api` |
+| `import_batch_id` | FK → `kpi_import_batch` NULL | SET NULL — provenance |
+| `remarks` | text | the modal's Remarks box |
+| `entered_by_id` | FK → `auth_user` NULL | SET NULL |
+| `created_at` / `updated_at` | timestamptz | |
+
+`UNIQUE (kpi_id, period_start)`
+Index on `(kpi_id, period_start DESC)` — every scorecard query is "latest period for this KPI"
+
+One KPI has exactly one number per reporting period. That constraint is also what makes
+**re-uploading a corrected file safe**: the parser upserts on the same key, so fixing a typo updates
+the month rather than duplicating it.
+
+---
+
+## 8 · `kpi_record_input` — the raw numbers behind the value ★
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `record_id` | FK → `kpi_record` | CASCADE |
+| `input_id` | FK → `kpi_input` | PROTECT |
+| `value_number` | numeric(16,4) NULL | number / integer / currency |
+| `value_date` | date NULL | for date inputs |
+
+`UNIQUE (record_id, input_id)` · `CHECK (num_nonnulls(value_number, value_date) = 1)`
+
+The record stores `3.1%`; these store `12` and `380`. Without them "why is this 3.1%?" is
+unanswerable and a corrected formula can never re-derive history.
+
+> *Alternative considered:* a single `jsonb` column on `kpi_record`. One less join, but the values
+> stop being typed, constrained, or aggregatable in SQL. The join is always by primary key — keep
+> the table.
+
+---
+
+## 9 · `kpi_import_batch` — one upload
+
+Feeds the **Recent Import History** panel already on the Import Data screen. **The file itself is
+not stored in Postgres** — this row is a pointer into object storage.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `team_id` | FK → `core_team` | CASCADE |
+| `branch_id` | FK → `kpi_branch` NULL | |
+| `kpi_id` | FK → `kpi_definition` NULL | set when the file targets one KPI |
+| `file_name` | varchar(255) | as uploaded, for display |
+| **`storage_provider`** | varchar(20) | `r2` \| `s3` \| `local` |
+| **`storage_bucket`** | varchar(100) | e.g. `kpi-imports` |
+| **`storage_path`** | varchar(500) | `operations/2026/08/attrition-july-<uuid>.csv` |
+| `file_size` | integer | bytes |
+| `file_hash` | char(64) NULL | sha256 — warns on an accidental duplicate upload |
+| `content_type` | varchar(60) | `text/csv` |
+| `template_version` | smallint | from the file header; compared against the KPI's current version |
+| `template_generated_at` | timestamptz NULL | from the file's `generated=` header — when the template was downloaded |
+| `uploaded_at` | timestamptz | when the file arrived, distinct from when processing finished |
+| `status` | varchar(10) | `pending` \| `applied` \| `partial` \| `failed` |
+| `row_count` / `created_count` / `updated_count` / `error_count` | integer | the summary line |
+| `uploaded_by_id` | FK → `auth_user` NULL | |
+| `created_at` / `completed_at` | timestamptz | |
+
+`UNIQUE (storage_provider, storage_bucket, storage_path)`
+
+**Why the three template fields.** `template_version` + `template_generated_at` let the importer
+validate an uploaded file against the **formula version it was generated for**: a file whose version
+is below `kpi_definition.template_version` was filled against a formula that no longer applies and is
+rejected with a clear message ("this template is out of date — download a fresh one"). Keeping
+`uploaded_at` separate from `completed_at` makes a slow or stuck import visible.
+
+**Storage: Cloudflare R2** (decided 2026-08-05). `apps/core/storage.py` already builds an
+authenticated S3 client against the bucket — 10 GB free, no egress fees, and S3-compatible, so
+swapping to S3 proper later means changing credentials, not the schema. The three `storage_*`
+columns are why this is a plain client rather than a Django `FileField`: the pointer is modelled
+explicitly, and `storage_provider` records which vendor held the object.
+
+The bucket must be **private**; downloads go through a Django view that re-checks team access and
+hands back a short-lived signed URL (`storage.signed_url()`). A public bucket — an r2.dev URL or a
+public custom domain — would make every team's raw performance data world-readable by URL.
+
+---
+
+## 10 · `kpi_import_issue` — per-row rejections
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `batch_id` | FK → `kpi_import_batch` | CASCADE |
+| `row_number` | integer | 1-based, as the user sees it in Excel |
+| `column_key` | varchar(60) NULL | which column, when column-specific |
+| `raw_value` | varchar(255) NULL | what was actually typed |
+| `severity` | varchar(8) | `error` (row skipped) \| `warning` (row applied) |
+| `message` | varchar(255) | *"'n/a' is not a number"* |
+
+Without this the user is told "1 row failed" and has no way to find out which, or why.
+
+---
+
+## 11 · `kpi_target_history` — target changes over time
+
+Changing a target silently rewrites how every past period reads: a July that was "On Track" becomes
+"Below Target" with no record of why. One append-only row per change makes it traceable, and later
+allows scoring each period against the target actually in force at the time.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `kpi_id` | FK → `kpi_definition` | CASCADE |
+| `target_min` / `target_max` | numeric(14,4) NULL | the values as of `effective_from` |
+| `target_display` | varchar(60) | |
+| `effective_from` | date | |
+| `reason` | varchar(255) | "FY27 goal reset" |
+| `changed_by_id` | FK → `auth_user` NULL | |
+| `changed_at` | timestamptz | |
+
+---
+
+## 12 · `kpi_formula_history` — formula changes over time
+
+The companion to table 11. A target change moves the goalposts; a **formula** change redefines the
+number itself — the same 12 exits and 380 headcount can mean something different after an edit. One
+append-only row per change preserves what the maths used to be.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `kpi_id` | FK → `kpi_definition` | CASCADE |
+| `expression` | varchar(255) | the formula as of `effective_from` |
+| `score_expression` | varchar(255) NULL | the scoring formula, when one was set |
+| `formula_text` | varchar(255) | the human-readable rendering at that time |
+| `template_version` | smallint | the CSV template version this formula produced |
+| `effective_from` | date | when this formula became active |
+| `reason` | varchar(255) | "Denominator changed to average, not opening, headcount" |
+| `changed_by_id` | FK → `auth_user` NULL | |
+| `changed_at` | timestamptz | |
+
+Index on `(kpi_id, effective_from DESC)`
+
+**What it buys:**
+
+- **Previous formulas are preserved** rather than overwritten.
+- **Formula edits are auditable** — who changed the maths, when, and why.
+- **Historical records stay explainable** — you can state which formula produced a 2026-07 value.
+- **Recalculation becomes possible** — pair a history row with the raw `kpi_record_input` values and
+  any past period can be recomputed under either the old or the new formula.
+- **Uploaded files can be matched to a formula version** via `template_version`.
+
+**Formula History complements Target History.** Target history answers *"what were we aiming at?"*;
+formula history answers *"how was the number worked out?"*. A period is only fully explainable with
+both, which is why they are separate append-only tables with the same shape rather than one merged
+"change log".
+
+---
+
+## 13 · `audit_log` — one trail for the whole system
+
+**Not KPI-specific.** Every feature — KPI editing, imports, branches, categories, authentication, user
+management — writes here. One generic table **replaces the need for a per-feature log table**
+(`kpi_change_log`, `user_activity`, `import_log`, …), which would otherwise multiply as the app grows
+and leave every screen querying a different shape.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigserial PK | |
+| `user_id` | FK → `auth_user` NULL | SET NULL — who acted; NULL for system actions |
+| `team_id` | FK → `core_team` NULL | scope, when the action belongs to a team |
+| `action` | varchar(50) | `created` \| `updated` \| `deleted` \| `imported` \| `login` \| … |
+| `entity_type` | varchar(50) | `kpi_definition`, `kpi_target`, `kpi_formula`, `kpi_branch`, `user`, … |
+| `entity_id` | bigint | the row's PK |
+| `entity_name` | varchar(120) | "Attrition Rate" — kept denormalised so the log still reads after a delete |
+| `old_values` | jsonb NULL | changed fields before |
+| `new_values` | jsonb NULL | changed fields after |
+| `ip_address` | inet NULL | |
+| `user_agent` | text NULL | |
+| `created_at` | timestamptz | |
+
+Index on `(team_id, created_at DESC)` and `(entity_type, entity_id)`
+
+**Events it captures:**
+
+| Event | `action` / `entity_type` |
+|---|---|
+| KPI created | `created` / `kpi_definition` |
+| KPI updated | `updated` / `kpi_definition` |
+| KPI deleted (retired) | `deleted` / `kpi_definition` |
+| Formula changed | `formula_changed` / `kpi_definition` |
+| Target changed | `target_changed` / `kpi_definition` |
+| CSV imported | `imported` / `kpi_import_batch` |
+| Branch created | `created` / `kpi_branch` |
+| Category updated | `updated` / `kpi_category` |
+| User login | `login` / `user` |
+| User management change | `created` / `updated` / `deleted` / `user` |
+
+`audit_log` and the two history tables are not redundant. The history tables are **domain records** —
+queried by the scoring engine to answer "what was in force in July?". `audit_log` is a **flat activity
+feed** — queried by a human reading "what happened this week?". Formula and target changes write to
+both: their history row, plus one audit line.
+
+---
+
+## How the tables relate — one scenario
+
+An HR manager uploads `attrition-july.csv` covering two months. One row has `n/a` where a number
+belongs.
+
+| Table | Rows | What it holds |
+|---|---|---|
+| `kpi_import_batch` | **1** | The upload event — *"attrition-july.csv · 3 rows · 2 created · 1 error · by Maria · Aug 4 09:12"* |
+| `kpi_record` | **2** | The answers — July → 3.1% On Track; August → 2.0% On Track |
+| `kpi_record_input` | **4** | The raw numbers — 12 & 380; 5 & 250 (two per record, one per operand) |
+| `kpi_import_issue` | **1** | *"Row 4 — `average_headcount`: 'n/a' is not a number"* |
+| `kpi_target_history` | **0** | Nothing yet — gets a row only when someone changes the target |
+| `kpi_formula_history` | **0** | Nothing yet — gets a row only when someone changes the formula |
+| `audit_log` | **1** | *"Maria imported attrition-july.csv into HR · Attrition Rate"* |
+
+---
+
+# PART C — Access control
+
+**Three roles.**
+
+| Role | Teams reachable |
+|---|---|
+| `superadmin` | every team |
+| `admin` | every team |
+| `manager` | the teams in their `teams` M2M |
+
+**Within a team every role can do everything** — create KPIs, adopt presets, edit targets, enter
+records, upload CSVs, delete records. The only axis of control is *which teams you reach*, and
+`team_required()` in `apps/core/access.py` already enforces exactly that.
+
+**Consequence: no new permission code is needed.** With no plain-user role, there is no
+define-vs-enter distinction to enforce. `audit_log` is what makes broad in-team permissions
+acceptable — everything anyone does is attributable after the fact.
+
+**Migration note:** `core.UserProfile.Role` currently declares four choices and the throwaway
+`demo_<team>` accounts are all `role='user'`. Removing that choice needs a data migration promoting
+them to `manager` (or deleting them) before the enum is narrowed.
+
+---
+
+# PART D — The CSV template, generated entirely from the schema
+
+**One CSV per KPI.** CSV has no sheets and every KPI has different input columns, so a combined file
+would need either generic `input_1 / input_2` headers — unusable for the person filling it in — or
+an unreadable sparse grid. One file per KPI keeps every column self-explanatory; a "Download all"
+action zips the team's active KPIs.
+
+Generated for **Operations → Attrition Rate**:
+
+```csv
+# Vintazk 360 KPI template — do not edit or remove these three lines
+# kpi=operations/attrition-rate | template=3 | frequency=monthly | generated=2026-08-04
+# Formula: total_exits ÷ average_headcount × 100  ·  Target: Threshold 3.5% (lower is better)
+period,total_exits,average_headcount,remarks
+2026-07,12,380,
+2026-08,,,
+```
+
+| CSV element | Comes from |
+|---|---|
+| `kpi=operations/attrition-rate` | `core_team.slug` + `kpi_definition.slug` — how the upload identifies itself |
+| `template=3` | `kpi_definition.template_version` — always the **latest**; lets the parser reject a stale file |
+| `generated=2026-08-04` | stamped at download → `kpi_import_batch.template_generated_at` |
+| the `Formula:` / `Target:` line | `formula_text`, `target_display`, `direction` |
+| `period` format | `frequency` — `2026-07` monthly · `2026-Q3` quarterly · `2026-07-15` daily |
+| `total_exits`, `average_headcount` | **`kpi_input.key`, in `position` order** |
+| `remarks` | free text → `kpi_record.remarks` |
+
+**The import pipeline needs nothing KPI-specific:**
+
+```
+read the kpi= header      → load kpi_definition
+check template= header    → reject if older than kpi_definition.template_version
+read its kpi_input rows   → those ARE the expected columns
+validate each cell        → against data_type
+group rows                → by reporting period
+collapse each column      → per kpi_input.aggregation  (none/sum/count/avg/…)
+evaluate expression       → against the aggregated values  (apps/kpi/formula.py)
+apply accumulation        → add the prior period's total when cumulative
+score against the band    → existing attainment()/status() math, unchanged
+upsert kpi_record         → on (kpi, period_start)
+write kpi_record_input    → one row per operand
+log kpi_import_issue      → for anything rejected
+write audit_log           → one `imported` entry for the batch
+```
+
+**Adding a KPI adds zero lines of importer code.**
+
+---
+
+# PART E — Rollout
+
+1. **`kpi.0001`** — create the 13 tables.
+2. **`kpi.0002` (data)** — load the ~80 existing hardcoded KPIs into `kpi_preset` +
+   `kpi_preset_input`, generated from the `MODAL_SPECS` `a_label` / `b_label` / `c_label` already
+   written for every LOB. **Nothing is authored by hand.** Operations is the one exception: its 6
+   KPIs use `numerator` / `denominator` and carry no calculation type, so they need a small manual
+   mapping to `expression` + inputs.
+3. **`kpi.0003` (data)** — auto-install the two universal KPIs (**Attrition Rate**, **Billable Hours
+   Achievement**) as real `kpi_definition` rows for every team, each with the team's own target,
+   plus a seed `kpi_formula_history` row per KPI recording the formula it shipped with.
+4. **`core.00XX` (data)** — promote `role='user'` profiles, then narrow the enum to three.
+5. **Views switch data source** — each LOB's `views.py` swaps its module-level list for a queryset.
+   The row shape is deliberately identical, so the templates and the scoring math are untouched.
+6. **Then** build: Add-KPI form + formula builder → preset library screen → template download →
+   CSV import → audit-log viewer.
+
+**Empty states become a first-class screen.** With only two KPIs seeded, every dashboard is nearly
+bare on day one. "No KPIs yet — create one, or browse the library" is the most-seen screen in week
+one and needs designing rather than defaulting.
+
+**Staging is a plain Postgres now.** Render Postgres exposes no HTTP API, so — unlike the Supabase
+setup this replaced — there is no anon key and no PostgREST layer to lock down before the first
+`migrate`. Reaching the data means holding `DATABASE_URL`. The one remaining exposure is the import
+bucket: keep it **private**, since a public R2 URL needs no credential at all.
+
+---
+
+# PART F — Verification
+
+- `makemigrations kpi && migrate` applies cleanly on Docker Postgres and on Render Postgres.
+- **Formula engine unit tests** — each of the 11 presets evaluates to the same number the current
+  in-app calculator produces for the same inputs; `(a + b) / c` respects precedence; a hand-built
+  expression round-trips through builder → string → builder unchanged.
+- **Security tests** — `__import__("os").system("...")`, `open(...)`, attribute access, and a name
+  that isn't a declared input are all **rejected at save time**, not at evaluation time.
+- **Aggregation tests** — three `+1` rows in one month with `aggregation=count` and `=sum` both give
+  4 for a `+1,+2,+1` set; `accumulation=cumulative` carries the prior period's total forward.
+- **Round trip** — create a KPI in the UI, download its template, fill two rows, upload. Expect one
+  `kpi_import_batch` with `created_count=2`, two `kpi_record`, four `kpi_record_input`, and a value
+  matching the on-screen calculator's result for the same numbers.
+- **Idempotency** — upload the same file again → `updated_count=2`, still two records.
+- **Partial failure** — a file with one bad cell → `status=partial`, one `kpi_import_issue`, good
+  rows still applied.
+- **Storage** — the object exists in the private bucket; its URL is not readable unsigned; the
+  download view 403s for a manager on a different team.
+
+**Formula history**
+
+- Editing a KPI's `expression` (or its input set) writes exactly one new `kpi_formula_history` row
+  carrying the **previous** formula and its template version.
+- Existing history rows are never rewritten by a later edit — the table is append-only.
+- New records created after the edit are computed with the **current** formula, not a historical one.
+- `kpi_definition.template_version` increments on the edit; a freshly downloaded template carries the
+  new number, and re-uploading the pre-edit template is rejected as stale.
+- Cosmetic edits (description, sort order, category) write no history row and leave the version alone.
+
+**Audit log**
+
+Each of the following writes exactly one `audit_log` row, with the acting user, the team, and a
+readable `entity_name`:
+
+| Action | Expected entry |
+|---|---|
+| Create a KPI | `created` / `kpi_definition` |
+| Update a KPI | `updated` / `kpi_definition`, with `old_values` / `new_values` populated |
+| Delete (retire) a KPI | `deleted` / `kpi_definition` |
+| Import a CSV | `imported` / `kpi_import_batch` |
+| Change a formula | `formula_changed` — **plus** a `kpi_formula_history` row |
+| Change a target | `target_changed` — **plus** a `kpi_target_history` row |
+| Create / rename a category | `created` / `updated` / `kpi_category` |
+| Create / rename a branch | `created` / `updated` / `kpi_branch` |
+
+---
+
+# Open questions for review
+
+1. **Is Headcount cumulative?** If July shows +2, is July's headcount `2` or *last month + 2*? This
+   decides whether `accumulation` ships in the first release or is deferred.
+2. **Should a period be lockable?** Once a month is signed off, should re-import be blocked? A
+   `kpi_period_lock` table (team, period, locked_by) is the usual answer.
+3. **Weighted scorecards.** The `Excel Files/` agent sheets weight metrics (QA 30%, Attendance 20%, …)
+   into a Performance Rating. That is a *second*, agent-level model — deliberately out of scope, but
+   it will need `kpi_definition.weight` or its own table.
+4. **CSV only, or XLSX too?** CSV needs no new dependency. The current UI copy says "upload Excel
+   files" and all 7 sample files are `.xlsx` — supporting them means adding `openpyxl`. Recommend
+   shipping CSV first, adding XLSX behind the same parser.
+5. ~~**Which storage service?**~~ **Answered 2026-08-05: Cloudflare R2** (10 GB free, no egress
+   fees). Wired in `apps/core/storage.py`; the bucket must stay private.
+6. **How long does `audit_log` live?** It grows without bound. Recommend keeping it whole for now and
+   revisiting a retention or archive policy once its growth rate is measurable.

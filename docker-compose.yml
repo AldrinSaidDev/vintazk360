@@ -1,7 +1,7 @@
 # Local development stack.
 #
-# - `db`       : Postgres for local development ONLY. In production you'll point
-#                DATABASE_URL at Supabase instead and this service is not used.
+# - `db`       : Postgres for local development ONLY. On Render you point
+#                DATABASE_URL at Render Postgres and this service is not used.
 # - `web`      : the Django app, hot-reloading via a bind mount.
 # - `tailwind` : watches templates + input.css and rebuilds static/css/output.css
 #                into the shared bind mount so style changes appear live.
@@ -34,7 +34,7 @@ services:
     working_dir: /app
     # Install deps, vendor fonts / Font Awesome / Chart.js locally, build CSS once, then watch.
     # tty keeps the --watch process alive in a detached container.
-    command: sh -c "npm install && mkdir -p static/fonts static/fontawesome/css static/fontawesome/fonts static/vendor && for w in 300 400 500 700; do cp -f node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-$$w-normal.woff2 static/fonts/; done && for w in 100 200 300 400 500 600 700; do cp -f node_modules/@fontsource/montserrat/files/montserrat-latin-$$w-normal.woff2 static/fonts/; done && cp -f node_modules/font-awesome/css/font-awesome.min.css static/fontawesome/css/ && cp -f node_modules/font-awesome/fonts/* static/fontawesome/fonts/ && cp -f node_modules/chart.js/dist/chart.umd.js static/vendor/chart.umd.min.js && npm run build:css && npm run watch:css"
+    command: sh -c "npm install && mkdir -p static/fonts static/fontawesome/css static/fontawesome/fonts static/vendor && for w in 300 400 500 700; do cp -f node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-$$w-normal.woff2 static/fonts/; done && for w in 100 200 300 400 500 600 700; do cp -f node_modules/@fontsource/montserrat/files/montserrat-latin-$$w-normal.woff2 static/fonts/; done && cp -f node_modules/font-awesome/css/font-awesome.min.css static/fontawesome/css/ && cp -f node_modules/font-awesome/fonts/* static/fontawesome/fonts/ && cp -f node_modules/chart.js/dist/chart.umd.js static/vendor/chart.umd.min.js && cp -f node_modules/chart.js/dist/chart.umd.js.map static/vendor/ && npm run build:css && npm run watch:css"
     tty: true
     volumes:
       # Share the project so compiled CSS lands where Django reads it.

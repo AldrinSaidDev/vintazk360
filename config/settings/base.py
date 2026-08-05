@@ -103,12 +103,12 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError(
         'DATABASE_URL is not set. Development runs on Docker Compose (Postgres); '
-        'production points at Supabase. See .env.example.'
+        'staging/production point at Render Postgres. See .env.example.'
     )
 
-# SSL is required for remote databases (e.g. Supabase) but must be OFF for the
-# local Postgres container, which does not serve SSL. Local hosts are detected
-# automatically; set DATABASE_SSL=require or DATABASE_SSL=disable to override.
+# SSL is required for remote databases (e.g. Render Postgres) but must be OFF
+# for the local Postgres container, which does not serve SSL. Local hosts are
+# detected automatically; set DATABASE_SSL=require or =disable to override.
 DATABASE_HOST = urlparse(DATABASE_URL).hostname
 LOCAL_DB_HOSTS = {'localhost', '127.0.0.1', 'db'}
 
@@ -129,41 +129,48 @@ DATABASES = {
 }
 
 
-# Supabase
-# https://supabase.com/docs/reference/python/introduction
+# Object storage — Cloudflare R2
+# https://developers.cloudflare.com/r2/api/s3/api/
 #
-# Two INDEPENDENT channels to the same Supabase project — don't confuse them:
+# Two INDEPENDENT channels, don't confuse them:
 #   1. DATABASE_URL (above) — Django's ORM speaking Postgres. Development keeps
-#      pointing this at the local Docker container; staging points it at
-#      Supabase Postgres.
-#   2. The settings below — the Supabase HTTP API (PostgREST / Auth / Storage /
-#      Realtime), used through ``apps.core.supabase``. Staging is the target;
-#      leaving them set in development is harmless because nothing calls out
-#      until a feature does.
+#      pointing this at the local Docker container; staging points it at Render
+#      Postgres.
+#   2. The settings below — uploaded files (KPI import CSVs), which live in a
+#      Cloudflare R2 bucket and are reached over the S3 API through
+#      ``apps.core.storage``. The database stores only a pointer to them.
 #
-# The keys were handed over with React's ``REACT_APP_`` prefix. This is Django,
-# so the unprefixed names are canonical and the prefixed ones stay accepted as
-# aliases — pasting either form into .env works.
+# R2 is S3-compatible, so the endpoint is derived from the account ID unless
+# R2_ENDPOINT_URL overrides it. The bucket must be PRIVATE — reads go through a
+# Django view that checks team access and returns a short-lived signed URL.
 
-def _supabase_env(name, default=''):
-    """Read ``SUPABASE_<name>``, falling back to the REACT_APP_ alias."""
-    value = os.environ.get(f'SUPABASE_{name}') or os.environ.get(f'REACT_APP_SUPABASE_{name}')
-    return (value or default).strip()
+def _r2_env(name, default=''):
+    """Read ``R2_<name>`` from the environment, trimmed."""
+    return (os.environ.get(f'R2_{name}') or default).strip()
 
 
-SUPABASE_URL = _supabase_env('URL').rstrip('/')
-# Public/browser-safe key. Row Level Security still applies to it.
-SUPABASE_ANON_KEY = _supabase_env('ANON_KEY')
-# Privileged key — BYPASSES Row Level Security. Server-side only, optional.
-SUPABASE_SERVICE_ROLE_KEY = _supabase_env('SERVICE_ROLE_KEY')
+R2_ACCOUNT_ID = _r2_env('ACCOUNT_ID')
+R2_ACCESS_KEY_ID = _r2_env('ACCESS_KEY_ID')
+R2_SECRET_ACCESS_KEY = _r2_env('SECRET_ACCESS_KEY')
+R2_BUCKET = _r2_env('BUCKET', 'vintazk360-imports')
 
-# Postgres schema PostgREST queries, and the client's HTTP timeout in seconds.
-SUPABASE_SCHEMA = _supabase_env('SCHEMA', 'public')
-SUPABASE_TIMEOUT = int(_supabase_env('TIMEOUT', '10'))
+# Cloudflare's S3 endpoint for the account. Set R2_ENDPOINT_URL only if you use
+# a jurisdiction-specific endpoint (e.g. `…r2.cloudflarestorage.com/eu`).
+R2_ENDPOINT_URL = _r2_env('ENDPOINT_URL').rstrip('/') or (
+    f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com' if R2_ACCOUNT_ID else ''
+)
 
-# True once a URL and at least the anon key are present. Feature code should
-# ask ``apps.core.supabase.is_configured()`` rather than reading this directly.
-SUPABASE_ENABLED = bool(SUPABASE_URL and SUPABASE_ANON_KEY)
+# R2 has no regions, but the S3 API requires the field — `auto` is what
+# Cloudflare's own examples pass. Timeout and signed-URL lifetime in seconds.
+R2_REGION = _r2_env('REGION', 'auto')
+R2_TIMEOUT = int(_r2_env('TIMEOUT', '10'))
+R2_SIGNED_URL_TTL = int(_r2_env('SIGNED_URL_TTL', '300'))
+
+# True once the endpoint, bucket and both keys are present. Feature code should
+# ask ``apps.core.storage.is_configured()`` rather than reading this directly.
+R2_ENABLED = bool(
+    R2_ENDPOINT_URL and R2_BUCKET and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY
+)
 
 
 # Password validation

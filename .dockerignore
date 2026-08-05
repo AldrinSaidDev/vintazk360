@@ -13,11 +13,14 @@ db.sqlite3
 .env.*
 !.env.example
 
-# Node — the image installs and builds these itself
+# Node — the image installs and builds these itself. Excluded on purpose: the
+# `tailwind` build stage is the ONLY thing that vendors them, so the image is
+# identical whether it is built here or from a fresh clone on Render.
 node_modules/
 static/css/output.css
 static/fonts/
 static/fontawesome/
+static/vendor/
 
 # Git & editor
 .git/
@@ -25,6 +28,10 @@ static/fontawesome/
 .gitattributes
 .idea/
 .vscode/
+.claude/
+
+# Source spreadsheets — reference material, never read at run time
+Excel Files/
 
 # Collected static / media (built inside the container)
 staticfiles/
