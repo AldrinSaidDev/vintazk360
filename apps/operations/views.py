@@ -3,6 +3,13 @@ from django.shortcuts import render
 
 from apps.core.access import team_required
 
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
+from django.utils.text import slugify
+
+from apps.core.models import Team
+from .forms import CreateKpiForm
+
 # Glyph cluster behind the banner header (FA4 names, largest first).
 BANNER_ICONS = ['cogs', 'tasks', 'line-chart']
 
@@ -153,25 +160,47 @@ _FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually']
 
 
 @login_required
-@team_required('operations')
+@team_required("operations")
 def kpi_management(request):
-    """Operations — KPI Management: edit targets/thresholds, formulas, cadence.
+    operations_team = get_object_or_404(Team, slug="operations")
 
-    Static like the rest of the KPI screens: the table and edit modals render
-    from ``_OPERATIONS_KPIS`` and Save is not wired to anything yet. Swapping
-    in a KPI model later means changing this query only.
-    """
+    if request.method == "POST":
+        form = CreateKpiForm(request.POST)
+
+        if form.is_valid():
+            kpi = form.save(commit=False)
+
+            kpi.team = operations_team
+            kpi.slug = slugify(kpi.name)
+            kpi.created_by = request.user
+            kpi.template_version = 1
+
+            kpi.save()
+
+            messages.success(request, "KPI created successfully.")
+
+            return redirect("operations:kpi_management")
+
+    else:
+        form = CreateKpiForm()
+
     rows = [
-        {**kpi, 'direction_label': _DIRECTION_LABEL[kpi['direction']]}
+        {**kpi, "direction_label": _DIRECTION_LABEL[kpi["direction"]]}
         for kpi in _OPERATIONS_KPIS
     ]
-    categories = sorted({kpi['category'] for kpi in _OPERATIONS_KPIS})
 
-    return render(request, 'operations/kpi_management.html', {
-        'kpis': rows,
-        'kpi_count': len(rows),
-        'categories': categories,
-        # Union so any cadence already in use is selectable even if it's not
-        # one of the standard five.
-        'frequencies': sorted({*_FREQUENCIES, *(k['frequency'] for k in _OPERATIONS_KPIS)}),
-    })
+    categories = sorted({kpi["category"] for kpi in _OPERATIONS_KPIS})
+
+    return render(
+        request,
+        "operations/kpi_management.html",
+        {
+            "form": form,
+            "kpis": rows,
+            "kpi_count": len(rows),
+            "categories": categories,
+            "frequencies": sorted(
+                {*_FREQUENCIES, *(k["frequency"] for k in _OPERATIONS_KPIS)}
+            ),
+        },
+    )

@@ -41,6 +41,12 @@
                     <option>All frequencies</option>
                     {% for frequency in frequencies %}<option>{{ frequency }}</option>{% endfor %}
                 </select>
+
+                <a href="#createKpiModal"
+                    class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'plus' %}
+                    Create KPI
+                </a>
             </div>
         </div>
 
@@ -187,4 +193,6 @@
     </div>
 </div>
 {% endfor %}
+{% include "operations/create_kpi_modal.html" %}
 {% endblock %}
+
