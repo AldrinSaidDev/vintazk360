@@ -72,3 +72,83 @@ class UserProfile(models.Model):
     def sees_all_teams(self):
         """Super Admin and Admin see every team."""
         return self.role in {self.Role.SUPERADMIN, self.Role.ADMIN}
+
+
+class AuditLog(models.Model):
+    """One activity trail for the whole system.
+
+    Deliberately NOT KPI-specific: KPI edits, imports, branches, categories,
+    logins and user management all write here. One generic table replaces the
+    per-feature log tables (``kpi_change_log``, ``user_activity``, …) that
+    would otherwise multiply and leave every screen querying a different shape.
+
+    It lives in ``core`` rather than ``apps.kpi`` precisely because it spans
+    every app — ``core`` is the layer everything else already imports.
+
+    This is the flat feed a human reads ("what happened this week?").
+    ``KpiTargetHistory`` / ``KpiFormulaHistory`` are different: they are domain
+    records the scoring engine queries ("what was in force in July?"). A
+    formula change writes to both.
+
+    Nothing is edited or deleted here — append only. Write rows with
+    ``apps.core.audit.log_action()``.
+    """
+
+    class Action(models.TextChoices):
+        CREATED = 'created', 'Created'
+        UPDATED = 'updated', 'Updated'
+        DELETED = 'deleted', 'Deleted'
+        IMPORTED = 'imported', 'Imported'
+        FORMULA_CHANGED = 'formula_changed', 'Formula changed'
+        TARGET_CHANGED = 'target_changed', 'Target changed'
+        LOGIN = 'login', 'Logged in'
+        LOGOUT = 'logout', 'Logged out'
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_entries',
+        help_text='Empty for system actions.',
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_entries',
+        help_text='Scope, when the action belongs to a team.',
+    )
+
+    action = models.CharField(max_length=50, choices=Action.choices)
+    entity_type = models.CharField(
+        max_length=50, help_text="'kpi_definition', 'kpi_import_batch', 'user', …"
+    )
+    entity_id = models.BigIntegerField(null=True, blank=True, help_text="The row's primary key.")
+    entity_name = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text='Denormalised on purpose, so the log still reads after the row is deleted.',
+    )
+
+    old_values = models.JSONField(null=True, blank=True, help_text='Changed fields, before.')
+    new_values = models.JSONField(null=True, blank=True, help_text='Changed fields, after.')
+
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'audit_log'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['team', '-created_at'], name='audit_log_team_recent'),
+            models.Index(fields=['entity_type', 'entity_id'], name='audit_log_entity'),
+        ]
+        verbose_name = 'audit log entry'
+        verbose_name_plural = 'audit log'
+
+    def __str__(self):
+        who = self.user.get_username() if self.user else 'system'
+        return f'{who} {self.action} {self.entity_type} {self.entity_name}'.strip()

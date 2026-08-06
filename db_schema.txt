@@ -116,10 +116,15 @@ and the business defines its own metrics without touching code.
 
 ## Where it lives
 
-A new Django app, **`apps/kpi`** (`label = 'kpi'`), holding the 13 tables below with explicit
+A new Django app, **`apps/kpi`** (`label = 'kpi'`), holding the tables below with explicit
 `db_table` names (`kpi_definition`, `kpi_record`, …). `apps/core` stays what it is: access control
-(`Team`, `UserProfile`) plus shared helpers — and it is the natural home for `audit_log`'s writer
-helper, since the whole system calls it.
+(`Team`, `UserProfile`) plus shared helpers.
+
+> **Built 2026-08-06, with one deviation.** `audit_log` (table 13) was placed in **`apps/core`**, not
+> `apps/kpi`: it records logins and user management too, so putting it in the KPI app would make the
+> shared layer depend on a feature app to write its own login trail. `apps/kpi` therefore holds 12
+> tables and `core` holds `audit_log` + its writer helper (`apps/core/audit.py`). Table names,
+> columns and constraints are otherwise exactly as specified below.
 
 The existing scoring module `apps/core/kpi.py` moves to `apps/kpi/scoring.py` — the band/attainment/
 status math is correct and in production across 7 LOBs; only its home changes. A new
@@ -772,7 +777,8 @@ write audit_log           → one `imported` entry for the batch
 
 # PART E — Rollout
 
-1. **`kpi.0001`** — create the 13 tables.
+1. ~~**`kpi.0001`** — create the 13 tables.~~ **DONE 2026-08-06** — `kpi.0001_initial` (12 tables) +
+   `core.0006_auditlog`. Applied to Docker Postgres; constraints verified by round-trip.
 2. **`kpi.0002` (data)** — load the ~80 existing hardcoded KPIs into `kpi_preset` +
    `kpi_preset_input`, generated from the `MODAL_SPECS` `a_label` / `b_label` / `c_label` already
    written for every LOB. **Nothing is authored by hand.** Operations is the one exception: its 6

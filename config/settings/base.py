@@ -42,6 +42,8 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     'django_icons',
     'apps.core',
+    # KPI definitions, actuals and import history — shared by every LOB below.
+    'apps.kpi',
     'apps.dashboard',
     # Line-of-business (LOB) screens
     'apps.sales',

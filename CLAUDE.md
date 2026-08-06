@@ -133,10 +133,21 @@ Each KPI has a definition/formula/target/frequency, but the screen's job is to s
 - `boto3` in `requirements/base.txt`, `gunicorn` + `whitenoise` in `prod.txt` → **needs `docker compose up --build`**, not just a restart.
 - **The bucket must stay private** — no r2.dev URL, no public custom domain. Downloads go through a Django view that re-checks team access and returns a short-lived signed URL.
 
+## `apps/kpi` — the KPI data layer (TABLES BUILT, not yet wired to any screen)
+- **One shared app, not one per department.** Every LOB app is a *screen* boundary (URL namespace + views), never a data boundary — all eleven had an empty `models.py`, now deleted. KPI rows are scoped by `kpi_definition.team_id` → `core_team`, which is the same key `team_required()` and the sidebar already use.
+- Built from `db_schema.txt` — **read that file before touching these models**; it explains what each table is for. `kpi.0001_initial` (12 tables) + `core.0006_auditlog` (13th). Applied to Docker Postgres.
+- **The core idea:** a KPI stores `expression` (a formula over named inputs) and `kpi_input` rows whose `key` is *simultaneously* the expression variable, the CSV column header, and the form field name. Adding a KPI adds zero lines of importer code.
+- **`audit_log` lives in `apps/core`, not `apps/kpi`** — one deliberate deviation from the schema doc (noted there too). It records logins and user management as well, so the shared layer shouldn't depend on a feature app to write its own trail. Writer helper: `apps/core/audit.py` → `log_action(request, action=…, entity=…, entity_type=…, team=…)`, which swallows its own failures so logging can never break the action being logged.
+- **`nulls_distinct=False`** on `kpi_definition`'s unique (team, branch, slug) — without it Postgres treats each NULL branch as unique and two *team-level* KPIs could share a slug. Needs PG 15+ (dev is 16, Render is 16).
+- Targets are **always bands**: a single target is a band of width zero, `target_min`/`target_max` both NULL = `monitored` ("No Target"). Same rule the shared kit already uses in `apps/core/kpi.py`.
+- `apps/core/kpi.py` (the attainment/status math) **has NOT moved** to `apps/kpi/scoring.py` yet — 7 LOBs import it and it works. Move it when the views switch to querysets (rollout step 5).
+- Admin registers everything; the two history tables + import issues are read-only there, since they're append-only records.
+- **Not built yet:** `apps/kpi/formula.py` (the AST-whitelist parser/evaluator — **never `eval()`**), the preset library data migration (`kpi.0002`), CSV template generation and import, and the views' switch from static dicts to querysets.
+
 ## Current state / directives
-- **KPI data is still static placeholder** (user directive — no DB for KPI values yet). All KPI lists/values live in the LOB `views.py` as Python dicts; templates loop over them, so swapping to DB-backed models later means changing only the view's data source. Convert to DB-driven KPI models later.
-- **DB models that ARE built:** `core.Team` + `core.UserProfile` (access control) — these are real, migrated, admin-managed. Only KPI *values/definitions* remain static.
-- Still NOT built: KPI value models (Team→Metric(weight)→Score, OBActivity, KPI definitions as records); real Excel import; the Employee-ID → external-API auth wiring. **Every LOB now has all four KPI screens.**
+- **KPI data is still static placeholder in the UI** (user directive). All KPI lists/values live in the LOB `views.py` / `kpis.py` as Python dicts; templates loop over them. The DB tables now exist but **nothing reads them yet** — swapping a view's data source is the next step, and the row shape is deliberately identical so templates and math don't change.
+- **DB models that ARE built:** `core.Team` + `core.UserProfile` (access control), `core.AuditLog`, and the 12 `apps/kpi` tables — all real, migrated, admin-managed.
+- Still NOT built: real Excel/CSV import; the Employee-ID → external-API auth wiring; the agent-level weighted scorecard (a *second* model — agent × metric × weight — deliberately out of scope, see open question 3 in `db_schema.txt`). **Every LOB has all four KPI screens.**
 - **Ask before committing** — confirm scope with the user.
 
 ## Detailed memory

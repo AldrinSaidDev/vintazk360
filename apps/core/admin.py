@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import Team, UserProfile
+from .models import AuditLog, Team, UserProfile
 
 User = get_user_model()
 
@@ -37,3 +37,23 @@ class UserAdmin(BaseUserAdmin):
 # Re-register User with the profile inline attached.
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    """Read-only: the log is appended by the app, never edited."""
+
+    list_display = ('created_at', 'user', 'action', 'entity_type', 'entity_name', 'team')
+    list_filter = ('action', 'entity_type', 'team')
+    search_fields = ('entity_name', 'user__username')
+    date_hierarchy = 'created_at'
+    readonly_fields = [f.name for f in AuditLog._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
