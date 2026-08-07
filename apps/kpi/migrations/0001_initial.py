@@ -69,7 +69,7 @@ class Migration(migrations.Migration):
                 ('target_max', models.DecimalField(blank=True, decimal_places=4, max_digits=14, null=True)),
                 ('target_display', models.CharField(blank=True, help_text='"≥95%", "40–80 / month", "Threshold 3.5%".', max_length=60)),
                 ('template_version', models.PositiveSmallIntegerField(default=1, help_text='Bumped on every formula or input change, so a CSV filled against an older formula is rejected instead of silently misread.')),
-                ('is_active', models.BooleanField(default=True, help_text='Retire a KPI without deleting it.')),
+                ('is_active', models.BooleanField(default=True, help_text='Delete a KPI')),
                 ('sort_order', models.PositiveSmallIntegerField(default=0, help_text='Card order on the scorecard.')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),

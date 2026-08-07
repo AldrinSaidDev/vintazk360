@@ -240,8 +240,8 @@
                     return { key: input.variable, label: input.label };
                 }));
             }
-            expressionPreview.textContent = expression || "—";
-            humanPreview.textContent = human || "—";
+            expressionPreview.textContent = expression || "Nothing yet";
+            humanPreview.textContent = human || "Nothing yet";
             validationStatus.textContent = (currentValidation.valid ? "✓ " : "⚠ ") + currentValidation.message;
             if (currentValidation.valid) {
                 validationStatus.className = "mt-3 flex items-center gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2 text-xs font-semibold text-brand";

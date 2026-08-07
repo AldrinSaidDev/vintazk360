@@ -1,4 +1,4 @@
-{% load icons static %}
+{% load icons %}
 {# open_create_modal forces the modal open after a failed POST — the :target fragment is gone by then, so it would otherwise re-render closed with the errors hidden. #}
 <div id="createKpiModal"
      class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_create_modal %} !flex{% endif %}">
@@ -32,6 +32,8 @@
         <form method="post" class="flex min-h-0 flex-1 flex-col">
 
             {% csrf_token %}
+            {# Comes back to the page the manager was on, the same as edit and delete. #}
+            <input type="hidden" name="_page" value="{{ page_obj.number }}">
 
             <div class="min-h-0 flex-1 overflow-y-auto p-6">
 
@@ -60,14 +62,7 @@
                     </div>
 
                     <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
-                            Category
-                        </label>
-                        {{ form.category }}
-                        {{ form.new_category }}
-                        <p class="mt-1.5 text-xs text-slate-400">Pick one, or type a new category to create it for Operations.</p>
-                        {% include "partials/field_errors.html" with field=form.category %}
-                        {% include "partials/field_errors.html" with field=form.new_category %}
+                        {% include "partials/category_picker.html" with form=form %}
                     </div>
 
                     <div>
@@ -99,7 +94,7 @@
                             Unit Suffix
                         </label>
                         {{ form.unit }}
-                        <p class="mt-1.5 text-xs text-slate-400">Printed after the value — only needed for Days, Ratio or Currency formats.</p>
+                        <p class="mt-1.5 text-xs text-slate-400">Printed after the value. Only needed for Days, Ratio or Currency formats.</p>
                         {% include "partials/field_errors.html" with field=form.unit %}
                     </div>
 
@@ -131,166 +126,7 @@
                         {% include "partials/field_errors.html" with field=form.target_display %}
                     </div>
 
-                    <fieldset class="sm:col-span-2" data-formula-builder>
-                        <legend class="mb-3 text-sm font-medium text-slate-700">
-                            Formula <span class="text-status-bad" aria-hidden="true">*</span>
-                        </legend>
-
-                        <div class="grid gap-2 sm:grid-cols-2">
-                            <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 transition has-[:checked]:border-brand has-[:checked]:bg-brand/5 has-[:checked]:ring-2 has-[:checked]:ring-brand/10">
-                                <input type="radio"
-                                       name="_formula_mode"
-                                       value="preset"
-                                       class="mt-0.5 h-4 w-4 border-slate-300 accent-brand focus:ring-brand"
-                                       data-formula-mode
-                                       checked>
-                                <span>
-                                    <span class="block text-sm font-semibold text-ink">Use Existing Preset</span>
-                                    <span class="mt-0.5 block text-xs leading-5 text-slate-500">Start with a proven calculation.</span>
-                                </span>
-                            </label>
-
-                            <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3 transition has-[:checked]:border-brand has-[:checked]:bg-brand/5 has-[:checked]:ring-2 has-[:checked]:ring-brand/10">
-                                <input type="radio"
-                                       name="_formula_mode"
-                                       value="custom"
-                                       class="mt-0.5 h-4 w-4 border-slate-300 accent-brand focus:ring-brand"
-                                       data-formula-mode>
-                                <span>
-                                    <span class="block text-sm font-semibold text-ink">Build Custom Formula</span>
-                                    <span class="mt-0.5 block text-xs leading-5 text-slate-500">Compose a calculation from inputs.</span>
-                                </span>
-                            </label>
-                        </div>
-
-                        <div class="mt-4" data-preset-panel>
-                            <label for="formulaPreset" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                Select Preset
-                            </label>
-                            <select id="formulaPreset"
-                                    class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-                                    data-preset-select>
-                                <option value="percentage">Percentage — a ÷ b × 100</option>
-                                <option value="count">Simple count — a</option>
-                                <option value="average">Average — a ÷ b</option>
-                                <option value="ratio">Ratio — a ÷ b</option>
-                                <option value="cost_per_unit">Cost per unit — a ÷ b</option>
-                                <option value="difference">Difference — a − b</option>
-                                <option value="net_accuracy">Accuracy net of errors — (a − b) ÷ a × 100</option>
-                                <option value="variance">Variance vs budget — (a − b) ÷ b × 100</option>
-                                <option value="scaled">Scaled (3 inputs) — a ÷ b × c</option>
-                            </select>
-                        </div>
-
-                        <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm">
-                            <div class="flex items-center justify-between gap-3">
-                                <div>
-                                    <h4 class="text-sm font-semibold text-ink">Inputs</h4>
-                                    <p class="mt-0.5 text-xs text-slate-500">Select an input to add it to the canvas.</p>
-                                </div>
-                                <button type="button"
-                                        class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-brand/30 bg-white px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-brand/5"
-                                        data-add-input>
-                                    <span aria-hidden="true">+</span>
-                                    Add Input
-                                </button>
-                            </div>
-
-                            <div class="mt-3 hidden rounded-lg border border-slate-200 bg-white p-3" data-input-editor>
-                                <div class="grid gap-3 sm:grid-cols-2">
-                                    <label class="text-xs font-medium text-slate-600">
-                                        Display Label <span class="text-status-bad" aria-hidden="true">*</span>
-                                        <input type="text"
-                                               class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-                                               placeholder="e.g. Total Exits"
-                                               data-input-label>
-                                    </label>
-                                    <label class="text-xs font-medium text-slate-600">
-                                        Variable Name <span class="text-status-bad" aria-hidden="true">*</span>
-                                        <input type="text"
-                                               class="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-                                               placeholder="e.g. total_exits"
-                                               data-input-variable>
-                                    </label>
-                                </div>
-                                <p class="mt-2 hidden text-xs font-medium text-status-bad" role="alert" data-input-error></p>
-                                <div class="mt-3 flex justify-end gap-2">
-                                    <button type="button"
-                                            class="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100"
-                                            data-cancel-input>
-                                        Cancel
-                                    </button>
-                                    <button type="button"
-                                            class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-dark"
-                                            data-save-input>
-                                        Save Input
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="mt-3 flex flex-wrap gap-2" data-input-list></div>
-                        </div>
-
-                        <div class="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <div class="flex items-center justify-between gap-3">
-                                <div>
-                                    <h4 class="text-sm font-semibold text-ink">Formula Canvas</h4>
-                                    <p class="mt-0.5 text-xs text-slate-500">Drag tokens to rearrange the calculation.</p>
-                                </div>
-                                <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Editable</span>
-                            </div>
-
-                            <ol class="mt-3 flex min-h-20 flex-wrap items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/60 p-3"
-                                aria-label="Formula tokens"
-                                data-formula-canvas></ol>
-
-                            <div class="mt-3">
-                                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Operators &amp; constants</p>
-                                <div class="flex flex-wrap gap-2" data-token-toolbar>
-                                    <button type="button" class="h-9 min-w-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="operator" data-token-value="+">+</button>
-                                    <button type="button" class="h-9 min-w-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="operator" data-token-value="-">−</button>
-                                    <button type="button" class="h-9 min-w-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="operator" data-token-value="*">×</button>
-                                    <button type="button" class="h-9 min-w-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="operator" data-token-value="/">÷</button>
-                                    <button type="button" class="h-9 min-w-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="parenthesis" data-token-value="(">(</button>
-                                    <button type="button" class="h-9 min-w-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="parenthesis" data-token-value=")">)</button>
-                                    <button type="button" class="h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-brand hover:text-brand" data-token-type="constant" data-token-value="100">100</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                            <div class="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                                <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Expression</p>
-                                <code class="mt-1.5 block break-words text-xs text-slate-700" data-expression-preview>—</code>
-                            </div>
-                            <div class="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-                                <p class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Formula Preview</p>
-                                <p class="mt-1.5 break-words text-xs font-medium text-slate-700" data-human-preview>—</p>
-                            </div>
-                        </div>
-
-                        <p class="mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold"
-                           role="status"
-                           aria-live="polite"
-                           tabindex="-1"
-                           data-formula-validation></p>
-
-                        <input type="hidden"
-                               id="id_expression"
-                               name="expression"
-                               value="{{ form.expression.value|default_if_none:'' }}"
-                               data-expression-field>
-
-                        {# The operands themselves — they become kpi_input rows, and therefore the CSV columns. Without these the KPI cannot be filled in. #}
-                        <input type="hidden"
-                               id="id_inputs_json"
-                               name="inputs_json"
-                               value="{{ form.inputs_json.value|default_if_none:'' }}"
-                               data-inputs-field>
-
-                        {% include "partials/field_errors.html" with field=form.expression %}
-                        {% include "partials/field_errors.html" with field=form.inputs_json %}
-                    </fieldset>
+                    {% include "partials/formula_builder.html" with form=form uid="create" %}
 
                 </div>
 
@@ -319,4 +155,3 @@
 
 </div>
 
-<script src="{% static 'js/formula_builder.js' %}" defer></script>

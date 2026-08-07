@@ -345,7 +345,7 @@ class KpiDefinition(models.Model):
             'an older formula is rejected instead of silently misread.'
         ),
     )
-    is_active = models.BooleanField(default=True, help_text='Retire a KPI without deleting it.')
+    is_active = models.BooleanField(default=True, help_text='Delete a KPI.')
     sort_order = models.PositiveSmallIntegerField(default=0, help_text='Card order on the scorecard.')
 
     created_by = models.ForeignKey(

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load icons %}
+{% load icons static %}
 
 {% block title %}KPI Management · Operations · Vintazk 360{% endblock %}
 {% block page_title %}KPI Management{% endblock %}
@@ -12,8 +12,8 @@
 
     {% include "partials/kpi_management_stats.html" %}
 
-    {# KPI definitions table #}
-    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+    {# KPI definitions table. The id is where a successful save redirects to: it gives the Location header a fragment of its own, so the browser can't reattach the #kpiEdit-<slug> one and reopen the modal. #}
+    <section id="kpi-definitions" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-1.5">
                 <h2 class="font-heading text-base font-bold text-ink">KPI Definitions</h2>
@@ -50,15 +50,17 @@
             </div>
         </div>
 
-        <div class="overflow-x-auto rounded-lg border border-slate-100">
-            <table class="w-full min-w-[920px] text-left text-sm text-slate-600">
-                <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+        {# Scrolls both ways: sideways for the column set, down when ten rows outrun the viewport. The header sticks so it stays readable while scrolling. #}
+        <div class="max-h-[34rem] overflow-auto rounded-lg border border-slate-100">
+            <table class="w-full min-w-[1080px] text-left text-sm text-slate-600">
+                <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 shadow-[inset_0_-1px_0_theme(colors.slate.200)]">
                     <tr>
                         <th class="px-4 py-3 font-semibold">KPI</th>
                         <th class="px-4 py-3 font-semibold">Category</th>
                         <th class="px-4 py-3 font-semibold">Target / Threshold</th>
                         <th class="px-4 py-3 font-semibold">Direction</th>
                         <th class="px-4 py-3 font-semibold">Frequency</th>
+                        <th class="px-4 py-3 font-semibold">CSV Template</th>
                         <th class="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
                 </thead>
@@ -86,28 +88,58 @@
                             {% endif %}
                         </td>
                         <td class="whitespace-nowrap px-4 py-3">{{ kpi.frequency }}</td>
-                        <td class="px-4 py-3 text-right">
-                            <a href="#kpiEdit{{ forloop.counter }}"
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {# Built on demand from this KPI's own inputs, so the download always carries the current template version. #}
+                            <a href="{{ kpi.csv_url }}"
+                               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand">
+                                {% icon 'download' %} Download
+                            </a>
+                            <span class="mt-1 block text-[11px] text-slate-400">v{{ kpi.template_version }} · {{ kpi.input_count }} input{{ kpi.input_count|pluralize }}</span>
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right">
+                            <a href="#kpiEdit-{{ kpi.slug }}"
                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand">
                                 {% icon 'pencil' %} Edit
+                            </a>
+                            <a href="#kpiDelete-{{ kpi.slug }}"
+                               class="ml-1.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-status-bad hover:text-status-bad">
+                                {% icon 'trash-o' %} Delete
                             </a>
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td class="px-4 py-8 text-center text-slate-300" colspan="6">No KPIs defined yet.</td></tr>
+                    {# With only what managers create actually stored, an empty scorecard is the most-seen screen in week one — so it gets a real state, not a dash. #}
+                    <tr>
+                        <td colspan="7" class="px-4 py-12 text-center">
+                            <p class="font-heading text-sm font-bold text-ink">No KPIs defined yet</p>
+                            <p class="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-slate-500">
+                                Create one to give Operations a scorecard. Its formula decides the columns of the CSV template you'll fill in.
+                            </p>
+                            <a href="#createKpiModal"
+                               class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                                {% icon 'plus' %} Create KPI
+                            </a>
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
 
-        {% include "partials/pagination.html" with id="kpi-defs" %}
+        {% if page_obj.paginator.count %}
+        <p class="mt-4 text-xs text-slate-400">
+            Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }} KPI{{ page_obj.paginator.count|pluralize }}
+        </p>
+        {% endif %}
+        {% include "partials/pagination.html" with id="kpi-defs" page_obj=page_obj %}
     </section>
 </div>
 
-{# ============ Edit modals — one per KPI, CSS-only via :target ============ #}
+{# ============ Edit modals — one per KPI on this page, CSS-only via :target ============ #}
+{# open_edit_slug forces the right one back open after a failed POST, when the :target fragment is gone. #}
 {% for kpi in kpis %}
-<div id="kpiEdit{{ forloop.counter }}"
-     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+<div id="kpiEdit-{{ kpi.slug }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_edit_slug == kpi.slug %} !flex{% endif %}">
     <div class="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
 
         <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
@@ -120,79 +152,149 @@
             </a>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-6">
-            <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
-                <div class="sm:col-span-2">
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI Name</label>
-                    <input type="text" value="{{ kpi.name }}"
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                </div>
+        <form method="post" class="flex min-h-0 flex-1 flex-col">
+            {% csrf_token %}
+            {# Tells the one management view which modal posted, and which KPI. #}
+            <input type="hidden" name="_action" value="edit">
+            <input type="hidden" name="_slug" value="{{ kpi.slug }}">
+            <input type="hidden" name="_page" value="{{ page_obj.number }}">
 
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Target / Threshold</label>
-                    <input type="number" step="0.1" value="{{ kpi.target }}"
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                </div>
+            <div class="min-h-0 flex-1 overflow-y-auto p-6">
 
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Direction</label>
-                    <select class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                        <option value="up" {% if kpi.direction == 'up' %}selected{% endif %}>Higher is better</option>
-                        <option value="down" {% if kpi.direction == 'down' %}selected{% endif %}>Lower is better (threshold)</option>
-                    </select>
+                {% if kpi.form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ kpi.form.non_field_errors }}
                 </div>
+                {% endif %}
 
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Display Label</label>
-                    <input type="text" value="{{ kpi.target_display }}"
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                    <p class="mt-1.5 text-xs text-slate-400">How the target reads on scorecards, e.g. "≥95%".</p>
-                </div>
+                <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI Name</label>
+                        {{ kpi.form.name }}
+                        <p class="mt-1.5 text-xs text-slate-400">The address <code class="text-slate-500">{{ kpi.slug }}</code> stays the same, because downloaded CSV templates bind to it.</p>
+                        {% include "partials/field_errors.html" with field=kpi.form.name %}
+                    </div>
 
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Frequency</label>
-                    <select class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                        {% for frequency in frequencies %}
-                        <option {% if kpi.frequency == frequency %}selected{% endif %}>{{ frequency }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+                    {# Targets are bands: a single figure is a band of width zero, both empty means tracked but not scored. #}
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Minimum Target</label>
+                        {{ kpi.form.target_min }}
+                        {% include "partials/field_errors.html" with field=kpi.form.target_min %}
+                    </div>
 
-                <div class="sm:col-span-2">
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Category</label>
-                    <select class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                        {% for category in categories %}
-                        <option {% if kpi.category == category %}selected{% endif %}>{{ category }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Maximum Target</label>
+                        {{ kpi.form.target_max }}
+                        {% include "partials/field_errors.html" with field=kpi.form.target_max %}
+                    </div>
 
-                <div class="sm:col-span-2">
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Formula</label>
-                    <input type="text" value="{{ kpi.formula }}"
-                           class="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-xs focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                </div>
+                    <div class="sm:col-span-2">
+                        <p class="-mt-1 text-xs text-slate-400">Fill one for a single target, both for a range, neither to track without scoring.</p>
+                    </div>
 
-                <div class="sm:col-span-2">
-                    <label class="mb-1.5 block text-sm font-medium text-slate-700">Description</label>
-                    <textarea rows="3"
-                              class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">{{ kpi.description }}</textarea>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Direction</label>
+                        {{ kpi.form.direction }}
+                        {% include "partials/field_errors.html" with field=kpi.form.direction %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Frequency</label>
+                        {{ kpi.form.frequency }}
+                        {% include "partials/field_errors.html" with field=kpi.form.frequency %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Display Format</label>
+                        {{ kpi.form.display_format }}
+                        {% include "partials/field_errors.html" with field=kpi.form.display_format %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Unit Suffix</label>
+                        {{ kpi.form.unit }}
+                        {% include "partials/field_errors.html" with field=kpi.form.unit %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Target Display</label>
+                        {{ kpi.form.target_display }}
+                        <p class="mt-1.5 text-xs text-slate-400">How the target reads on scorecards, e.g. "≥95%".</p>
+                        {% include "partials/field_errors.html" with field=kpi.form.target_display %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        {% include "partials/category_picker.html" with form=kpi.form %}
+                    </div>
+
+                    {% include "partials/formula_builder.html" with form=kpi.form uid=kpi.slug %}
+
+                    <div class="sm:col-span-2 rounded-lg border border-status-warn/30 bg-status-warn/10 px-3 py-2 text-xs leading-5 text-amber-800">
+                        Currently template <strong>v{{ kpi.template_version }}</strong>. Changing the formula or its inputs bumps that version and records the previous formula. CSVs filled against the old columns will be rejected, so download a fresh template afterwards.
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Description</label>
+                        {{ kpi.form.description }}
+                        {% include "partials/field_errors.html" with field=kpi.form.description %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Reason for the change</label>
+                        {{ kpi.form.change_reason }}
+                        <p class="mt-1.5 text-xs text-slate-400">Recorded against the target and formula history, since either one re-reads every past period.</p>
+                        {% include "partials/field_errors.html" with field=kpi.form.change_reason %}
+                    </div>
                 </div>
             </div>
 
-            <p class="mt-5 text-center text-xs italic text-slate-400">Saving isn't wired up yet — KPI definitions are still static.</p>
+            <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ---- Delete confirmation. Deleting a KPI is a soft delete, and the copy says so. ---- #}
+<div id="kpiDelete-{{ kpi.slug }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="px-6 pb-5 pt-6">
+            <div class="flex items-start gap-4">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>
+                <div class="min-w-0">
+                    <h3 class="font-heading text-base font-bold text-ink">Delete {{ kpi.name }}?</h3>
+                    <p class="mt-1.5 text-sm leading-6 text-slate-500">
+                       This KPI will be removed from the scorecard, dashboards, and reports. It will no longer be available for new data entry or CSV downloads.
+                    </p>
+                </div>
+            </div>
         </div>
 
         <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
             <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
-            <button type="button" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                Save Changes
-            </button>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="_action" value="delete">
+                <input type="hidden" name="_slug" value="{{ kpi.slug }}">
+                <input type="hidden" name="_page" value="{{ page_obj.number }}">
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95">
+                    {% icon 'trash-o' %} Delete KPI
+                </button>
+            </form>
         </div>
     </div>
 </div>
 {% endfor %}
 {% include "operations/create_kpi_modal.html" %}
+{% endblock %}
+
+{% block scripts %}
+{# One tag for the page: the create modal and every edit modal are separate builders, and the script initialises them all. #}
+<script src="{% static 'js/formula_builder.js' %}" defer></script>
 {% endblock %}
 

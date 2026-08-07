@@ -4,11 +4,16 @@ from django.shortcuts import render
 from apps.core.access import team_required
 
 from django.contrib import messages
+from django.core.paginator import Paginator
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
-from .forms import CreateKpiForm
+from apps.kpi import csv_template
+from apps.kpi.models import KpiCategory, KpiDefinition
+from .forms import CreateKpiForm, EditKpiForm
 
 # Glyph cluster behind the banner header (FA4 names, largest first).
 BANNER_ICONS = ['cogs', 'tasks', 'line-chart']
@@ -159,53 +164,221 @@ _DIRECTION_LABEL = {'up': 'Higher is better', 'down': 'Lower is better'}
 _FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually']
 
 
+# Rows per page on the KPI Management table.
+PAGE_SIZE = 10
+
+
+def _management_queryset(team):
+    return (
+        KpiDefinition.objects.filter(team=team, is_active=True)
+        .select_related('category')
+        .prefetch_related('inputs')
+        .order_by('sort_order', 'name')
+    )
+
+
+def _management_rows(kpis, team, edit_forms=None):
+    """The KPI Management table, from the database.
+
+    The FIRST Operations screen to read `kpi_definition` instead of the static
+    `_OPERATIONS_KPIS` dicts (rollout step 5). The row shape is deliberately
+    the same one the static list produced, so the template did not change shape
+    around it — only `csv_url`, `input_count` and `form` are new.
+
+    Each row carries its own bound-or-fresh `EditKpiForm`, so the Edit modal
+    renders real fields with real validation messages rather than a mockup.
+    Only the CURRENT PAGE gets forms built — that is what keeps this to ten.
+    """
+    edit_forms = edit_forms or {}
+
+    return [
+        {
+            'pk': kpi.pk,
+            'slug': kpi.slug,
+            'name': kpi.name,
+            'description': kpi.description,
+            'category': kpi.category.name if kpi.category else 'Uncategorised',
+            'target_display': kpi.target_display or 'No Target',
+            'target_min': kpi.target_min,
+            'target_max': kpi.target_max,
+            'direction': kpi.direction,
+            'direction_label': _DIRECTION_LABEL[kpi.direction],
+            'frequency': kpi.get_frequency_display(),
+            'formula': kpi.formula_text or kpi.expression,
+            # Generated on demand — see apps/kpi/csv_template.py for why it is
+            # not a stored file.
+            'csv_url': reverse('operations:kpi_template', args=[kpi.slug]),
+            'template_version': kpi.template_version,
+            'input_count': len(kpi.inputs.all()),
+            'form': edit_forms.get(kpi.slug) or EditKpiForm(instance=kpi, team=team),
+        }
+        for kpi in kpis
+    ]
+
+
+@login_required
+@team_required('operations')
+def kpi_template(request, slug):
+    """Download one KPI's CSV template, built from its own inputs (§D)."""
+    kpi = get_object_or_404(
+        KpiDefinition, team__slug='operations', slug=slug, is_active=True
+    )
+
+    response = HttpResponse(
+        csv_template.build_bytes(kpi), content_type='text/csv; charset=utf-8'
+    )
+    response['Content-Disposition'] = (
+        f'attachment; filename="{csv_template.filename(kpi)}"'
+    )
+    return response
+
+
 @login_required
 @team_required("operations")
 def kpi_management(request):
     operations_team = get_object_or_404(Team, slug="operations")
 
-    # The Create-KPI modal opens via CSS :target. On a validation failure the
-    # re-rendered page has no #createKpiModal fragment, so it would land closed
-    # and the errors would never be seen — this flag forces it open instead.
+    # Both modals open via CSS :target. On a validation failure the re-rendered
+    # page has no fragment, so the modal would land CLOSED with its errors
+    # unseen — these two force the right one back open instead.
     open_create_modal = False
+    open_edit_slug = None
+
+    form = CreateKpiForm(team=operations_team)
+    edit_forms = {}
 
     if request.method == "POST":
-        form = CreateKpiForm(request.POST, team=operations_team)
+        # One view, three modals: each form identifies itself so the create
+        # form isn't bound to an edit's POST data (and vice versa).
+        if request.POST.get("_action") == "delete":
+            kpi = get_object_or_404(
+                KpiDefinition,
+                team=operations_team,
+                slug=request.POST.get("_slug", ""),
+                is_active=True,
+            )
 
-        if form.is_valid():
-            kpi = form.save(user=request.user)
+            # SOFT delete: nothing is destroyed (design principle 7). The KPI
+            # drops off the scorecard and its CSV template stops downloading,
+            # but its records, history and audit trail stay intact and it can
+            # be brought back by flipping this one flag.
+            kpi.is_active = False
+            kpi.save(update_fields=["is_active", "updated_at"])
 
             log_action(
                 request,
-                action=AuditLog.Action.CREATED,
+                action=AuditLog.Action.DELETED,
                 entity=kpi,
                 entity_type="kpi_definition",
                 team=kpi.team,
-                new_values={
-                    "name": kpi.name,
-                    "slug": kpi.slug,
-                    "expression": kpi.expression,
-                    "formula_text": kpi.formula_text,
-                    "target_display": kpi.target_display,
-                    "inputs": [i.key for i in kpi.inputs.all()],
-                },
+                old_values={"is_active": True},
+                new_values={"is_active": False},
             )
 
-            messages.success(request, f'KPI "{kpi.name}" created.')
+            messages.success(
+                request,
+                f'KPI "{kpi.name}" deleted. Its records and history are kept.',
+            )
+            return redirect(_back_to_page(request))
 
-            return redirect("operations:kpi_management")
+        if request.POST.get("_action") == "edit":
+            kpi = get_object_or_404(
+                KpiDefinition,
+                team=operations_team,
+                slug=request.POST.get("_slug", ""),
+                is_active=True,
+            )
+            edit_form = EditKpiForm(request.POST, instance=kpi, team=operations_team)
 
-        open_create_modal = True
+            if edit_form.is_valid():
+                targets_changed = edit_form.targets_changed
+                formula_changed = edit_form.formula_changed
+                kpi = edit_form.save(user=request.user)
 
-    else:
-        form = CreateKpiForm(team=operations_team)
+                if edit_form.changes:
+                    # Moving a target and rewriting a formula are each their
+                    # own action — both re-read every past period, so neither
+                    # should hide inside a generic "updated". A single edit can
+                    # legitimately do both, so both are logged.
+                    actions = []
+                    if formula_changed:
+                        actions.append(AuditLog.Action.FORMULA_CHANGED)
+                    if targets_changed:
+                        actions.append(AuditLog.Action.TARGET_CHANGED)
+                    if not actions:
+                        actions.append(AuditLog.Action.UPDATED)
 
-    rows = [
-        {**kpi, "direction_label": _DIRECTION_LABEL[kpi["direction"]]}
-        for kpi in _OPERATIONS_KPIS
-    ]
+                    for action in actions:
+                        log_action(
+                            request,
+                            action=action,
+                            entity=kpi,
+                            entity_type="kpi_definition",
+                            team=kpi.team,
+                            old_values={
+                                f: c["from"] for f, c in edit_form.changes.items()
+                            },
+                            new_values={
+                                f: c["to"] for f, c in edit_form.changes.items()
+                            },
+                        )
 
-    categories = sorted({kpi["category"] for kpi in _OPERATIONS_KPIS})
+                    if formula_changed:
+                        messages.success(
+                            request,
+                            f'KPI "{kpi.name}" updated. Its CSV template is now '
+                            f"v{kpi.template_version}, so download a fresh one "
+                            "before the next upload.",
+                        )
+                    else:
+                        messages.success(request, f'KPI "{kpi.name}" updated.')
+                else:
+                    messages.info(request, "Nothing changed.")
+
+                return redirect(_back_to_page(request))
+
+            edit_forms[kpi.slug] = edit_form
+            open_edit_slug = kpi.slug
+
+        else:
+            form = CreateKpiForm(request.POST, team=operations_team)
+
+            if form.is_valid():
+                kpi = form.save(user=request.user)
+
+                log_action(
+                    request,
+                    action=AuditLog.Action.CREATED,
+                    entity=kpi,
+                    entity_type="kpi_definition",
+                    team=kpi.team,
+                    new_values={
+                        "name": kpi.name,
+                        "slug": kpi.slug,
+                        "expression": kpi.expression,
+                        "formula_text": kpi.formula_text,
+                        "target_display": kpi.target_display,
+                        "inputs": [i.key for i in kpi.inputs.all()],
+                    },
+                )
+
+                messages.success(request, f'KPI "{kpi.name}" created.')
+
+                return redirect(_back_to_page(request))
+
+            open_create_modal = True
+
+    kpis = _management_queryset(operations_team)
+    paginator = Paginator(kpis, PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page"))
+
+    rows = _management_rows(page.object_list, operations_team, edit_forms)
+
+    # Every category the team HAS, not just the ones on this page, so the
+    # filter still offers a category whose last KPI was deleted
+    categories = sorted(
+        KpiCategory.objects.filter(team=operations_team).values_list("name", flat=True)
+    )
 
     return render(
         request,
@@ -213,11 +386,30 @@ def kpi_management(request):
         {
             "form": form,
             "open_create_modal": open_create_modal,
+            "open_edit_slug": open_edit_slug,
             "kpis": rows,
-            "kpi_count": len(rows),
+            "page_obj": page,
+            # kpi_count is the WHOLE set, not this page — the stat card counts
+            # the scorecard, not what happens to be visible.
+            "kpi_count": paginator.count,
             "categories": categories,
-            "frequencies": sorted(
-                {*_FREQUENCIES, *(k["frequency"] for k in _OPERATIONS_KPIS)}
-            ),
+            "frequencies": _FREQUENCIES,
         },
     )
+
+
+# Where a successful POST lands. It is an anchor on the table, and it has to be
+# a real one: modals open via CSS :target, and a browser REATTACHES the original
+# request's fragment to a redirect whose Location carries none of its own
+# (RFC 7231 §7.1.2). Without this, saving from #kpiEdit-<slug> would redirect to
+# a fragment-less URL, the browser would put #kpiEdit-<slug> back, and the modal
+# would spring open again on the fresh page.
+_TABLE_ANCHOR = "kpi-definitions"
+
+
+def _back_to_page(request):
+    """Return to the page the change was made from, with every modal closed."""
+    url = reverse("operations:kpi_management")
+    page = request.POST.get("_page")
+    query = f"?page={page}" if page and page.isdigit() else ""
+    return f"{url}{query}#{_TABLE_ANCHOR}"

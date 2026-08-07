@@ -109,7 +109,7 @@ and the business defines its own metrics without touching code.
    don't recompute per page load, but are always re-derivable.
 6. **Everything is scoped to a Team.** `core_team.slug` already drives the sidebar and the access
    guard; KPI rows hang off it, so access control needs no new concepts.
-7. **Nothing is destroyed.** `is_active` retires a KPI; batches keep their file and their errors;
+7. **Nothing is destroyed.** `is_active` deletes a KPI; batches keep their file and their errors;
    formula and target changes append rather than overwrite; `audit_log` records who did it.
 
 ---
@@ -415,7 +415,7 @@ deploy and a typo can't silently spawn a category.
 | `target_display` | varchar(60) | "≥95%", "40–80 / month", "Threshold 3.5%" |
 | `formula_text` | varchar(255) | prose for humans — **generated from the expression**, not typed |
 | `template_version` | smallint | **incremented on every formula or input change** (A.6), so stale CSVs are rejected |
-| `is_active` | boolean | retire without deleting |
+| `is_active` | boolean | soft delete |
 | `sort_order` | smallint | card order on the scorecard |
 | `created_by_id` | FK → `auth_user` NULL | SET NULL |
 | `created_at` / `updated_at` | timestamptz | |
@@ -668,7 +668,7 @@ Index on `(team_id, created_at DESC)` and `(entity_type, entity_id)`
 |---|---|
 | KPI created | `created` / `kpi_definition` |
 | KPI updated | `updated` / `kpi_definition` |
-| KPI deleted (retired) | `deleted` / `kpi_definition` |
+| KPI deleted | `deleted` / `kpi_definition` |
 | Formula changed | `formula_changed` / `kpi_definition` |
 | Target changed | `target_changed` / `kpi_definition` |
 | CSV imported | `imported` / `kpi_import_batch` |
@@ -842,7 +842,7 @@ readable `entity_name`:
 |---|---|
 | Create a KPI | `created` / `kpi_definition` |
 | Update a KPI | `updated` / `kpi_definition`, with `old_values` / `new_values` populated |
-| Delete (retire) a KPI | `deleted` / `kpi_definition` |
+| Delete a KPI | `deleted` / `kpi_definition` |
 | Import a CSV | `imported` / `kpi_import_batch` |
 | Change a formula | `formula_changed` — **plus** a `kpi_formula_history` row |
 | Change a target | `target_changed` — **plus** a `kpi_target_history` row |

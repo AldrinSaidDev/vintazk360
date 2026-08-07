@@ -7,6 +7,19 @@
     display: flex;
 }
 
+/* Category picker: the "new category" text box only appears once the dropdown's
+   "Create new category" option is chosen, so the common case (pick an existing
+   one) isn't cluttered by a field nobody is filling in. No JS — :has() reads the
+   select's own state, the same trick the :target modals use.
+   Server side, the form re-selects __new__ when new_category comes back filled,
+   so a validation error re-renders with the box still open. */
+.category-picker .category-new {
+    display: none;
+}
+.category-picker:has(select option[value="__new__"]:checked) .category-new {
+    display: block;
+}
+
 /* LOB banner texture — fine dust/grain over a soft corner glow.
    The grain is an inline SVG: fractal-noise turbulence desaturated to grey and
    laid over the gradient at low opacity, tiling seamlessly (stitchTiles). It

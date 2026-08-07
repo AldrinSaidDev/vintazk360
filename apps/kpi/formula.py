@@ -71,7 +71,7 @@ def parse(expression: str) -> ast.Expression:
     try:
         tree = ast.parse(text, mode='eval')
     except SyntaxError:
-        raise FormulaError('That formula is not valid — check the brackets and operators.')
+        raise FormulaError('That formula is not valid. Check the brackets and operators.')
 
     _check(tree.body)
     return tree
@@ -167,7 +167,7 @@ def validate(expression: str, keys) -> str:
     except FormulaError:
         raise
     except Exception:
-        raise FormulaError('That formula could not be calculated — check its structure.')
+        raise FormulaError('That formula could not be calculated. Check its structure.')
 
     return (expression or '').strip()
 
