@@ -5,6 +5,7 @@ from apps.core.access import team_required
 
 from django.contrib import messages
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -12,7 +13,7 @@ from django.urls import reverse
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
 from apps.kpi import csv_template
-from apps.kpi.models import KpiCategory, KpiDefinition
+from apps.kpi.models import Frequency, KpiCategory, KpiDefinition
 from .forms import CreateKpiForm, EditKpiForm
 
 from django.contrib import messages
@@ -167,11 +168,6 @@ def import_data(request):
 
 # How each KPI's direction reads on the management screen.
 _DIRECTION_LABEL = {'up': 'Higher is better', 'down': 'Lower is better'}
-
-# Picklists for the edit modal. Derived from the KPI list so a new category or
-# cadence shows up in the dropdowns without touching the template.
-_FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually']
-
 
 # Rows per page on the KPI Management table.
 PAGE_SIZE = 10
@@ -389,17 +385,32 @@ def kpi_management(request):
 
             open_create_modal = True
 
+    # Every category the team HAS, not just the ones currently in use, so the
+    # filter still offers a category whose last KPI was deleted.
+    categories = sorted(
+        KpiCategory.objects.filter(team=operations_team).values_list("name", flat=True)
+    )
+
+    search = request.GET.get("q", "").strip()
+    chosen_categories = [c for c in request.GET.getlist("category") if c]
+    chosen_frequencies = [f for f in request.GET.getlist("frequency") if f]
+
     kpis = _kpi_queryset(operations_team)
+    if search:
+        kpis = kpis.filter(
+            Q(name__icontains=search)
+            | Q(formula_text__icontains=search)
+            | Q(expression__icontains=search)
+        )
+    if chosen_categories:
+        kpis = kpis.filter(category__name__in=chosen_categories)
+    if chosen_frequencies:
+        kpis = kpis.filter(frequency__in=chosen_frequencies)
+
     paginator = Paginator(kpis, PAGE_SIZE)
     page = paginator.get_page(request.GET.get("page"))
 
     rows = _management_rows(page.object_list, operations_team, edit_forms)
-
-    # Every category the team HAS, not just the ones on this page, so the
-    # filter still offers a category whose last KPI was deleted
-    categories = sorted(
-        KpiCategory.objects.filter(team=operations_team).values_list("name", flat=True)
-    )
 
     return render(
         request,
@@ -410,13 +421,50 @@ def kpi_management(request):
             "open_edit_slug": open_edit_slug,
             "kpis": rows,
             "page_obj": page,
-            # kpi_count is the WHOLE set, not this page — the stat card counts
-            # the scorecard, not what happens to be visible.
-            "kpi_count": paginator.count,
+            # The count of what the filters MATCHED. The stat card above the
+            # table keeps counting the whole scorecard.
+            "result_count": paginator.count,
+            "kpi_count": _kpi_queryset(operations_team).count(),
             "categories": categories,
-            "frequencies": _FREQUENCIES,
+            # One popover replaces the two inert dropdowns. Each option carries
+            # its own checked flag so the template holds no lookup logic.
+            "category_options": [
+                {"value": name, "label": name, "checked": name in chosen_categories}
+                for name in categories
+            ],
+            "frequency_options": [
+                {"value": value, "label": label, "checked": value in chosen_frequencies}
+                for value, label in Frequency.choices
+            ],
+            "search": search,
+            # Drives the button's active styling and its count badge. Search has
+            # its own visible box, so it is not counted here.
+            "active_filter_count": len(chosen_categories) + len(chosen_frequencies),
+            "has_any_filter": bool(search or chosen_categories or chosen_frequencies),
+            "clear_url": reverse("operations:kpi_management"),
+            # Pagination has to carry the filters, or page 2 silently drops them.
+            "page_query": _query_without_page(request),
+            "page_params": _params_without_page(request),
         },
     )
+
+
+def _query_without_page(request):
+    """The current query string minus `page`, for pagination links."""
+    params = request.GET.copy()
+    params.pop("page", None)
+    return params.urlencode()
+
+
+def _params_without_page(request):
+    """The same, as key/value pairs, for the pagination form's hidden inputs."""
+    return [
+        {"key": key, "value": value}
+        for key, values in request.GET.lists()
+        if key != "page"
+        for value in values
+        if value
+    ]
 
 
 # Where a successful POST lands. It is an anchor on the table, and it has to be
@@ -429,8 +477,20 @@ _TABLE_ANCHOR = "kpi-definitions"
 
 
 def _back_to_page(request):
-    """Return to the page the change was made from, with every modal closed."""
-    url = reverse("operations:kpi_management")
+    """Return to the view the change was made from, with every modal closed.
+
+    A form with no `action` posts to the current URL, query string included, so
+    `request.GET` still holds whatever filters were applied. Carrying them back
+    is the difference between saving a KPI and having the filtered list you were
+    working through reset itself underneath you.
+    """
+    params = request.GET.copy()
     page = request.POST.get("_page")
-    query = f"?page={page}" if page and page.isdigit() else ""
-    return f"{url}{query}#{_TABLE_ANCHOR}"
+    if page and page.isdigit():
+        params["page"] = page
+    else:
+        params.pop("page", None)
+
+    query = params.urlencode()
+    url = reverse("operations:kpi_management")
+    return f"{url}{'?' + query if query else ''}#{_TABLE_ANCHOR}"
