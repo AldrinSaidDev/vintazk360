@@ -1,6 +1,7 @@
 {% load icons static %}
+{# open_create_modal forces the modal open after a failed POST — the :target fragment is gone by then, so it would otherwise re-render closed with the errors hidden. #}
 <div id="createKpiModal"
-     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_create_modal %} !flex{% endif %}">
 
     <div class="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
 
@@ -34,6 +35,12 @@
 
             <div class="min-h-0 flex-1 overflow-y-auto p-6">
 
+                {% if form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ form.non_field_errors }}
+                </div>
+                {% endif %}
+
                 <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
 
                     <div class="sm:col-span-2">
@@ -41,6 +48,7 @@
                             KPI Name <span class="text-status-bad" aria-hidden="true">*</span>
                         </label>
                         {{ form.name }}
+                        {% include "partials/field_errors.html" with field=form.name %}
                     </div>
 
                     <div class="sm:col-span-2">
@@ -48,6 +56,7 @@
                             Description
                         </label>
                         {{ form.description }}
+                        {% include "partials/field_errors.html" with field=form.description %}
                     </div>
 
                     <div>
@@ -55,6 +64,10 @@
                             Category
                         </label>
                         {{ form.category }}
+                        {{ form.new_category }}
+                        <p class="mt-1.5 text-xs text-slate-400">Pick one, or type a new category to create it for Operations.</p>
+                        {% include "partials/field_errors.html" with field=form.category %}
+                        {% include "partials/field_errors.html" with field=form.new_category %}
                     </div>
 
                     <div>
@@ -62,6 +75,7 @@
                             Frequency <span class="text-status-bad" aria-hidden="true">*</span>
                         </label>
                         {{ form.frequency }}
+                        {% include "partials/field_errors.html" with field=form.frequency %}
                     </div>
 
                     <div>
@@ -69,6 +83,7 @@
                             Direction <span class="text-status-bad" aria-hidden="true">*</span>
                         </label>
                         {{ form.direction }}
+                        {% include "partials/field_errors.html" with field=form.direction %}
                     </div>
 
                     <div>
@@ -76,6 +91,16 @@
                             Display Format <span class="text-status-bad" aria-hidden="true">*</span>
                         </label>
                         {{ form.display_format }}
+                        {% include "partials/field_errors.html" with field=form.display_format %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Unit Suffix
+                        </label>
+                        {{ form.unit }}
+                        <p class="mt-1.5 text-xs text-slate-400">Printed after the value — only needed for Days, Ratio or Currency formats.</p>
+                        {% include "partials/field_errors.html" with field=form.unit %}
                     </div>
 
                     <div>
@@ -83,6 +108,7 @@
                             Minimum Target
                         </label>
                         {{ form.target_min }}
+                        {% include "partials/field_errors.html" with field=form.target_min %}
                     </div>
 
                     <div>
@@ -90,6 +116,11 @@
                             Maximum Target
                         </label>
                         {{ form.target_max }}
+                        {% include "partials/field_errors.html" with field=form.target_max %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <p class="-mt-1 text-xs text-slate-400">Leave both empty to track this KPI without scoring it. Fill one for a single target, or both for a range.</p>
                     </div>
 
                     <div class="sm:col-span-2">
@@ -97,6 +128,7 @@
                             Target Display
                         </label>
                         {{ form.target_display }}
+                        {% include "partials/field_errors.html" with field=form.target_display %}
                     </div>
 
                     <fieldset class="sm:col-span-2" data-formula-builder>
@@ -138,12 +170,15 @@
                             <select id="formulaPreset"
                                     class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
                                     data-preset-select>
-                                <option value="percentage">Percentage</option>
-                                <option value="average">Average</option>
-                                <option value="sum">Sum</option>
-                                <option value="difference">Difference</option>
-                                <option value="ratio">Ratio</option>
-                                <option value="custom_score">Custom Score</option>
+                                <option value="percentage">Percentage — a ÷ b × 100</option>
+                                <option value="count">Simple count — a</option>
+                                <option value="average">Average — a ÷ b</option>
+                                <option value="ratio">Ratio — a ÷ b</option>
+                                <option value="cost_per_unit">Cost per unit — a ÷ b</option>
+                                <option value="difference">Difference — a − b</option>
+                                <option value="net_accuracy">Accuracy net of errors — (a − b) ÷ a × 100</option>
+                                <option value="variance">Variance vs budget — (a − b) ÷ b × 100</option>
+                                <option value="scaled">Scaled (3 inputs) — a ÷ b × c</option>
                             </select>
                         </div>
 
@@ -245,11 +280,16 @@
                                name="expression"
                                value="{{ form.expression.value|default_if_none:'' }}"
                                data-expression-field>
-                        {% if form.expression.errors %}
-                        <div class="mt-2 text-xs font-medium text-status-bad">
-                            {{ form.expression.errors }}
-                        </div>
-                        {% endif %}
+
+                        {# The operands themselves — they become kpi_input rows, and therefore the CSV columns. Without these the KPI cannot be filled in. #}
+                        <input type="hidden"
+                               id="id_inputs_json"
+                               name="inputs_json"
+                               value="{{ form.inputs_json.value|default_if_none:'' }}"
+                               data-inputs-field>
+
+                        {% include "partials/field_errors.html" with field=form.expression %}
+                        {% include "partials/field_errors.html" with field=form.inputs_json %}
                     </fieldset>
 
                 </div>

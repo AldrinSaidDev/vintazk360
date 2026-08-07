@@ -1,0 +1,6 @@
+{# Validation messages for one form field. Usage: {% include "partials/field_errors.html" with field=form.name %} #}
+{% if field.errors %}
+<ul class="mt-1.5 space-y-1 text-xs font-medium text-status-bad">
+    {% for error in field.errors %}<li>{{ error }}</li>{% endfor %}
+</ul>
+{% endif %}

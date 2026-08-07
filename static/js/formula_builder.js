@@ -1,54 +1,77 @@
 (function () {
     "use strict";
 
+    // The starter shapes from db_schema.txt §A.4, minus the two that need a
+    // function call (Days between, Forecast accuracy) — the token canvas has no
+    // way to express `abs(...)` or `days_between(...)` yet.
     const PRESETS = {
         percentage: {
-            inputs: [
-                ["Total Exits", "total_exits"],
-                ["Average Headcount", "average_headcount"],
-            ],
-            expression: "total_exits / average_headcount * 100",
-        },
-        average: {
-            inputs: [
-                ["First Value", "first_value"],
-                ["Second Value", "second_value"],
-            ],
-            expression: "( first_value + second_value ) / 2",
-        },
-        sum: {
-            inputs: [
-                ["First Value", "first_value"],
-                ["Second Value", "second_value"],
-            ],
-            expression: "first_value + second_value",
-        },
-        difference: {
-            inputs: [
-                ["Starting Value", "starting_value"],
-                ["Ending Value", "ending_value"],
-            ],
-            expression: "ending_value - starting_value",
-        },
-        ratio: {
             inputs: [
                 ["Numerator", "numerator"],
                 ["Denominator", "denominator"],
             ],
-            expression: "numerator / denominator",
+            expression: "numerator / denominator * 100",
         },
-        custom_score: {
+        count: {
+            inputs: [["Items counted", "items_counted"]],
+            expression: "items_counted",
+        },
+        average: {
             inputs: [
-                ["Achieved Value", "achieved_value"],
-                ["Target Value", "target_value"],
-                ["Weight", "weight"],
+                ["Total", "total"],
+                ["Number of items", "item_count"],
             ],
-            expression: "( achieved_value / target_value ) * weight",
+            expression: "total / item_count",
+        },
+        ratio: {
+            inputs: [
+                ["First quantity", "first_quantity"],
+                ["Second quantity", "second_quantity"],
+            ],
+            expression: "first_quantity / second_quantity",
+        },
+        cost_per_unit: {
+            inputs: [
+                ["Total cost", "total_cost"],
+                ["Units", "units"],
+            ],
+            expression: "total_cost / units",
+        },
+        difference: {
+            inputs: [
+                ["Value after", "value_after"],
+                ["Value before", "value_before"],
+            ],
+            expression: "value_after - value_before",
+        },
+        net_accuracy: {
+            inputs: [
+                ["Total processed", "total_processed"],
+                ["Errors", "errors"],
+            ],
+            expression: "( total_processed - errors ) / total_processed * 100",
+        },
+        variance: {
+            inputs: [
+                ["Actual", "actual"],
+                ["Budget", "budget"],
+            ],
+            expression: "( actual - budget ) / budget * 100",
+        },
+        scaled: {
+            inputs: [
+                ["Numerator", "numerator"],
+                ["Denominator", "denominator"],
+                ["Scale factor", "scale_factor"],
+            ],
+            expression: "numerator / denominator * scale_factor",
         },
     };
 
     const OPERATOR_LABELS = { "+": "+", "-": "−", "*": "×", "/": "÷" };
-    const VARIABLE_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+    // Must match KEY_VALIDATOR in apps/kpi/models.py — the variable name is
+    // also the CSV column header, so the server holds it to the same shape.
+    const VARIABLE_PATTERN = /^[a-z][a-z0-9_]*$/;
 
     function titleFromVariable(value) {
         return value
@@ -62,8 +85,13 @@
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "_")
             .replace(/^_+|_+$/g, "")
-            .replace(/^(?=\d)/, "_");
+            // A key has to start with a letter — it becomes a formula variable.
+            .replace(/^(?=\d)/, "n");
     }
+
+    // Anything the tokeniser can lex as a name. Wider than VARIABLE_PATTERN so a
+    // stored expression still reads back rather than being mangled into operators.
+    const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
     function tokenise(expression, inputs) {
         const tokens = [];
@@ -78,7 +106,7 @@
             const value = match[1];
             position = pattern.lastIndex;
 
-            if (VARIABLE_PATTERN.test(value)) {
+            if (IDENTIFIER_PATTERN.test(value)) {
                 let input = inputs.find(function (item) { return item.variable === value; });
                 if (!input) {
                     input = { label: titleFromVariable(value), variable: value };
@@ -97,7 +125,7 @@
         return tokens;
     }
 
-    function validate(tokens) {
+    function validate(tokens, inputs) {
         if (!tokens.length) return { valid: false, message: "Missing operand" };
 
         let balance = 0;
@@ -132,6 +160,24 @@
 
         if (balance !== 0) return { valid: false, message: "Unmatched parenthesis" };
         if (expectsOperand) return { valid: false, message: "Missing operand" };
+
+        // The server enforces both of these too — every input becomes a CSV
+        // column, so one that is never calculated with would never be filled in,
+        // and a formula of pure numbers has nothing to measure.
+        const used = new Set(
+            tokens.filter(function (token) { return token.type === "input"; })
+                  .map(function (token) { return token.value; })
+        );
+        if (!used.size) return { valid: false, message: "Use at least one input, not just numbers" };
+
+        const unused = (inputs || []).filter(function (input) { return !used.has(input.variable); });
+        if (unused.length) {
+            return {
+                valid: false,
+                message: "Not used in the formula: " + unused.map(function (input) { return input.label; }).join(", "),
+            };
+        }
+
         return { valid: true, message: "Formula Valid" };
     }
 
@@ -147,6 +193,7 @@
         const inputList = root.querySelector("[data-input-list]");
         const canvas = root.querySelector("[data-formula-canvas]");
         const expressionField = root.querySelector("[data-expression-field]");
+        const inputsField = root.querySelector("[data-inputs-field]");
         const expressionPreview = root.querySelector("[data-expression-preview]");
         const humanPreview = root.querySelector("[data-human-preview]");
         const validationStatus = root.querySelector("[data-formula-validation]");
@@ -183,9 +230,16 @@
         function updateOutput() {
             const expression = expressionValue();
             const human = humanValue();
-            currentValidation = validate(state.tokens);
+            currentValidation = validate(state.tokens, state.inputs);
 
             expressionField.value = expression;
+            // The operands travel with the formula: they become kpi_input rows,
+            // and those rows ARE the CSV columns and the Add-Record fields.
+            if (inputsField) {
+                inputsField.value = JSON.stringify(state.inputs.map(function (input) {
+                    return { key: input.variable, label: input.label };
+                }));
+            }
             expressionPreview.textContent = expression || "—";
             humanPreview.textContent = human || "—";
             validationStatus.textContent = (currentValidation.valid ? "✓ " : "⚠ ") + currentValidation.message;
@@ -212,6 +266,7 @@
                 empty.className = "text-xs italic text-slate-400";
                 empty.textContent = "No inputs added yet.";
                 inputList.appendChild(empty);
+                updateOutput();
                 return;
             }
 
@@ -247,6 +302,10 @@
                 item.append(insert, remove);
                 inputList.appendChild(item);
             });
+
+            // The inputs are half of what gets submitted, so the hidden payload
+            // and the "unused input" warning refresh whenever the list changes.
+            updateOutput();
         }
 
         function renderCanvas() {
@@ -422,7 +481,25 @@
 
         const initialExpression = expressionField.value.trim();
         if (initialExpression) {
+            // Re-rendered after a failed POST: rebuild from what was submitted so
+            // the manager's own labels survive instead of being re-derived from
+            // the variable names.
             state.inputs = [];
+            try {
+                const stored = JSON.parse((inputsField && inputsField.value) || "[]");
+                if (Array.isArray(stored)) {
+                    state.inputs = stored
+                        .filter(function (item) { return item && item.key; })
+                        .map(function (item) {
+                            return {
+                                label: item.label || titleFromVariable(item.key),
+                                variable: item.key,
+                            };
+                        });
+                }
+            } catch (error) {
+                state.inputs = [];
+            }
             state.tokens = tokenise(initialExpression, state.inputs) || [];
             modeInputs.forEach(function (input) { input.checked = input.value === "custom"; });
             presetPanel.classList.add("hidden");

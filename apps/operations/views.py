@@ -5,9 +5,9 @@ from apps.core.access import team_required
 
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
-from django.utils.text import slugify
 
-from apps.core.models import Team
+from apps.core.audit import log_action
+from apps.core.models import AuditLog, Team
 from .forms import CreateKpiForm
 
 # Glyph cluster behind the banner header (FA4 names, largest first).
@@ -164,25 +164,41 @@ _FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually']
 def kpi_management(request):
     operations_team = get_object_or_404(Team, slug="operations")
 
+    # The Create-KPI modal opens via CSS :target. On a validation failure the
+    # re-rendered page has no #createKpiModal fragment, so it would land closed
+    # and the errors would never be seen — this flag forces it open instead.
+    open_create_modal = False
+
     if request.method == "POST":
-        form = CreateKpiForm(request.POST)
+        form = CreateKpiForm(request.POST, team=operations_team)
 
         if form.is_valid():
-            kpi = form.save(commit=False)
+            kpi = form.save(user=request.user)
 
-            kpi.team = operations_team
-            kpi.slug = slugify(kpi.name)
-            kpi.created_by = request.user
-            kpi.template_version = 1
+            log_action(
+                request,
+                action=AuditLog.Action.CREATED,
+                entity=kpi,
+                entity_type="kpi_definition",
+                team=kpi.team,
+                new_values={
+                    "name": kpi.name,
+                    "slug": kpi.slug,
+                    "expression": kpi.expression,
+                    "formula_text": kpi.formula_text,
+                    "target_display": kpi.target_display,
+                    "inputs": [i.key for i in kpi.inputs.all()],
+                },
+            )
 
-            kpi.save()
-
-            messages.success(request, "KPI created successfully.")
+            messages.success(request, f'KPI "{kpi.name}" created.')
 
             return redirect("operations:kpi_management")
 
+        open_create_modal = True
+
     else:
-        form = CreateKpiForm()
+        form = CreateKpiForm(team=operations_team)
 
     rows = [
         {**kpi, "direction_label": _DIRECTION_LABEL[kpi["direction"]]}
@@ -196,6 +212,7 @@ def kpi_management(request):
         "operations/kpi_management.html",
         {
             "form": form,
+            "open_create_modal": open_create_modal,
             "kpis": rows,
             "kpi_count": len(rows),
             "categories": categories,
