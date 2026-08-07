@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load icons %}
 
 {% block title %}Import Data · Operations · Vintazk 360{% endblock %}
 {% block page_title %}Import Data{% endblock %}
@@ -7,308 +8,351 @@
 {% block content %}
 <div class="space-y-6">
 
-    {% include "partials/info_banner.html" with text="Import, create, and update Operations KPI records for each team. Add individual entries through a form or upload Excel files for bulk import to keep performance metrics accurate and up to date." %}
+    {% include "partials/info_banner.html" with text="Import, create, and update Operations KPI records. Add a single entry through the form, or upload a filled-in CSV template for bulk import. Each KPI's template is downloaded from KPI Management and carries its own columns." %}
 
-    {% include "partials/kpi_import_stats.html" with total_records="500" added_this_month="500" last_import="July 2026" %}
+    {# Counted from kpi_record / kpi_import_batch — the view puts total_records, added_this_month, period and last_import in the context. #}
+    {% include "partials/kpi_import_stats.html" %}
 
-    {# KPI Records #}
-    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+    {# KPI Records. The id is where a successful save redirects to, so the modal's own fragment cannot be inherited and re-open it. #}
+    <section id="kpi-records" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 class="font-heading text-base font-bold text-ink">KPI Records</h2>
 
             <div class="flex flex-wrap items-center gap-2">
-                {# Search #}
-                <div class="relative">
-                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
-                    </div>
-                    <input type="search" placeholder="Search"
-                           class="w-40 rounded-lg border border-slate-300 bg-slate-50 py-1.5 pl-9 pr-3 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                </div>
+                <a href="#importModal"
+                   class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
+                    {% icon 'upload' %} Import CSV
+                </a>
 
-                {# Filter — plain select #}
-                <select class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                    <option>All statuses</option>
-                    <option>On track</option>
-                    <option>Below target</option>
-                    <option>No data</option>
-                </select>
-
-                {# Import (Excel) #}
-                <button type="button"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-green-600 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                    Import
-                </button>
-
-                {# + Add — opens the modal below via the anchor target #}
                 <a href="#addRecordModal"
-                   class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-white hover:bg-brand-dark">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                   class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'plus' %} Add Record
                 </a>
             </div>
         </div>
+
+        {# Ten rows fit without scrolling; the cap only bites when a row wraps. Header stays put. #}
+        <div class="max-h-[34rem] overflow-auto rounded-lg border border-slate-100">
+            <table class="w-full min-w-[860px] text-left text-sm text-slate-600">
+                <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                        <th class="px-4 py-3 font-semibold">KPI</th>
+                        <th class="px-4 py-3 font-semibold">Category</th>
+                        <th class="px-4 py-3 font-semibold">Actual</th>
+                        <th class="px-4 py-3 font-semibold">Target</th>
+                        <th class="px-4 py-3 font-semibold">Period</th>
+                        <th class="px-4 py-3 font-semibold">Status</th>
+                        <th class="px-4 py-3 font-semibold">Source</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for record in records %}
+                    <tr class="transition hover:bg-slate-50/60">
+                        <td class="px-4 py-3">
+                            <span class="font-medium text-ink">{{ record.kpi }}</span>
+                            {% if record.remarks %}
+                            <span class="mt-0.5 block max-w-md truncate text-xs text-slate-400">{{ record.remarks }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">{{ record.category }}</span>
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 font-heading font-bold text-ink">{{ record.actual }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">{{ record.target }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">{{ record.period }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {% if record.status == 'on_track' %}
+                            <span class="rounded-full bg-status-good/10 px-2.5 py-1 text-[11px] font-semibold text-status-good">{{ record.status_label }}</span>
+                            {% elif record.status == 'at_risk' %}
+                            <span class="rounded-full bg-status-warn/15 px-2.5 py-1 text-[11px] font-semibold text-status-warn">{{ record.status_label }}</span>
+                            {% elif record.status == 'below' %}
+                            <span class="rounded-full bg-status-bad/10 px-2.5 py-1 text-[11px] font-semibold text-status-bad">{{ record.status_label }}</span>
+                            {% else %}
+                            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{{ record.status_label }}</span>
+                            {% endif %}
+                            {% if record.attainment %}<span class="ml-1 text-[11px] text-slate-400">{{ record.attainment }}%</span>{% endif %}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ record.source }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="px-4 py-12 text-center">
+                            <p class="font-heading text-sm font-bold text-ink">No records yet</p>
+                            <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
+                                Add one by hand, or download a KPI's CSV template from KPI Management, fill it in and upload it here.
+                            </p>
+                            <a href="#addRecordModal"
+                               class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                                {% icon 'plus' %} Add Record
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if record_count %}
+        <p class="mt-4 text-xs text-slate-400">
+            Showing {{ page_obj.start_index }}&ndash;{{ page_obj.end_index }} of {{ record_count }} record{{ record_count|pluralize }}
+        </p>
+        {% endif %}
+        {# One page of records needs no pager, and a dead one reads as broken. #}
+        {% if page_obj.paginator.num_pages > 1 %}
+        {% include "partials/pagination.html" with id="kpi-records-pager" page_obj=page_obj page_numbers=page_numbers anchor="kpi-records" extra_query=extra_query extra_params=extra_params %}
+        {% endif %}
+    </section>
+
+    {# Recent Import History #}
+    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <h2 class="mb-4 font-heading text-base font-bold text-ink">Recent Import History</h2>
 
         <div class="overflow-x-auto rounded-lg border border-slate-100">
             <table class="w-full min-w-[720px] text-left text-sm text-slate-600">
                 <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                        <th class="px-4 py-3 font-semibold">Team</th>
-                        <th class="px-4 py-3 font-semibold">KPI</th>
-                        <th class="px-4 py-3 font-semibold">Actual</th>
-                        <th class="px-4 py-3 font-semibold">Target</th>
-                        <th class="px-4 py-3 font-semibold">Period</th>
-                        <th class="px-4 py-3 font-semibold">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    <tr><td class="px-4 py-8 text-center text-slate-300" colspan="6">No records yet — import an Excel file or add a record to get started.</td></tr>
-                </tbody>
-            </table>
-        </div>
-
-        {% include "partials/pagination.html" with id="kpi-records" %}
-    </section>
-
-    {# Recent Import History #}
-    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 class="font-heading text-base font-bold text-ink">Recent Import History</h2>
-            <div class="flex items-center gap-2">
-                <div class="relative">
-                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
-                    </div>
-                    <input type="search" placeholder="Search"
-                           class="w-40 rounded-lg border border-slate-300 bg-slate-50 py-1.5 pl-9 pr-3 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                </div>
-                <select class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                    <option>All time</option>
-                    <option>This month</option>
-                    <option>Last month</option>
-                </select>
-            </div>
-        </div>
-        <div class="overflow-x-auto rounded-lg border border-slate-100">
-            <table class="w-full min-w-[640px] text-left text-sm text-slate-600">
-                <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
                         <th class="px-4 py-3 font-semibold">File</th>
-                        <th class="px-4 py-3 font-semibold">Team</th>
+                        <th class="px-4 py-3 font-semibold">KPI</th>
                         <th class="px-4 py-3 font-semibold">Records</th>
+                        <th class="px-4 py-3 font-semibold">Status</th>
                         <th class="px-4 py-3 font-semibold">Imported By</th>
                         <th class="px-4 py-3 font-semibold">Date</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                    <tr><td class="px-4 py-8 text-center text-slate-300" colspan="5">No imports yet.</td></tr>
+                    {% for batch in imports %}
+                    <tr class="transition hover:bg-slate-50/60">
+                        <td class="px-4 py-3 font-medium text-ink">{{ batch.file_name }}</td>
+                        <td class="px-4 py-3">{{ batch.kpi }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {{ batch.records }}
+                            {% if batch.errors %}<span class="ml-1 text-xs font-medium text-status-bad">{{ batch.errors }} rejected</span>{% endif %}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {% if batch.status == 'applied' %}
+                            <span class="rounded-full bg-status-good/10 px-2.5 py-1 text-[11px] font-semibold text-status-good">{{ batch.status_label }}</span>
+                            {% elif batch.status == 'partial' %}
+                            <span class="rounded-full bg-status-warn/15 px-2.5 py-1 text-[11px] font-semibold text-status-warn">{{ batch.status_label }}</span>
+                            {% elif batch.status == 'failed' %}
+                            <span class="rounded-full bg-status-bad/10 px-2.5 py-1 text-[11px] font-semibold text-status-bad">{{ batch.status_label }}</span>
+                            {% else %}
+                            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{{ batch.status_label }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3">{{ batch.uploaded_by }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ batch.uploaded_at|date:"d M Y, H:i" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td class="px-4 py-8 text-center text-sm text-slate-400" colspan="6">No imports yet.</td></tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </div>
     </section>
 </div>
 
-{# ============ Add Performance Record modal — CSS-only via :target ============ #}
+{# ============ Add Performance Record modal ============ #}
+{# open_add_modal forces it back open after a failed POST, when the :target fragment is gone. #}
 <div id="addRecordModal"
-     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_add_modal %} !flex{% endif %}">
     <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
 
-        {# Branded header #}
         <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
             <div class="flex items-center gap-3">
-                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                </span>
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'plus' %}</span>
                 <div>
                     <h3 class="font-heading text-lg font-bold leading-tight">Add Performance Record</h3>
-                    <p class="text-xs text-white/70">Enter a KPI's raw figures — we'll calculate the result.</p>
+                    <p class="text-xs text-white/70">Enter the raw figures. The KPI's own formula turns them into a result.</p>
                 </div>
             </div>
-            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white">
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </a>
         </div>
 
-        <form id="addRecordForm" class="flex-1 overflow-y-auto p-6">
-            <div class="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+        <form method="post" class="flex min-h-0 flex-1 flex-col" data-record-form>
+            {% csrf_token %}
+            <input type="hidden" name="_action" value="add">
 
-                {# ---- Left column: KPI + formula inputs + live calc ---- #}
-                <div class="space-y-4">
-                    <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        <span class="h-px flex-1 bg-slate-100"></span>KPI Information<span class="h-px flex-1 bg-slate-100"></span>
-                    </p>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI</label>
-                        <select id="record-kpi"
-                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                            <option value="">Select KPI…</option>
-                            {% for k in modal_kpis %}
-                            <option value="{{ k.name }}"
-                                    data-target="{{ k.target }}"
-                                    data-direction="{{ k.direction }}"
-                                    data-target-display="{{ k.target_display }}"
-                                    data-formula="{{ k.formula }}"
-                                    data-numerator="{{ k.numerator }}"
-                                    data-denominator="{{ k.denominator }}">{{ k.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
+            <div class="min-h-0 flex-1 overflow-y-auto p-6">
 
-                    {# Two raw formula inputs — labels change per KPI; hidden until one is picked. #}
-                    {# items-end so the inputs line up even when one label wraps to two lines. #}
-                    <div id="record-inputs" class="hidden items-end gap-3 sm:grid-cols-2 [&:not(.hidden)]:grid grid-cols-1">
-                        <div class="flex h-full flex-col">
-                            <label id="record-num-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Numerator</label>
-                            <input type="text" id="record-numerator" inputmode="decimal" placeholder="e.g. 7"
-                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                        </div>
-                        <div class="flex h-full flex-col">
-                            <label id="record-den-label" class="mb-1.5 flex-1 text-sm font-medium leading-snug text-slate-700">Denominator</label>
-                            <input type="text" id="record-denominator" inputmode="decimal" placeholder="e.g. 200"
-                                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                        </div>
-                    </div>
-
-                    {# Calculation preview — formula shows on KPI select; result fills in once both values are entered. #}
-                    <div id="record-calc" class="hidden rounded-xl border border-brand/15 bg-brand/5 p-4">
-                        <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
-                        <p id="record-calc-formula" class="font-mono text-xs leading-relaxed text-brand-dark"></p>
-                        <p id="record-calc-worked" class="mt-2 hidden font-mono text-base font-bold leading-relaxed text-ink"></p>
-                        <div class="mt-3 flex items-center justify-between border-t border-dashed border-brand/15 pt-3">
-                            <span class="text-xs text-slate-500">Target <span id="record-calc-target" class="font-semibold text-ink"></span></span>
-                            <span id="record-calc-status" class="hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"></span>
-                            <span id="record-calc-hint" class="text-xs italic text-slate-400">Enter both values…</span>
-                        </div>
-                    </div>
+                {% if add_form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ add_form.non_field_errors }}
                 </div>
+                {% endif %}
 
-                {# ---- Right column: team + optional meta ---- #}
-                <div class="space-y-4">
-                    <p class="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                        <span class="h-px flex-1 bg-slate-100"></span>Details<span class="h-px flex-1 bg-slate-100"></span>
-                    </p>
+                <div class="space-y-5">
+
                     <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Team</label>
-                        <select class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
-                            <option value="">Select team…</option>
-                            <option>BPAO</option><option>Adparlor</option><option>CS Reward (E-commerce)</option>
-                            <option>MediaOps</option><option>PubDev</option><option>WebDev</option>
-                            <option>JAC</option><option>RDAT</option><option>ASC</option><option>PDDL</option>
-                        </select>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI <span class="text-status-bad" aria-hidden="true">*</span></label>
+                        {{ add_form.kpi }}
+                        {% include "partials/field_errors.html" with field=add_form.kpi %}
                     </div>
+
+                    {# One field group per KPI. All are disabled until their KPI is chosen, so only the selected KPI's operands are ever submitted and two KPIs sharing an input key cannot collide. #}
+                    {% for kpi in record_kpis %}
+                    <div class="hidden space-y-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4" data-kpi-panel="{{ kpi.pk }}">
+
+                        <div class="rounded-lg border border-brand/15 bg-brand/5 px-3 py-2">
+                            <p class="text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
+                            <p class="mt-1 font-mono text-xs leading-relaxed text-brand-dark">{{ kpi.formula }}</p>
+                            <p class="mt-2 border-t border-dashed border-brand/15 pt-2 text-xs text-slate-500">
+                                Target <span class="font-semibold text-ink">{{ kpi.target_display }}</span>
+                                · Reported <span class="font-semibold text-ink">{{ kpi.frequency|lower }}</span>
+                            </p>
+                        </div>
+
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            {% for input in kpi.inputs %}
+                            <div>
+                                <label class="mb-1.5 block text-sm font-medium leading-snug text-slate-700" for="id_input__{{ kpi.pk }}_{{ input.key }}">
+                                    {{ input.label }}{% if input.is_required %} <span class="text-status-bad" aria-hidden="true">*</span>{% endif %}
+                                </label>
+                                <input {% if input.data_type == 'date' %}type="date"{% else %}type="text" inputmode="decimal"{% endif %}
+                                       id="id_input__{{ kpi.pk }}_{{ input.key }}"
+                                       name="input__{{ input.key }}"
+                                       placeholder="{{ input.placeholder }}"
+                                       disabled
+                                       class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                                {% if input.help_text %}<p class="mt-1 text-xs text-slate-400">{{ input.help_text }}</p>{% endif %}
+                            </div>
+                            {% empty %}
+                            <p class="text-xs italic text-status-bad">This KPI has no inputs, so it cannot take a record. Fix its formula on KPI Management.</p>
+                            {% endfor %}
+                        </div>
+
+                        <p class="text-xs text-slate-400" data-period-example="{{ kpi.period_example }}">Period format: {{ kpi.period_hint }} &middot; this period is {{ kpi.period_example }}</p>
+                    </div>
+                    {% endfor %}
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Reporting Period <span class="text-status-bad" aria-hidden="true">*</span></label>
+                        {{ add_form.period }}
+                        <p class="mt-1.5 text-xs text-slate-400">Matches the KPI's cadence. Pick a KPI above to see its format.</p>
+                        {% include "partials/field_errors.html" with field=add_form.period %}
+                    </div>
+
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-slate-700">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
-                        <textarea rows="3" placeholder="Add any context for this record…"
-                                  class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"></textarea>
+                        {{ add_form.remarks }}
+                        {% include "partials/field_errors.html" with field=add_form.remarks %}
                     </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Attachment <span class="font-normal text-slate-400">(Optional)</span></label>
-                        <label class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50/50 px-3 py-4 text-sm text-slate-400 transition hover:border-brand hover:bg-brand/5 hover:text-brand">
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13"/></svg>
-                            Click or Paste <input type="file" class="hidden">
-                        </label>
-                    </div>
+
                 </div>
             </div>
-        </form>
 
-        {# Sticky footer #}
-        <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
-            <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
-            <button type="submit" form="addRecordForm" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                Save Record
-            </button>
+            <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'check' %} Save Record
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ============ Import CSV modal ============ #}
+<div id="importModal"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_import_modal %} !flex{% endif %}">
+    <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'upload' %}</span>
+                <div>
+                    <h3 class="font-heading text-lg font-bold leading-tight">Import KPI Records</h3>
+                    <p class="text-xs text-white/70">Upload a filled-in CSV template.</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
         </div>
+
+        <form method="post" enctype="multipart/form-data" data-import-form>
+            {% csrf_token %}
+            <input type="hidden" name="_action" value="import">
+
+            <div class="space-y-4 p-6">
+                <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-500">
+                    The file identifies its own KPI from the header the template carries, so there is nothing else to choose.
+                    Templates are downloaded per KPI from <a href="{% url 'operations:kpi_management' %}" class="font-semibold text-brand hover:underline">KPI Management</a>.
+                    A template filled in against an older formula is rejected rather than misread.
+                </p>
+
+                <label class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-8 text-center transition hover:border-brand hover:bg-brand/5">
+                    <span class="text-brand">{% icon 'file-text-o' %}</span>
+                    <span class="text-sm font-medium text-slate-600" data-file-label>Choose a .csv file</span>
+                    <span class="text-xs text-slate-400">Up to 5 MB</span>
+                    {{ import_form.file }}
+                </label>
+
+                {% include "partials/field_errors.html" with field=import_form.file %}
+                {% if import_form.non_field_errors %}
+                <div class="rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ import_form.non_field_errors }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'upload' %} Upload &amp; Import
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    (function () {
-        const kpiSel   = document.getElementById('record-kpi');
-        const inputs   = document.getElementById('record-inputs');
-        const numEl    = document.getElementById('record-numerator');
-        const denEl    = document.getElementById('record-denominator');
-        const numLabel = document.getElementById('record-num-label');
-        const denLabel = document.getElementById('record-den-label');
-        const panel    = document.getElementById('record-calc');
-        const fEl      = document.getElementById('record-calc-formula');
-        const workedEl = document.getElementById('record-calc-worked');
-        const tEl      = document.getElementById('record-calc-target');
-        const sEl      = document.getElementById('record-calc-status');
-        const hintEl   = document.getElementById('record-calc-hint');
-        if (!kpiSel || !inputs || !panel) return;
+(function () {
+    "use strict";
 
-        // Status → pill classes (mirror the dashboard's semantic status colors).
-        const STATUS = {
-            on_track: { label: 'On Track',     cls: 'bg-status-good/10 text-status-good' },
-            at_risk:  { label: 'At Risk',      cls: 'bg-status-warn/15 text-status-warn' },
-            below:    { label: 'Below Target', cls: 'bg-status-bad/10 text-status-bad' },
-        };
+    // --- Add Record: show only the chosen KPI's operand fields --------------
+    // The panels are DISABLED, not just hidden: a disabled input is not
+    // submitted, so two KPIs that both use an input called "a" cannot collide.
+    var form = document.querySelector("[data-record-form]");
+    if (form) {
+        var select = form.querySelector("[data-record-kpi]");
+        var panels = Array.prototype.slice.call(form.querySelectorAll("[data-kpi-panel]"));
+        var period = form.querySelector("#id_period");
 
-        // Trim trailing ".0" so "3.5" shows clean but "3.50" → "3.5".
-        const fmt = n => Number(n.toFixed(2)).toString();
-
-        function render() {
-            const opt = kpiSel.selectedOptions[0];
-
-            // No KPI chosen → hide inputs + panel.
-            if (!opt || !opt.value) {
-                inputs.classList.add('hidden');
-                panel.classList.add('hidden');
-                return;
-            }
-
-            // Relabel the two inputs to this KPI's formula parts, reveal them.
-            numLabel.textContent = opt.dataset.numerator;
-            denLabel.textContent = opt.dataset.denominator;
-            inputs.classList.remove('hidden');
-
-            const target     = parseFloat(opt.dataset.target);
-            const direction  = opt.dataset.direction;
-            const targetDisp = opt.dataset.targetDisplay;
-
-            // Panel visible with the generic formula + target as soon as a KPI is picked.
-            panel.classList.remove('hidden');
-            fEl.textContent = opt.dataset.formula;
-            tEl.textContent = targetDisp;
-
-            const num = parseFloat((numEl.value || '').replace(/[^0-9.]/g, ''));
-            const den = parseFloat((denEl.value || '').replace(/[^0-9.]/g, ''));
-
-            // Need both raw numbers (and a non-zero denominator) to compute.
-            if (isNaN(num) || isNaN(den) || den === 0) {
-                workedEl.classList.add('hidden');
-                sEl.classList.add('hidden'); sEl.classList.remove('inline-flex');
-                hintEl.classList.remove('hidden');
-                return;
-            }
-
-            // Compute the KPI value straight from its formula: num ÷ den × 100.
-            const value = num / den * 100;
-
-            // Direction-aware attainment vs target (matches the dashboard math).
-            const attainment = direction === 'down'
-                ? target / value * 100   // lower is better (e.g. attrition threshold)
-                : value / target * 100;  // higher is better
-
-            // Worked line shows the real formula math → resulting KPI value.
-            workedEl.textContent = `${fmt(num)} ÷ ${fmt(den)} × 100 = ${fmt(value)}%`;
-
-            const key = attainment >= 100 ? 'on_track' : (attainment >= 90 ? 'at_risk' : 'below');
-            const s = STATUS[key];
-
-            workedEl.classList.remove('hidden');
-            hintEl.classList.add('hidden');
-            sEl.textContent = s.label;
-            sEl.className = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ' + s.cls;
+        function show() {
+            var chosen = select.value;
+            panels.forEach(function (panel) {
+                var active = panel.dataset.kpiPanel === chosen;
+                panel.classList.toggle("hidden", !active);
+                panel.querySelectorAll("input").forEach(function (field) {
+                    field.disabled = !active;
+                });
+                if (active && period && !period.value) {
+                    // Default the period to the one we are currently inside,
+                    // written in this KPI's own cadence format.
+                    var hint = panel.querySelector("[data-period-example]");
+                    if (hint) period.value = hint.dataset.periodExample;
+                }
+            });
         }
 
-        kpiSel.addEventListener('change', render);
-        numEl.addEventListener('input', render);
-        denEl.addEventListener('input', render);
-    })();
+        select.addEventListener("change", show);
+        show();
+    }
+
+    // --- Import: name the chosen file, since the input itself is visually hidden
+    var importForm = document.querySelector("[data-import-form]");
+    if (importForm) {
+        var file = importForm.querySelector("[data-import-file]");
+        var label = importForm.querySelector("[data-file-label]");
+        if (file && label) {
+            file.addEventListener("change", function () {
+                label.textContent = file.files.length ? file.files[0].name : "Choose a .csv file";
+            });
+        }
+    }
+}());
 </script>
 {% endblock %}

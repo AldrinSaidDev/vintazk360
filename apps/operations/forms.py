@@ -24,6 +24,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.kpi import formula as formula_engine
+from apps.kpi import importer, periods, records
 from apps.kpi.models import (
     KEY_VALIDATOR,
     DataType,
@@ -31,6 +32,7 @@ from apps.kpi.models import (
     KpiDefinition,
     KpiFormulaHistory,
     KpiInput,
+    KpiRecord,
     KpiTargetHistory,
 )
 
@@ -607,3 +609,123 @@ class EditKpiForm(BaseKpiForm):
             )
 
         return kpi
+
+
+# ---------------------------------------------------------------------------
+# Import Data screen
+# ---------------------------------------------------------------------------
+
+
+class AddRecordForm(forms.Form):
+    """Manual entry of one actual, from the Add Performance Record modal.
+
+    The operand fields cannot be declared up front: they are whatever the
+    chosen KPI's `kpi_input` rows say they are. So the template renders one
+    field group per KPI (all but the selected one disabled, so only one set is
+    ever submitted) and `clean()` reads them by key.
+    """
+
+    INPUT_PREFIX = "input__"
+
+    kpi = forms.ModelChoiceField(
+        queryset=KpiDefinition.objects.none(),
+        empty_label="Select KPI…",
+        widget=forms.Select(attrs={"class": TAILWIND_INPUT, "data-record-kpi": True}),
+    )
+    period = forms.CharField(
+        max_length=20,
+        widget=forms.TextInput(
+            attrs={"class": TAILWIND_INPUT, "placeholder": "e.g. 2026-08"}
+        ),
+        help_text="The reporting period this figure covers.",
+    )
+    remarks = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": TAILWIND_INPUT,
+                "rows": 3,
+                "placeholder": "Add any context for this record…",
+            }
+        ),
+    )
+
+    def __init__(self, *args, team=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.team = team
+        self.fields["kpi"].queryset = (
+            KpiDefinition.objects.filter(team=team, is_active=True)
+            .prefetch_related("inputs")
+            .order_by("sort_order", "name")
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        kpi = cleaned.get("kpi")
+        if not kpi:
+            return cleaned
+
+        # The period format follows the KPI's own cadence, so the error message
+        # can say exactly what this KPI expects.
+        try:
+            cleaned["period_start"], _ = periods.parse(
+                cleaned.get("period"), kpi.frequency
+            )
+        except periods.PeriodError as error:
+            self.add_error("period", str(error))
+            return cleaned
+
+        values = {}
+        for row in kpi.inputs.all():
+            raw = self.data.get(f"{self.INPUT_PREFIX}{row.key}")
+            try:
+                values[row.key] = records.coerce(raw, row)
+            except records.RecordError as error:
+                self.add_error(None, str(error))
+        cleaned["values"] = values
+
+        if not self.errors:
+            # Catch a division by zero here rather than at save time, so it
+            # lands on the form instead of as a 500.
+            try:
+                records.evaluate(kpi, values)
+            except records.RecordError as error:
+                self.add_error(None, str(error))
+
+        return cleaned
+
+    def save(self, user=None):
+        return records.save_record(
+            self.cleaned_data["kpi"],
+            self.cleaned_data["period_start"],
+            self.cleaned_data["values"],
+            source=KpiRecord.Source.MANUAL,
+            user=user,
+            remarks=self.cleaned_data.get("remarks", ""),
+        )
+
+
+class ImportRecordsForm(forms.Form):
+    """Upload one filled-in CSV template.
+
+    Deliberately thin: the file identifies its own KPI from the header the
+    template generated, so there is nothing else to ask for.
+    """
+
+    file = forms.FileField(
+        label="CSV file",
+        widget=forms.ClearableFileInput(
+            attrs={"accept": ".csv,text/csv", "class": "sr-only", "data-import-file": True}
+        ),
+    )
+
+    def clean_file(self):
+        upload = self.cleaned_data["file"]
+        if upload.size > importer.MAX_BYTES:
+            raise forms.ValidationError("That file is larger than 5 MB.")
+        if not upload.name.lower().endswith(".csv"):
+            raise forms.ValidationError(
+                "Upload the .csv template. Excel files are not supported yet — "
+                'in Excel use "Save As" and pick CSV UTF-8.'
+            )
+        return upload

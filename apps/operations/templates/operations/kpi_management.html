@@ -188,7 +188,7 @@
             Showing {{ page_obj.start_index }}&ndash;{{ page_obj.end_index }} of {{ result_count }} KPI{{ result_count|pluralize }}{% if has_any_filter %} matching your filters, out of {{ kpi_count }}{% endif %}
         </p>
         {% endif %}
-        {% include "partials/pagination.html" with id="kpi-defs" page_obj=page_obj extra_query=page_query extra_params=page_params %}
+        {% include "partials/pagination.html" with id="kpi-defs" page_obj=page_obj extra_query=page_query extra_params=page_params anchor="kpi-definitions" %}
     </section>
 </div>
 

@@ -9,23 +9,32 @@ from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
-from apps.kpi import csv_template
-from apps.kpi.models import Frequency, KpiCategory, KpiDefinition
-from .forms import CreateKpiForm, EditKpiForm
+from apps.kpi import csv_template, importer
+from apps.kpi import periods as kpi_periods
+from apps.kpi import records as kpi_records
+from apps.kpi.models import (
+    Frequency,
+    KpiCategory,
+    KpiDefinition,
+    KpiImportBatch,
+    KpiRecord,
+)
+from .forms import AddRecordForm, CreateKpiForm, EditKpiForm, ImportRecordsForm
 
 from django.contrib import messages
 # Glyph cluster behind the banner header (FA4 names, largest first).
 BANNER_ICONS = ['cogs', 'tasks', 'line-chart']
 
 
-# --- PLACEHOLDER DATA -------------------------------------------------------
-# Sample Operations KPIs with fake "actual" numbers so the scorecard + chart
-# render with something to look at. NOT real performance data. When the KPI
-# models exist, replace _operations_kpis() with a DB-backed query returning the
-# same shape; the template and chart won't need to change.
+# --- SEED DATA ---------------------------------------------------------------
+# No screen reads these any more: all four Operations pages are DB-backed. They
+# survive as the input to `manage.py seed_operations_kpis`, which turns them
+# into real KpiDefinition rows. Delete them once the six KPIs exist everywhere
+# they need to, and delete the command with them.
 #
 # direction:
 #   'up'   → higher is better; attainment = actual / target * 100
@@ -74,45 +83,72 @@ _MODAL_KPIS = [
 ]
 
 
-def _attainment(kpi):
-    """Normalized % of target reached (100 = on target), direction-aware."""
-    target, actual = kpi['target'], kpi['actual']
-    if not target or not actual:
-        return 0.0
-    if kpi['direction'] == 'down':
-        pct = target / actual * 100
-    else:
-        pct = actual / target * 100
-    return round(pct, 1)
+def _latest_records(team):
+    """The most recent `kpi_record` per KPI, keyed by KPI id.
+
+    One query. Records arrive newest first, so the first row seen for a KPI is
+    its latest period and every later one is skipped.
+    """
+    latest = {}
+    for record in (
+        KpiRecord.objects.filter(kpi__team=team, kpi__is_active=True)
+        .order_by('kpi_id', '-period_start')
+        .only('kpi_id', 'period_start', 'value', 'score', 'value_display', 'source')
+    ):
+        latest.setdefault(record.kpi_id, record)
+    return latest
 
 
-def _status(attainment):
-    """Bucket an attainment % into a status key used for color/label."""
-    if attainment >= 100:
-        return 'on_track'
-    if attainment >= 90:
-        return 'at_risk'
-    return 'below'
+def _scorecard_rows(team):
+    """One dashboard card per live KPI, from its latest recorded period.
 
+    Two states exist beyond the three scored ones, and they are not the same
+    thing: `monitored` means the KPI has a number but no target to judge it
+    against, `no_data` means nobody has entered a figure yet. Collapsing them
+    would report an untracked KPI as if it were merely untargeted.
 
-_STATUS_LABEL = {'on_track': 'On Track', 'at_risk': 'At Risk', 'below': 'Below Target'}
-
-
-def _operations_kpis():
-    """Return the KPI rows enriched with attainment + status (placeholder)."""
+    Attainment is RECOMPUTED here rather than read from `kpi_record.attainment`.
+    The cached score is a snapshot of the target in force when the row was
+    written, so moving a target would otherwise leave the dashboard showing the
+    old verdict until every record happened to be re-saved. Design principle 6:
+    scores are cached, never authoritative.
+    """
+    latest = _latest_records(team)
     rows = []
-    for kpi in _OPERATIONS_KPIS:
-        attainment = _attainment(kpi)
-        status = _status(attainment)
+
+    for kpi in _kpi_queryset(team):
+        row = _kpi_row(kpi)
+        record = latest.get(kpi.pk)
+
+        if record is None:
+            rows.append({
+                **row,
+                'status': 'no_data',
+                'status_label': 'No Data',
+                'attainment': None,
+                'bar_pct': 0,
+                'actual_display': '',
+                'period': '',
+            })
+            continue
+
+        # `score` holds the graded number only when it differs from the shown
+        # one (a signed variance displays −3.2% but is graded as 3.2).
+        graded = record.score if record.score is not None else record.value
+        attainment, status = kpi_records.score(kpi, float(graded))
+
         rows.append({
-            **kpi,
-            'attainment': attainment,
-            # Progress-bar fill width, capped at 100 so overachievers show a
-            # full bar (the % label still shows the true value, e.g. 112.9%).
-            'bar_pct': min(round(attainment), 100),
+            **row,
             'status': status,
-            'status_label': _STATUS_LABEL[status],
+            'status_label': KpiRecord.Status(status).label,
+            'attainment': attainment,
+            # Bar fill is capped at 100 so an overachiever shows full; the label
+            # beside it still reads the true figure (e.g. 112.9%).
+            'bar_pct': 0 if attainment is None else min(round(attainment), 100),
+            'actual_display': record.value_display or record.value,
+            'period': kpi_periods.label(record.period_start, kpi.frequency),
         })
+
     return rows
 
 
@@ -120,22 +156,45 @@ def _operations_kpis():
 @team_required('operations')
 def index(request):
     """Operations — team dashboard (KPI scorecard: actual vs target + status)."""
-    kpis = _operations_kpis()
-    context = {
-        'banner_icons': BANNER_ICONS,
-        'kpis': kpis,
-        'on_track_count': sum(1 for k in kpis if k['status'] == 'on_track'),
-        'below_count': sum(1 for k in kpis if k['status'] == 'below'),
-        'at_risk_count': sum(1 for k in kpis if k['status'] == 'at_risk'),
-        'kpi_count': len(kpis),
-        # Compact payload the bar chart reads via json_script.
-        'chart_data': [
-            {'name': k['name'], 'attainment': k['attainment'], 'status': k['status'],
-             'actual_display': k['actual_display'], 'target_display': k['target_display']}
-            for k in kpis
-        ],
-    }
-    return render(request, 'operations/dashboard.html', context)
+    operations_team = get_object_or_404(Team, slug='operations')
+    kpis = _scorecard_rows(operations_team)
+    today = timezone.localdate()
+
+    def count(status):
+        return sum(1 for k in kpis if k['status'] == status)
+
+    # Only KPIs that were actually scored can be plotted against a target line.
+    charted = [k for k in kpis if k['attainment'] is not None]
+
+    return render(
+        request,
+        'operations/dashboard.html',
+        {
+            'banner_icons': BANNER_ICONS,
+            'kpis': kpis,
+            'on_track_count': count('on_track'),
+            'at_risk_count': count('at_risk'),
+            'below_count': count('below'),
+            'monitored_count': count('monitored'),
+            'no_data_count': count('no_data'),
+            'kpi_count': len(kpis),
+            'period': f'{today:%B %Y}',
+            'import_url': reverse('operations:import_data'),
+            'manage_url': reverse('operations:kpi_management'),
+            # Compact payload the bar chart reads via json_script.
+            'chart_data': [
+                {
+                    'name': k['name'],
+                    'attainment': k['attainment'],
+                    'status': k['status'],
+                    'actual_display': k['actual_display'],
+                    'target_display': k['target_display'],
+                    'period': k['period'],
+                }
+                for k in charted
+            ],
+        },
+    )
 
 
 @login_required
@@ -159,11 +218,257 @@ def kpi_reference(request):
     return render(request, 'operations/index.html', context)
 
 
+def _import_stats(team):
+    """The four Import Data stat cards, counted from the database.
+
+    Everything here reads `kpi_record` / `kpi_import_batch`, so until the
+    importer and the Add-Record modal actually write rows these read 0 and
+    "No imports yet". That is the honest state, and it is what makes the first
+    real import visibly land.
+    """
+    records = KpiRecord.objects.filter(kpi__team=team)
+    today = timezone.localdate()
+
+    last_batch = (
+        KpiImportBatch.objects.filter(team=team).order_by('-uploaded_at').first()
+    )
+
+    return {
+        'total_records': records.count(),
+        # Records ENTERED this month, not records whose period is this month —
+        # this tile sits next to Total Records and is about data-entry activity.
+        # `__date` compares in the project timezone; handing a plain date to a
+        # DateTimeField would compare a naive value and slip a row either side
+        # of the month boundary.
+        'added_this_month': records.filter(
+            created_at__date__gte=today.replace(day=1)
+        ).count(),
+        'period': f'{today:%B %Y}',
+        'last_import': (
+            f'{timezone.localtime(last_batch.uploaded_at):%d %b %Y}'
+            if last_batch
+            else 'No imports yet'
+        ),
+    }
+
+
+RECORDS_PAGE_SIZE = 10
+
+# Successful POSTs land on the records table. It must be a REAL anchor: see the
+# note on _TABLE_ANCHOR — a fragment-less redirect inherits the modal's own
+# fragment and re-opens it.
+_RECORDS_ANCHOR = 'kpi-records'
+
+
+def _record_rows(records_qs):
+    """KPI Records table rows, from `kpi_record`."""
+    return [
+        {
+            'kpi': record.kpi.name,
+            'category': record.kpi.category.name if record.kpi.category_id else '—',
+            'actual': record.value_display or record.value,
+            'target': record.kpi.target_display or 'No Target',
+            'period': kpi_periods.label(record.period_start, record.kpi.frequency),
+            'status': record.status,
+            'status_label': record.get_status_display(),
+            'attainment': record.attainment,
+            'source': record.get_source_display(),
+            'remarks': record.remarks,
+        }
+        for record in records_qs
+    ]
+
+
+def _import_rows(batches):
+    """Recent Import History rows, from `kpi_import_batch`."""
+    return [
+        {
+            'file_name': batch.file_name,
+            'kpi': batch.kpi.name if batch.kpi_id else 'Multiple',
+            'records': batch.created_count + batch.updated_count,
+            'errors': batch.error_count,
+            'status': batch.status,
+            'status_label': batch.get_status_display(),
+            'uploaded_by': (
+                batch.uploaded_by.get_full_name() or batch.uploaded_by.get_username()
+                if batch.uploaded_by_id
+                else 'System'
+            ),
+            'uploaded_at': batch.uploaded_at,
+        }
+        for batch in batches
+    ]
+
+
 @login_required
 @team_required('operations')
 def import_data(request):
-    """Operations — Import Data screen (static mockup for now)."""
-    return render(request, 'operations/import_data.html', {'modal_kpis': _MODAL_KPIS})
+    """Operations — Import Data. Manual entry and CSV upload both write records."""
+    operations_team = get_object_or_404(Team, slug='operations')
+
+    add_form = AddRecordForm(team=operations_team)
+    import_form = ImportRecordsForm()
+    open_add_modal = open_import_modal = False
+
+    if request.method == 'POST':
+        if request.POST.get('_action') == 'import':
+            import_form = ImportRecordsForm(request.POST, request.FILES)
+
+            if import_form.is_valid():
+                upload = import_form.cleaned_data['file']
+                try:
+                    result = importer.parse_and_apply(
+                        upload.read(),
+                        team=operations_team,
+                        user=request.user,
+                        file_name=upload.name,
+                        content_type=upload.content_type or 'text/csv',
+                    )
+                except importer.ImportError_ as error:
+                    # A whole-file problem: nothing was written, so it belongs
+                    # on the form rather than in the import history.
+                    import_form.add_error('file', str(error))
+                    open_import_modal = True
+                else:
+                    log_action(
+                        request,
+                        action=AuditLog.Action.IMPORTED,
+                        entity=result.batch,
+                        entity_type='kpi_import_batch',
+                        team=operations_team,
+                        new_values={
+                            'file_name': result.batch.file_name,
+                            'rows': result.rows,
+                            'created': result.created,
+                            'updated': result.updated,
+                            'errors': len(result.errors),
+                        },
+                    )
+                    _report_import(request, result)
+                    return redirect(f'{request.path}#{_RECORDS_ANCHOR}')
+            else:
+                open_import_modal = True
+
+        else:
+            add_form = AddRecordForm(request.POST, team=operations_team)
+
+            if add_form.is_valid():
+                record, created = add_form.save(user=request.user)
+
+                log_action(
+                    request,
+                    action=(
+                        AuditLog.Action.CREATED if created else AuditLog.Action.UPDATED
+                    ),
+                    entity=record,
+                    entity_type='kpi_record',
+                    team=operations_team,
+                    new_values={
+                        'kpi': record.kpi.name,
+                        'period': str(record.period_start),
+                        'value': record.value_display,
+                        'status': record.status,
+                    },
+                )
+
+                messages.success(
+                    request,
+                    f'{record.kpi.name} for '
+                    f'{kpi_periods.label(record.period_start, record.kpi.frequency)} '
+                    f'{"recorded" if created else "updated"}: '
+                    f'{record.value_display} ({record.get_status_display()}).',
+                )
+                return redirect(f'{request.path}#{_RECORDS_ANCHOR}')
+
+            open_add_modal = True
+
+    records_qs = (
+        KpiRecord.objects.filter(kpi__team=operations_team)
+        .select_related('kpi', 'kpi__category')
+        .order_by('-period_start', 'kpi__sort_order')
+    )
+    paginator = Paginator(records_qs, RECORDS_PAGE_SIZE)
+    page = paginator.get_page(request.GET.get('page'))
+    # Records accumulate every period, so the page list is elided rather than
+    # printing one pill per page once a few years of history exist.
+    # list(), not the generator itself: it is single-use, so anything that reads
+    # it after the template has rendered would find it empty.
+    page_numbers = list(
+        paginator.get_elided_page_range(page.number, on_each_side=1, on_ends=1)
+    )
+
+    batches = (
+        KpiImportBatch.objects.filter(team=operations_team)
+        .select_related('kpi', 'uploaded_by')
+        .order_by('-uploaded_at')[:10]
+    )
+
+    return render(
+        request,
+        'operations/import_data.html',
+        {
+            'add_form': add_form,
+            'import_form': import_form,
+            'open_add_modal': open_add_modal,
+            'open_import_modal': open_import_modal,
+            'records': _record_rows(page.object_list),
+            'record_count': paginator.count,
+            'page_obj': page,
+            'page_numbers': page_numbers,
+            'extra_query': _query_without_page(request),
+            'extra_params': _params_without_page(request),
+            'imports': _import_rows(batches),
+            # The Add-Record modal renders one field group per KPI; only the
+            # selected one is enabled, so only its operands are submitted.
+            'record_kpis': [
+                {
+                    'pk': kpi.pk,
+                    'name': kpi.name,
+                    'formula': kpi.formula_text or kpi.expression,
+                    'target_display': kpi.target_display or 'No Target',
+                    'frequency': kpi.get_frequency_display(),
+                    'period_hint': kpi_periods.FORMAT_HINT.get(kpi.frequency, ''),
+                    'period_example': kpi_periods.label(
+                        timezone.localdate(), kpi.frequency
+                    ),
+                    'inputs': list(kpi.inputs.all()),
+                }
+                for kpi in _kpi_queryset(operations_team)
+            ],
+            **_import_stats(operations_team),
+        },
+    )
+
+
+def _report_import(request, result):
+    """One flash message that says what the file actually did."""
+    errors = len(result.errors)
+    applied = result.created + result.updated
+    summary = (
+        f'{result.batch.file_name}: {result.created} created, '
+        f'{result.updated} updated'
+    )
+
+    # Re-uploading identical contents is legitimate (it is how a correction is
+    # re-applied), so this is a note rather than a rejection.
+    repeat = (
+        ' This file was already uploaded once; the records were re-applied.'
+        if result.duplicate_of
+        else ''
+    )
+
+    if errors and applied:
+        messages.warning(
+            request,
+            f'{summary}, {errors} row(s) rejected. See Recent Import History.{repeat}',
+        )
+    elif errors:
+        messages.error(
+            request,
+            f'{result.batch.file_name}: nothing imported, {errors} row(s) rejected.',
+        )
+    else:
+        messages.success(request, f'{summary}.{repeat}')
 
 
 # How each KPI's direction reads on the management screen.

@@ -7,9 +7,13 @@
 {#         param = query-string key, default "page". id = unique suffix when a page has 2+ pagers. #}
 {#         extra_query = the current query string minus `page`, so links keep search/filters. #}
 {#         extra_params = the same as {key, value} dicts, for the jump box's hidden inputs. #}
+{#         anchor = id of the table's section, WITHOUT the "#". Without it a pager link has no #}
+{#           fragment and the next page loads scrolled to the top, which reads as "nothing #}
+{#           happened" when the table sits below a banner and stat cards. #}
 {# The jump box is a plain GET form, so it already works once a view paginates — no JS. #}
+{# A GET form cannot carry a fragment, so the jump box lands at the top. Only the pills anchor. #}
 
-{% with pager_id=id|default:"pager" key=param|default:"page" pill="flex h-8 min-w-[2.25rem] items-center justify-center border px-3" idle="border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-brand" off="border-slate-200 bg-slate-50 text-slate-300" on="border-brand bg-brand font-semibold text-white" %}
+{% with pager_id=id|default:"pager" key=param|default:"page" hash=anchor|yesno:"#,," pill="flex h-8 min-w-[2.25rem] items-center justify-center border px-3" idle="border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-brand" off="border-slate-200 bg-slate-50 text-slate-300" on="border-brand bg-brand font-semibold text-white" %}
 <nav aria-label="Pagination" class="mt-4 flex flex-wrap items-center justify-end gap-3 text-sm">
 
     <ul class="inline-flex -space-x-px">
@@ -17,7 +21,7 @@
             {# ---- Live pagination, driven by the view's Page object ---- #}
             <li>
                 {% if page_obj.has_previous %}
-                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ page_obj.previous_page_number }}" aria-label="Previous page" class="{{ pill }} {{ idle }} rounded-l-lg">{% icon 'angle-left' %}</a>
+                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ page_obj.previous_page_number }}{{ hash }}{{ anchor }}" aria-label="Previous page" class="{{ pill }} {{ idle }} rounded-l-lg">{% icon 'angle-left' %}</a>
                 {% else %}
                 <span aria-disabled="true" class="{{ pill }} {{ off }} rounded-l-lg">{% icon 'angle-left' %}</span>
                 {% endif %}
@@ -30,14 +34,14 @@
                 {% elif num == page_obj.number %}
                 <span aria-current="page" class="{{ pill }} {{ on }}">{{ num }}</span>
                 {% else %}
-                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ num }}" class="{{ pill }} {{ idle }}">{{ num }}</a>
+                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ num }}{{ hash }}{{ anchor }}" class="{{ pill }} {{ idle }}">{{ num }}</a>
                 {% endif %}
             </li>
             {% endfor %}
 
             <li>
                 {% if page_obj.has_next %}
-                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ page_obj.next_page_number }}" aria-label="Next page" class="{{ pill }} {{ idle }} rounded-r-lg">{% icon 'angle-right' %}</a>
+                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ page_obj.next_page_number }}{{ hash }}{{ anchor }}" aria-label="Next page" class="{{ pill }} {{ idle }} rounded-r-lg">{% icon 'angle-right' %}</a>
                 {% else %}
                 <span aria-disabled="true" class="{{ pill }} {{ off }} rounded-r-lg">{% icon 'angle-right' %}</span>
                 {% endif %}
