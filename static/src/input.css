@@ -7,6 +7,60 @@
     display: flex;
 }
 
+/* ---- Toasts -------------------------------------------------------------
+   One accent colour per message level, held as a custom property so the markup
+   carries a single modifier class instead of four parallel {% if %} chains.
+   These are plain CSS, not Tailwind utilities, so the dynamic `toast-{{ level }}`
+   class name is safe from purging.
+   Declared AFTER @tailwind utilities so border-left-color beats the border
+   utility on the same element (equal specificity, later rule wins). */
+.toast {
+    --toast-accent: theme(colors.brand.DEFAULT);
+    --toast-tint: rgb(79 61 103 / 0.10);
+    border-left-color: var(--toast-accent);
+}
+.toast-success { --toast-accent: theme(colors.status.good); --toast-tint: rgb(79 61 103 / 0.10); }
+.toast-error   { --toast-accent: theme(colors.status.bad);  --toast-tint: rgb(194 91 110 / 0.12); }
+.toast-warning { --toast-accent: theme(colors.status.warn); --toast-tint: rgb(217 164 65 / 0.16); }
+
+.toast-icon { background: var(--toast-tint); color: var(--toast-accent); }
+.toast-timer { background: var(--toast-accent); }
+
+/* The countdown line IS the dismiss timer: the toast is removed when this
+   animation ends, so pausing it on hover genuinely holds the toast open long
+   enough to finish reading. One mechanism, not a bar plus a separate setTimeout
+   that could drift out of step with it. */
+@keyframes toast-timer {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+}
+.toast-timer {
+    animation: toast-timer 5s linear both;
+}
+.toast:hover .toast-timer,
+.toast:focus-within .toast-timer {
+    animation-play-state: paused;
+}
+
+/* Entry and exit are tied to the toast appearing and leaving, both under 300ms
+   (see the anti-slop guidelines). Nothing loops. */
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(0.75rem) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(0.5rem) scale(0.98); }
+}
+.toast { animation: toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.toast-leaving { animation: toast-out 260ms ease-in both; }
+
+@media (prefers-reduced-motion: reduce) {
+    /* The slide goes; the countdown stays, because it is information about how
+       long the message will remain rather than decoration. */
+    .toast, .toast-leaving { animation-duration: 1ms; }
+}
+
 /* Category picker: the "new category" text box only appears once the dropdown's
    "Create new category" option is chosen, so the common case (pick an existing
    one) isn't cluttered by a field nobody is filling in. No JS — :has() reads the

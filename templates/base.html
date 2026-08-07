@@ -206,6 +206,10 @@
         </footer>
     </div>
 </div>
+
+{# Outside <main> on purpose: main is the scroll container, and a toast pinned to #}
+{# the viewport should not sit inside the thing the user is scrolling. #}
+{% include "partials/toasts.html" %}
 {% endblock %}
 
 {% block scripts %}{% endblock %}

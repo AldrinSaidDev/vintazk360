@@ -1,0 +1,71 @@
+{% load icons %}
+{# Flash messages, bottom-right, each with a five-second countdown line. #}
+{# Included once from base.html, outside <main> so it never scrolls with the page. #}
+{# Colours come from .toast-<level> in static/src/input.css, which is also what #}
+{# drives the countdown: the toast is removed when that animation ends, so hovering #}
+{# pauses the animation and the dismissal together. #}
+{% if messages %}
+<div class="pointer-events-none fixed bottom-5 right-4 z-[9999] flex flex-col items-end gap-3 sm:right-6"
+     role="status"
+     aria-live="polite">
+
+    {% for message in messages %}
+    <div class="toast toast-{{ message.level_tag }} pointer-events-auto relative w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl bg-white shadow-lg shadow-ink/10">
+
+        <div class="flex items-start gap-3 p-4 pb-5">
+
+            <span class="toast-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-sm"
+                  aria-hidden="true">
+                {% if message.level_tag == 'success' %}{% icon 'check' %}
+                {% elif message.level_tag == 'error' %}{% icon 'times' %}
+                {% elif message.level_tag == 'warning' %}{% icon 'exclamation' %}
+                {% else %}{% icon 'info' %}
+                {% endif %}
+            </span>
+
+            <p class="flex-1 pt-1 text-sm font-medium leading-6 text-ink">{{ message }}</p>
+
+            <button type="button"
+                    data-toast-close
+                    aria-label="Dismiss notification"
+                    class="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+
+        </div>
+
+        {# Five-second countdown. Drains right to left, so "almost gone" is visible at a glance. #}
+        <div class="absolute inset-x-0 bottom-0 h-1 bg-slate-100">
+            <div class="toast-timer h-full w-full origin-left"></div>
+        </div>
+
+    </div>
+    {% endfor %}
+
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    document.querySelectorAll(".toast").forEach(function (toast) {
+        var timer = toast.querySelector(".toast-timer");
+
+        function dismiss() {
+            if (toast.classList.contains("toast-leaving")) return;
+            toast.classList.add("toast-leaving");
+            toast.addEventListener("animationend", function (event) {
+                // Animation events bubble, so ignore the countdown line's own.
+                if (event.target === toast) toast.remove();
+            });
+        }
+
+        // The countdown finishing IS the timeout — no second clock to drift.
+        if (timer) timer.addEventListener("animationend", dismiss, { once: true });
+        toast.querySelector("[data-toast-close]").addEventListener("click", dismiss);
+    });
+}());
+</script>
+{% endif %}

@@ -15,6 +15,7 @@ from apps.kpi import csv_template
 from apps.kpi.models import KpiCategory, KpiDefinition
 from .forms import CreateKpiForm, EditKpiForm
 
+from django.contrib import messages
 # Glyph cluster behind the banner header (FA4 names, largest first).
 BANNER_ICONS = ['cogs', 'tasks', 'line-chart']
 
@@ -277,7 +278,7 @@ def kpi_management(request):
 
             messages.success(
                 request,
-                f'KPI "{kpi.name}" deleted. Its records and history are kept.',
+                f'KPI "{kpi.name}" has been deleted.',
             )
             return redirect(_back_to_page(request))
 
@@ -362,7 +363,7 @@ def kpi_management(request):
                     },
                 )
 
-                messages.success(request, f'KPI "{kpi.name}" created.')
+                messages.success(request, f'KPI "{kpi.name}" has been created.')
 
                 return redirect(_back_to_page(request))
 
