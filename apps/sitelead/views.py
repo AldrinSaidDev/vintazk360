@@ -1,43 +1,19 @@
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+"""Site Lead — the four KPI screens, all served by the shared kit.
 
-from apps.core import kpi
-from apps.core.access import team_required
+Everything these pages show comes from `kpi_definition` / `kpi_record`, scoped
+to this team. The per-LOB parts are the banner copy in `kpis.py` and nothing
+else: see apps/kpi/screens.py for the implementation and CLAUDE.md for the
+pattern.
+"""
 
-from .kpis import KPIS, MODAL_SPECS, SCOPE
+from apps.kpi.screens import KpiScreens
 
-# All four screens render the shared templates under templates/kpi/ — the only
-# per-LOB parts are the KPI list and the modal input labels in kpis.py.
+from .kpis import SCOPE
 
+screens = KpiScreens(team_slug='sitelead', namespace='sitelead', scope=SCOPE)
 
-@login_required
-@team_required('sitelead')
-def index(request):
-    """Site Lead — team dashboard (KPI scorecard: actual vs target + status)."""
-    return render(request, 'kpi/dashboard.html', kpi.dashboard_context(SCOPE, KPIS))
-
-
-@login_required
-@team_required('sitelead')
-def kpi_reference(request):
-    """Site Lead — KPI definitions reference (targets, cadence, formulas, inputs)."""
-    return render(request, 'kpi/kpi_definitions.html', kpi.definitions_context(SCOPE, KPIS))
-
-
-@login_required
-@team_required('sitelead')
-def import_data(request):
-    """Site Lead — Import Data screen (static mockup for now).
-
-    No `dimensions` list: Site Lead records are per site, and the site names
-    haven't been supplied — passing none simply drops that dropdown and its
-    table column.
-    """
-    return render(request, 'kpi/import_data.html', kpi.import_context(SCOPE, KPIS, MODAL_SPECS))
-
-
-@login_required
-@team_required('sitelead')
-def kpi_management(request):
-    """Site Lead — KPI Management: edit targets/thresholds, formulas, cadence."""
-    return render(request, 'kpi/kpi_management.html', kpi.management_context(SCOPE, KPIS))
+index = screens.dashboard                 # team dashboard (KPI scorecard)
+kpi_reference = screens.definitions       # KPI definitions reference
+import_data = screens.import_data         # manual entry + CSV import
+kpi_management = screens.management       # create / edit / soft-delete
+kpi_template = screens.template           # per-KPI CSV template download
