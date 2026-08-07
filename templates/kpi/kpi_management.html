@@ -87,6 +87,15 @@
                     </div>
                 </details>
 
+                {# One workbook for the whole team, a sheet per KPI. Replaces the per-row Download column. #}
+                {% if workbook_url %}
+                <a href="{{ workbook_url }}"
+                   class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
+                    {% icon 'download' %}
+                    Download template
+                </a>
+                {% endif %}
+
                 <a href="#createKpiModal"
                     class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                     {% icon 'plus' %}
@@ -105,7 +114,7 @@
                         <th class="px-4 py-3 font-semibold">Target / Threshold</th>
                         <th class="px-4 py-3 font-semibold">Direction</th>
                         <th class="px-4 py-3 font-semibold">Frequency</th>
-                        <th class="px-4 py-3 font-semibold">CSV Template</th>
+                        {% if per_kpi_templates %}<th class="px-4 py-3 font-semibold">CSV Template</th>{% endif %}
                         <th class="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
                 </thead>
@@ -133,6 +142,7 @@
                             {% endif %}
                         </td>
                         <td class="whitespace-nowrap px-4 py-3">{{ kpi.frequency }}</td>
+                        {% if per_kpi_templates %}
                         <td class="whitespace-nowrap px-4 py-3">
                             {# Built on demand from this KPI's own inputs, so the download always carries the current template version. #}
                             <a href="{{ kpi.csv_url }}"
@@ -141,6 +151,7 @@
                             </a>
                             <span class="mt-1 block text-[11px] text-slate-400">v{{ kpi.template_version }} · {{ kpi.input_count }} input{{ kpi.input_count|pluralize }}</span>
                         </td>
+                        {% endif %}
                         <td class="whitespace-nowrap px-4 py-3 text-right">
                             <a href="#kpiEdit-{{ kpi.slug }}"
                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand">
@@ -154,7 +165,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="7" class="px-4 py-12 text-center">
+                        <td colspan="{% if per_kpi_templates %}7{% else %}6{% endif %}" class="px-4 py-12 text-center">
                             {% if has_any_filter %}
                             {# "Nothing here" and "nothing matches" are different problems and need different ways out. #}
                             <p class="font-heading text-sm font-bold text-ink">No KPIs match these filters</p>

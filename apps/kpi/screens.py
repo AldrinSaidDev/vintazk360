@@ -43,7 +43,7 @@ from apps.core.access import team_required
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
 
-from . import csv_template, importer
+from . import csv_template, importer, workbook
 from . import periods as kpi_periods
 from . import records as kpi_records
 from .forms import (
@@ -99,11 +99,17 @@ def _params_without_page(request):
 class KpiScreens:
     """The four KPI screens plus the CSV template download, for one team."""
 
-    def __init__(self, *, team_slug, namespace=None, scope=None, branched=False):
+    def __init__(self, *, team_slug, namespace=None, scope=None, branched=False,
+                 workbook_template=False):
         self.team_slug = team_slug
         self.namespace = namespace or team_slug
         self.scope = scope or {}
         self.branched = branched
+        # ONE workbook for the whole team, a sheet per KPI, instead of a CSV
+        # per KPI. Operations is the pilot; the rest keep per-KPI CSVs until
+        # this shape is signed off, which is why it is a flag and not a
+        # replacement.
+        self.workbook_template = workbook_template
 
         guard = [login_required, team_required(team_slug)]
 
@@ -117,6 +123,7 @@ class KpiScreens:
         self.import_data = wrap(self._import_data)
         self.management = wrap(self._management)
         self.template = wrap(self._template)
+        self.workbook = wrap(self._workbook) if workbook_template else None
         # Only a branch team has anything to roll up.
         self.overview = wrap(self._overview) if branched else None
 
@@ -160,6 +167,11 @@ class KpiScreens:
         if self.branched:
             # The way back up to the team-level rollup.
             context['overview_url'] = reverse(f'{self.namespace}:index')
+        if self.workbook_template:
+            context['workbook_url'] = self.url('kpi_workbook', branch=branch)
+        # Drives BOTH the per-row CSV column and the single workbook button,
+        # so a screen can never offer neither or both.
+        context['per_kpi_templates'] = not self.workbook_template
         return context
 
     def scope_for(self, branch):
@@ -451,8 +463,13 @@ class KpiScreens:
 
                 if import_form.is_valid():
                     upload = import_form.cleaned_data['file']
+                    parse = (
+                        importer.parse_and_apply_workbook
+                        if upload.name.lower().endswith('.xlsx')
+                        else importer.parse_and_apply
+                    )
                     try:
-                        result = importer.parse_and_apply(
+                        result = parse(
                             upload.read(),
                             team=team,
                             user=request.user,
@@ -589,7 +606,10 @@ class KpiScreens:
                 **self.row(kpi),
                 # Generated on demand: see apps/kpi/csv_template.py for why it
                 # is not a stored file.
-                'csv_url': self.url('kpi_template', kpi.slug, branch=branch),
+                'csv_url': (
+                    None if self.workbook_template
+                    else self.url('kpi_template', kpi.slug, branch=branch)
+                ),
                 'form': (
                     edit_forms.get(kpi.slug)
                     or EditKpiForm(instance=kpi, team=team, branch=branch)
@@ -908,5 +928,30 @@ class KpiScreens:
         )
         response['Content-Disposition'] = (
             f'attachment; filename="{csv_template.filename(kpi)}"'
+        )
+        return response
+
+    # --- one workbook for the whole team -----------------------------------
+
+    def _workbook(self, request, branch=None):
+        """Download every live KPI as one .xlsx, a sheet per KPI (§D, revised).
+
+        Built on demand like the CSV and for the same §A.6 reason: a stored
+        file goes stale the moment a formula changes. Which sheets exist is
+        simply which KPIs are active, so creating or deleting a KPI changes the
+        next download with no further action.
+        """
+        team = self.team()
+        branch = self.branch_or_404(team, branch) if branch else None
+        kpis = self.queryset(team, branch)
+
+        response = HttpResponse(
+            workbook.build(kpis, team, branch),
+            content_type=(
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ),
+        )
+        response['Content-Disposition'] = (
+            f'attachment; filename="{workbook.filename(team, branch)}"'
         )
         return response

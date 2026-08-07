@@ -102,36 +102,50 @@ def input_key(label, taken):
     return candidate
 
 
+def _placeholder(raw):
+    """The example value out of a spec's placeholder.
+
+    The LOB modules write these for a form hint ("e.g. 17"), but the value is
+    wanted on its own for the CSV template's example row, so the lead-in is
+    stripped. Empty is fine: the template falls back.
+    """
+    text = (raw or '').strip()
+    return text[5:].strip() if text.lower().startswith('e.g.') else text
+
+
 def operands(spec, kind):
-    """The modal spec's a/b/c labels, as many as this kind consumes."""
-    labels = [
-        (spec.get('a_label') or '').strip(),
-        (spec.get('b_label') or '').strip(),
-        (spec.get('c_label') or '').strip(),
+    """The modal spec's a/b/c labels and example values, as many as this kind uses."""
+    pairs = [
+        ((spec.get('a_label') or '').strip(), _placeholder(spec.get('a_placeholder'))),
+        ((spec.get('b_label') or '').strip(), _placeholder(spec.get('b_placeholder'))),
+        ((spec.get('c_label') or '').strip(), _placeholder(spec.get('c_placeholder'))),
     ][: KINDS[kind]['operands']]
 
-    if not all(labels):
+    if not all(label for label, _ in pairs):
         raise SeedError(
             f'"{spec["name"]}" is kind "{kind}", which needs '
             f'{KINDS[kind]["operands"]} labelled input(s).'
         )
-    return labels
+    return pairs
 
 
-def build_formula(kind, labels):
+def build_formula(kind, operand_pairs):
     """`(expression, score_expression, inputs)` for one KPI.
 
-    `inputs` are ready-to-create `KpiInput` kwargs, in CSV column order.
+    `operand_pairs` are `(label, example)` in CSV column order; `inputs` come
+    back as ready-to-create `KpiInput` kwargs.
     """
     rule = KINDS[kind]
     taken = set()
     inputs = []
-    for position, label in enumerate(labels, start=1):
+    for position, (label, example) in enumerate(operand_pairs, start=1):
         key = input_key(label, taken)
         inputs.append({
             'key': key,
             'label': label[:120],
-            'placeholder': '',
+            # Doing double duty: the Add-Record field's hint AND the value in
+            # the CSV template's example row.
+            'placeholder': example[:60],
             'data_type': DataType.DATE if rule.get('dates') else DataType.NUMBER,
             'position': position,
         })

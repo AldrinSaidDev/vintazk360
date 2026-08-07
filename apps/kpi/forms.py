@@ -721,9 +721,13 @@ class ImportRecordsForm(forms.Form):
     """
 
     file = forms.FileField(
-        label="CSV file",
+        label="Template file",
         widget=forms.ClearableFileInput(
-            attrs={"accept": ".csv,text/csv", "class": "sr-only", "data-import-file": True}
+            attrs={
+                "accept": ".xlsx,.csv,text/csv",
+                "class": "sr-only",
+                "data-import-file": True,
+            }
         ),
     )
 
@@ -731,9 +735,11 @@ class ImportRecordsForm(forms.Form):
         upload = self.cleaned_data["file"]
         if upload.size > importer.MAX_BYTES:
             raise forms.ValidationError("That file is larger than 5 MB.")
-        if not upload.name.lower().endswith(".csv"):
+        # .xlsx is the team workbook (a sheet per KPI); .csv is the older
+        # per-KPI template. The view picks the reader off the extension.
+        if not upload.name.lower().endswith((".csv", ".xlsx")):
             raise forms.ValidationError(
-                "Upload the .csv template. Excel files are not supported yet — "
-                'in Excel use "Save As" and pick CSV UTF-8.'
+                "Upload the .xlsx workbook or a .csv template. If you have an "
+                'older .xls file, open it in Excel and "Save As" .xlsx.'
             )
         return upload

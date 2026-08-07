@@ -41,10 +41,22 @@ _MONTHLY = re.compile(r'^(\d{4})-(\d{1,2})$')
 _QUARTERLY = re.compile(r'^(\d{4})-Q([1-4])$', re.IGNORECASE)
 _ANNUAL = re.compile(r'^(\d{4})$')
 
+# A full ISO date, optionally with a time on the end. Spreadsheets love turning
+# a period cell into a real date: type "2026-08" in Google Sheets or LibreOffice
+# and it can come back as 2026-08-01, and openpyxl then hands us a datetime.
+# Rejecting that would fail an upload over the spreadsheet's own autocorrect, so
+# a date is read as the period CONTAINING it. Unambiguous at every cadence:
+# 2026-08-06 is August for a monthly KPI, Q3 for a quarterly one, 2026 annually.
+_ISO_DATE = re.compile(r'^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]\d.*)?$')
 
-def parse(label: str, frequency: str) -> tuple[dt.date, dt.date]:
-    """Turn a period cell into the `(period_start, period_end)` it names."""
-    text = (label or '').strip()
+
+def parse(cell: str, frequency: str) -> tuple[dt.date, dt.date]:
+    """Turn a period cell into the `(period_start, period_end)` it names.
+
+    The parameter is `cell`, not `label`: this function needs to call
+    `label()` below, and a parameter of that name would shadow it.
+    """
+    text = (cell or '').strip()
     if not text:
         raise PeriodError('The period is missing.')
 
@@ -79,6 +91,15 @@ def parse(label: str, frequency: str) -> tuple[dt.date, dt.date]:
             match = _MONTHLY.match(text)
             if match:
                 return _month_span(int(match.group(1)), int(match.group(2)))
+
+        # Nothing matched this cadence's own format. Before giving up, accept a
+        # full date and snap it to the period it falls in (see _ISO_DATE).
+        iso = _ISO_DATE.match(text)
+        if iso:
+            day = dt.date(*(int(part) for part in iso.groups()[:3]))
+            # `label()` always produces this cadence's exact format, so the
+            # recursion is one level deep and cannot loop.
+            return parse(label(day, frequency), frequency)
 
     except ValueError as error:
         # A well-formed but impossible date, e.g. 2026-02-30 or week 54.

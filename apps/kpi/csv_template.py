@@ -10,23 +10,42 @@ template to carry the *current* `template_version`; a file saved at creation
 time would silently go stale the first time anyone edited the formula, and the
 importer would then reject the very template the screen was handing out.
 
-    # Vintazk 360 KPI template. Do not edit or remove these three lines.
+    # Vintazk 360 KPI template. Lines starting with # are notes and are ignored…
     # kpi=operations/attrition-rate | template=1 | frequency=monthly | generated=…
     # Formula: Total exits ÷ Average headcount × 100  ·  Target: Threshold 3.5% (lower is better)
     period,total_exits,average_headcount,remarks
+    # Example (ignored on upload): 2026-07,12,380,Optional note  →  3.2%
     2026-08,,,
+
+The example row is COMMENTED. It shows the shape of a filled row column by
+column and what those operands work out to, which is also the answer to "where
+does the formula happen?" — the file carries RAW inputs and the value is
+computed on upload. Being a comment, it can never be uploaded as real data.
 """
 
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 
 from django.utils import timezone
 
-from .models import Direction, Frequency
+from .models import DataType, Direction, Frequency
 
-HEADER_NOTE = 'Vintazk 360 KPI template. Do not edit or remove these three lines.'
+# Every '#' line is stripped on upload, so this note also covers the example
+# row further down: it can be left in place, edited, or deleted freely.
+HEADER_NOTE = (
+    'Vintazk 360 KPI template. Lines starting with # are notes and are ignored '
+    'on upload. Do not edit or remove the first three.'
+)
+
+# `records.coerce()` reads dates with `date.fromisoformat` only, so a cell of
+# "8/6/2026" is rejected. The rejection message says so, but only AFTER an
+# upload that has already been filled in and sent. Saying it on the template is
+# the difference between a rule and an ambush. Numbers need no equivalent note:
+# `coerce()` already tolerates "1,234", "₱1,234" and stray spaces.
+DATE_NOTE = 'Dates as YYYY-MM-DD'
 
 DIRECTION_NOTE = {
     Direction.UP: 'higher is better',
@@ -77,6 +96,80 @@ def filename(kpi) -> str:
     return f'{stem}-template-v{kpi.template_version}.csv'
 
 
+def example_values(kpi):
+    """One example value per input, in column order.
+
+    `kpi_input.placeholder` is the source, because it is already the example
+    the business wrote for that field. Where it is blank, a neutral stand-in
+    keeps the row readable: the point of the line is the SHAPE of a filled row,
+    and a column showing nothing teaches nothing.
+    """
+    values = []
+    for index, row in enumerate(kpi.inputs.all()):
+        if row.placeholder:
+            values.append(row.placeholder)
+        elif row.data_type == DataType.DATE:
+            # Distinct dates, EARLIEST LAST. `days` KPIs are seeded as
+            # `days_between(second, first)`, so the first column is the end
+            # date; putting the later date first is what makes the worked
+            # result read "+5 days" rather than "-5 days".
+            values.append(f'2026-07-{15 - index * 5:02d}')
+        else:
+            # 100 rather than 0: a zero denominator would make the worked
+            # result below a division by zero on half the KPIs.
+            values.append('100')
+    return values
+
+
+def previous_period(kpi, when=None):
+    """The period BEFORE the one the blank row carries.
+
+    Deliberately not the same period as the row below it: two rows for one
+    period is exactly the thing the importer rejects, so an example that
+    duplicated it would be a trap for anyone who uncommented it.
+    """
+    from . import periods
+
+    start, _ = periods.parse(period_label(kpi.frequency, when), kpi.frequency)
+    return periods.label(start - dt.timedelta(days=1), kpi.frequency)
+
+
+def example_line(kpi, when=None) -> str:
+    """The commented example row, with what those numbers work out to.
+
+    The arrow is the answer to "where does the formula happen?": the file holds
+    RAW operands, and the KPI's value is computed on upload. Showing the inputs
+    beside their result makes that visible without anyone having to upload
+    something first to find out.
+    """
+    from . import formula as formula_engine
+    from . import records
+
+    values = example_values(kpi)
+    period = previous_period(kpi, when)
+
+    buffer = io.StringIO()
+    csv.writer(buffer, lineterminator='').writerow(
+        [period, *values, 'Optional note']
+    )
+    row = buffer.getvalue()
+
+    # Only claim a result if these particular values really produce one. A
+    # stand-in operand can still divide by zero or be the wrong shape, and a
+    # wrong worked example is worse than none.
+    worked = ''
+    try:
+        numbers = {}
+        for kpi_input, raw in zip(kpi.inputs.all(), values):
+            numbers[kpi_input.key] = records.coerce(raw, kpi_input)
+        value = records.evaluate(kpi, numbers)
+        worked = f'  →  {records.format_value(kpi, value)}'
+    except (records.RecordError, formula_engine.FormulaError, ZeroDivisionError, ValueError):
+        worked = ''
+
+    return f'# Example (ignored on upload): {row}{worked}\n'
+
+
 def build(kpi, when=None) -> str:
     """Return the whole CSV file as text."""
     target = kpi.target_display or ('No target' if not kpi.is_scored else '')
@@ -94,17 +187,26 @@ def build(kpi, when=None) -> str:
         f'# kpi={scope_path(kpi)} | template={kpi.template_version} '
         f'| frequency={kpi.frequency} | generated={generated}\n'
     )
+    dates = any(row.data_type == DataType.DATE for row in kpi.inputs.all())
     buffer.write(
         f'# Formula: {formula}  ·  Target: {target}'
         + (f' ({direction})' if direction else '')
+        + (f'  ·  {DATE_NOTE}' if dates else '')
         + '\n'
     )
 
     header = columns(kpi)
     writer = csv.writer(buffer, lineterminator='\n')
     writer.writerow(header)
-    # One blank row for the current period, so the person filling it in can see
-    # the period format without a fake number they might upload as if it were real.
+
+    # A worked example, COMMENTED OUT. It shows the shape of a filled row
+    # column by column, sitting directly above the row to fill, and the
+    # importer strips every '#' line — so a demo number can never be uploaded
+    # as if it were real performance. That was the objection to putting sample
+    # values in the live row; commenting it answers both needs at once.
+    buffer.write(example_line(kpi, when))
+
+    # The row to actually fill: the current period, and nothing else.
     writer.writerow([period_label(kpi.frequency, when), *[''] * (len(header) - 1)])
 
     return buffer.getvalue()

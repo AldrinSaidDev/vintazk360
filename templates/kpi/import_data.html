@@ -9,7 +9,11 @@
 <div class="space-y-6">
 
     {# The badge and page title already name the team, so this copy stays team-neutral rather than splicing the name in. #}
+    {% if workbook_url %}
+    {% include "partials/info_banner.html" with text="Import, create, and update KPI records. Add a single entry through the form, or fill in the team workbook and upload it. The workbook carries one sheet per KPI and is downloaded from KPI Management." %}
+    {% else %}
     {% include "partials/info_banner.html" with text="Import, create, and update KPI records. Add a single entry through the form, or upload a filled-in CSV template for bulk import. Each KPI's template is downloaded from KPI Management and carries its own columns." %}
+    {% endif %}
 
     {# Counted from kpi_record / kpi_import_batch — the view puts total_records, added_this_month, period and last_import in the context. #}
     {% include "partials/kpi_import_stats.html" %}
@@ -22,7 +26,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 <a href="#importModal"
                    class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
-                    {% icon 'upload' %} Import CSV
+                    {% icon 'upload' %} Import {% if workbook_url %}workbook{% else %}CSV{% endif %}
                 </a>
 
                 <a href="#addRecordModal"
@@ -80,7 +84,7 @@
                         <td colspan="7" class="px-4 py-12 text-center">
                             <p class="font-heading text-sm font-bold text-ink">No records yet</p>
                             <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
-                                Add one by hand, or download a KPI's CSV template from KPI Management, fill it in and upload it here.
+                                Add one by hand, or download the {% if workbook_url %}team workbook{% else %}CSV template{% endif %} from KPI Management, fill it in and upload it here.
                             </p>
                             <a href="#addRecordModal"
                                class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
@@ -253,7 +257,7 @@
     </div>
 </div>
 
-{# ============ Import CSV modal ============ #}
+{# ============ Import modal: one team workbook, or a per-KPI CSV ============ #}
 <div id="importModal"
      class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_import_modal %} !flex{% endif %}">
     <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -263,7 +267,7 @@
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'upload' %}</span>
                 <div>
                     <h3 class="font-heading text-lg font-bold leading-tight">Import KPI Records</h3>
-                    <p class="text-xs text-white/70">Upload a filled-in CSV template.</p>
+                    <p class="text-xs text-white/70">Upload the filled-in template.</p>
                 </div>
             </div>
             <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
@@ -276,15 +280,25 @@
             <input type="hidden" name="_action" value="import">
 
             <div class="space-y-4 p-6">
+                {% if workbook_url %}
+                <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-500">
+                    One workbook covers every KPI, a sheet each. Fill in only the sheets you have figures for; the rest are left alone.
+                    Each sheet names its own KPI, so there is nothing else to choose.
+                    Get the current workbook from <a href="{{ manage_url }}" class="font-semibold text-brand hover:underline">KPI Management</a>.
+                    A sheet filled in against an older formula is rejected rather than misread, and the other sheets still apply.
+                </p>
+                {% else %}
                 <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-500">
                     The file identifies its own KPI from the header the template carries, so there is nothing else to choose.
                     Templates are downloaded per KPI from <a href="{{ manage_url }}" class="font-semibold text-brand hover:underline">KPI Management</a>.
                     A template filled in against an older formula is rejected rather than misread.
                 </p>
+                {% endif %}
 
                 <label class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-8 text-center transition hover:border-brand hover:bg-brand/5">
                     <span class="text-brand">{% icon 'file-text-o' %}</span>
-                    <span class="text-sm font-medium text-slate-600" data-file-label>Choose a .csv file</span>
+                    <span class="text-sm font-medium text-slate-600" data-file-label
+                          data-empty-label="Choose {% if workbook_url %}the .xlsx workbook{% else %}a .csv file{% endif %}">Choose {% if workbook_url %}the .xlsx workbook{% else %}a .csv file{% endif %}</span>
                     <span class="text-xs text-slate-400">Up to 5 MB</span>
                     {{ import_form.file }}
                 </label>
@@ -350,7 +364,9 @@
         var label = importForm.querySelector("[data-file-label]");
         if (file && label) {
             file.addEventListener("change", function () {
-                label.textContent = file.files.length ? file.files[0].name : "Choose a .csv file";
+                // Remember the prompt as rendered, so clearing the picker restores
+                // the right wording for this team's template format.
+                label.textContent = file.files.length ? file.files[0].name : label.dataset.emptyLabel;
             });
         }
     }

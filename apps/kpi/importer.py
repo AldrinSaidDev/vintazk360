@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from django.db import transaction
 from django.utils import timezone
 
-from . import periods, records
+from . import periods, records, workbook
 from .models import (
     Aggregation,
     KpiDefinition,
@@ -241,6 +241,9 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
 
     result = Result()
     buckets = {}
+    # Rows that carry at least one figure. The template ships with its period
+    # cell already filled, so an untouched file is not "empty" — see below.
+    filled_rows = 0
 
     for line_number, row, fieldnames in _rows(text, header):
         missing = [key for key in expected if key not in fieldnames]
@@ -254,6 +257,8 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
             continue  # a blank spacer row, not an error
 
         result.rows += 1
+        if any((row.get(key) or '').strip() for key in expected):
+            filled_rows += 1
 
         try:
             period_start, _ = periods.parse(row.get('period'), kpi.frequency)
@@ -286,6 +291,19 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
 
     if not buckets and not result.issues:
         raise ImportError_('That file has no data rows to import.')
+
+    # A downloaded template arrives with its period cell already filled and the
+    # rest blank, so uploading it untouched used to produce one "X is required"
+    # per row: a whole-file mistake reported as a cell-level one, complete with
+    # a batch in the import history recording that nothing happened. It is the
+    # likeliest slip of all now that the file also carries a worked example.
+    if result.rows and not filled_rows:
+        raise ImportError_(
+            'This template has not been filled in yet. Every row has a period '
+            'but no figures. Enter the numbers under '
+            + ', '.join(expected)
+            + ', then upload it again.'
+        )
 
     result.duplicate_of = (
         KpiImportBatch.objects.filter(kpi=kpi, file_hash=hashlib.sha256(raw).hexdigest())
@@ -347,10 +365,13 @@ def _store(raw, *, kpi, team, user, file_name, content_type, header, branch=None
     # object. `file_hash` below is what spots an accidental duplicate; the path
     # must never collide, which a timestamp plus a content hash does the moment
     # the same file is sent twice in one second.
-    key = f'{team.slug}/{stamp:%Y/%m}/{kpi.slug}-{uuid.uuid4()}.csv'
+    # A workbook covers every KPI, so it has no single slug to be named after.
+    stem = kpi.slug if kpi is not None else 'workbook'
+    suffix = 'xlsx' if file_name.lower().endswith('.xlsx') else 'csv'
+    key = f'{team.slug}/{stamp:%Y/%m}/{stem}-{uuid.uuid4()}.{suffix}'
 
     if storage.is_configured():
-        storage.upload_fileobj(io.BytesIO(raw), key, content_type='text/csv')
+        storage.upload_fileobj(io.BytesIO(raw), key, content_type=content_type or 'text/csv')
         provider = KpiImportBatch.Provider.R2
         bucket = storage.bucket_name()
     else:
@@ -377,7 +398,7 @@ def _store(raw, *, kpi, team, user, file_name, content_type, header, branch=None
         file_size=len(raw),
         file_hash=digest,
         content_type=(content_type or 'text/csv')[:60],
-        template_version=header['template_version'],
+        template_version=header.get('template_version') or 0,
         template_generated_at=generated,
         uploaded_at=stamp,
         status=KpiImportBatch.Status.PENDING,
@@ -414,3 +435,214 @@ def _finish(batch, result):
     )
     batch.completed_at = timezone.now()
     batch.save()
+
+
+# --- one workbook, one sheet per KPI ---------------------------------------
+
+
+def _collect(kpi, rows, result, label=''):
+    """Turn a sheet's (or file's) rows into period buckets, logging bad cells.
+
+    Shared by the CSV and workbook paths so a number typed into a spreadsheet
+    is validated exactly as the same number in a .csv would be. `label` prefixes
+    an issue message with the KPI it came from, which is what makes a
+    many-sheet upload readable — `kpi_import_issue` has no sheet column.
+    """
+    inputs = list(kpi.inputs.all())
+    expected = [row.key for row in inputs]
+    buckets = {}
+    filled = 0
+
+    def note(row_number, message, column='', raw=''):
+        result.issues.append(
+            Issue(row_number, f'{label}{message}' if label else message,
+                  column, str(raw)[:255])
+        )
+
+    for line_number, row in rows:
+        # A row carrying only its period is the template's own blank row, not
+        # data. Skipping it silently is what makes one workbook usable: most
+        # months you have figures for some KPIs and not others, and being told
+        # "Actual billable hours is required" about every sheet you deliberately
+        # left alone would make the format unusable.
+        if not any((row.get(key) or '').strip() for key in expected):
+            continue
+
+        result.rows += 1
+        filled += 1
+
+        try:
+            period_start, _ = periods.parse(row.get('period'), kpi.frequency)
+        except periods.PeriodError as error:
+            note(line_number, str(error), 'period', row.get('period') or '')
+            continue
+
+        try:
+            values = {}
+            for kpi_input in inputs:
+                values[kpi_input.key] = records.coerce(row.get(kpi_input.key), kpi_input)
+        except records.RecordError as error:
+            note(line_number, str(error), error.field or '',
+                 (row.get(error.field) or '') if error.field else '')
+            continue
+
+        bucket = buckets.setdefault(period_start, {'rows': [], 'lines': [], 'remarks': []})
+        bucket['rows'].append(values)
+        bucket['lines'].append(line_number)
+        if (row.get('remarks') or '').strip():
+            bucket['remarks'].append(row['remarks'].strip())
+
+    return buckets, filled
+
+
+def _apply(kpi, buckets, batch, result, user, label=''):
+    """Write one KPI's collapsed periods. Counts land on `result`."""
+    inputs = list(kpi.inputs.all())
+
+    for period_start in sorted(buckets):
+        bucket = buckets[period_start]
+        try:
+            collapsed = {
+                kpi_input.key: aggregate(
+                    kpi_input, [row[kpi_input.key] for row in bucket['rows']]
+                )
+                for kpi_input in inputs
+            }
+            _, created = records.save_record(
+                kpi,
+                period_start,
+                collapsed,
+                source=KpiRecord.Source.IMPORT,
+                user=user,
+                batch=batch,
+                remarks=' · '.join(bucket['remarks'])[:2000],
+            )
+        except records.RecordError as error:
+            result.issues.append(
+                Issue(bucket['lines'][0],
+                      f'{label}{error}' if label else str(error),
+                      error.field or '')
+            )
+            continue
+
+        result.created += 1 if created else 0
+        result.updated += 0 if created else 1
+
+
+def parse_and_apply_workbook(raw, *, team, user, file_name, content_type='', branch=None):
+    """Import one filled-in team workbook. Returns a `Result`.
+
+    Every sheet is independent. A sheet nobody filled in is SKIPPED silently,
+    which is the whole point of the one-file design: on any given month you
+    have numbers for some KPIs and not others, and being nagged about the
+    sheets you left alone would make the format unusable. Only a workbook with
+    nothing filled in anywhere is an error.
+
+    A stale or unknown sheet is likewise an issue on that sheet rather than a
+    rejection of the file: one KPI's formula changing must not block the other
+    five from reporting.
+    """
+    if not raw:
+        raise ImportError_('That file is empty.')
+    if len(raw) > MAX_BYTES:
+        raise ImportError_('That file is larger than 5 MB.')
+
+    try:
+        sheets = list(workbook.read_sheets(raw))
+    except ValueError as error:
+        raise ImportError_(str(error))
+
+    if not sheets:
+        raise ImportError_('That workbook has no sheets.')
+
+    result = Result()
+    plans = []          # (kpi, buckets, label)
+    filled_total = 0
+    recognised = 0      # sheets carrying a kpi= note
+    resolved = 0        # …that also matched a live KPI on this team
+    resolve_errors = []
+    first_header = None
+
+    for title, header_text, columns, rows in sheets:
+        label = f'{title}: '
+
+        try:
+            header = read_header(header_text)
+        except ImportError_:
+            # A sheet somebody added by hand, or the "No KPIs yet" placeholder.
+            # Not an error unless it holds data nobody can file anywhere.
+            if rows:
+                result.issues.append(Issue(
+                    workbook.COLUMN_ROW,
+                    f'{label}this sheet has no "kpi=" note, so there is no way '
+                    'to tell which KPI it belongs to. It was skipped.',
+                ))
+            continue
+
+        recognised += 1
+        first_header = first_header or header
+
+        try:
+            kpi = resolve_kpi(header, team, branch)
+        except ImportError_ as error:
+            resolve_errors.append(str(error))
+            result.issues.append(Issue(workbook.COLUMN_ROW, f'{label}{error}'))
+            continue
+        resolved += 1
+
+        missing = [k.key for k in kpi.inputs.all() if k.key not in columns]
+        if missing:
+            result.issues.append(Issue(
+                workbook.COLUMN_ROW,
+                f'{label}missing the column(s) ' + ', '.join(missing) +
+                '. Download a fresh workbook.',
+            ))
+            continue
+
+        buckets, filled = _collect(kpi, rows, result, label)
+        filled_total += filled
+        if filled:
+            plans.append((kpi, buckets, label))
+
+    if not recognised:
+        raise ImportError_(
+            'None of the sheets in that workbook are KPI templates. '
+            'Download a fresh one from KPI Management.'
+        )
+
+    # Every sheet failed to resolve, so this is not a per-sheet problem: the
+    # workbook belongs to another team, or to a set of KPIs that no longer
+    # exists. Reporting it once on the form beats the same message repeated
+    # per sheet in an import-history row nobody asked for.
+    if not resolved:
+        raise ImportError_(resolve_errors[0])
+
+    if not filled_total and not result.issues:
+        raise ImportError_(
+            'Nothing was filled in. Enter figures on at least one sheet, '
+            'then upload it again.'
+        )
+
+    result.duplicate_of = (
+        KpiImportBatch.objects.filter(
+            team=team, kpi__isnull=True, file_hash=hashlib.sha256(raw).hexdigest()
+        )
+        .order_by('-uploaded_at')
+        .first()
+    )
+
+    # kpi=None: the batch covers the whole team, which is why that column is
+    # nullable and why Recent Import History already reads "Multiple".
+    batch = _store(
+        raw, kpi=None, team=team, branch=branch, user=user, file_name=file_name,
+        content_type=content_type or
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        header=first_header or {},
+    )
+    result.batch = batch
+
+    for kpi, buckets, label in plans:
+        _apply(kpi, buckets, batch, result, user, label)
+
+    _finish(batch, result)
+    return result
