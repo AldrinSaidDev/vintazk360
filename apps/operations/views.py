@@ -140,12 +140,20 @@ def index(request):
 @login_required
 @team_required('operations')
 def kpi_reference(request):
-    """Operations — KPI definitions reference (North Star + formulas/targets)."""
+    """Operations — KPI definitions reference (North Star + formulas/targets).
+
+    DB-backed, sharing `_kpi_row` with the management table so the two screens
+    can never disagree about what a KPI's target or formula is.
+    """
+    operations_team = get_object_or_404(Team, slug='operations')
+    rows = [_kpi_row(kpi) for kpi in _kpi_queryset(operations_team)]
+
     context = {
         'banner_icons': BANNER_ICONS,
         'lob_name': 'Operations',
-        'kpis': _OPERATIONS_KPIS,
-        'kpi_count': len(_OPERATIONS_KPIS),
+        'kpis': rows,
+        'kpi_count': len(rows),
+        'manage_url': reverse('operations:kpi_management'),
     }
     return render(request, 'operations/index.html', context)
 
@@ -169,7 +177,8 @@ _FREQUENCIES = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Annually']
 PAGE_SIZE = 10
 
 
-def _management_queryset(team):
+def _kpi_queryset(team):
+    """Every live KPI this team owns, ready for either KPI screen."""
     return (
         KpiDefinition.objects.filter(team=team, is_active=True)
         .select_related('category')
@@ -178,13 +187,37 @@ def _management_queryset(team):
     )
 
 
-def _management_rows(kpis, team, edit_forms=None):
-    """The KPI Management table, from the database.
+def _kpi_row(kpi):
+    """One KPI as the templates want it, from the database.
 
-    The FIRST Operations screen to read `kpi_definition` instead of the static
-    `_OPERATIONS_KPIS` dicts (rollout step 5). The row shape is deliberately
-    the same one the static list produced, so the template did not change shape
-    around it — only `csv_url`, `input_count` and `form` are new.
+    Deliberately the SAME shape the static `_OPERATIONS_KPIS` dicts produced,
+    so the templates did not have to change around the switch (rollout step 5).
+    Shared by KPI Definitions and KPI Management; management layers its own
+    extras on top.
+    """
+    return {
+        'pk': kpi.pk,
+        'slug': kpi.slug,
+        'name': kpi.name,
+        'description': kpi.description,
+        'category': kpi.category.name if kpi.category else 'Uncategorised',
+        'target_display': kpi.target_display or 'No Target',
+        'target_min': kpi.target_min,
+        'target_max': kpi.target_max,
+        'direction': kpi.direction,
+        'direction_label': _DIRECTION_LABEL[kpi.direction],
+        'frequency': kpi.get_frequency_display(),
+        'formula': kpi.formula_text or kpi.expression,
+        'template_version': kpi.template_version,
+        # The operands, in CSV column order. These ARE the columns of this
+        # KPI's template and the fields of its Add-Record form.
+        'inputs': [row.label for row in kpi.inputs.all()],
+        'input_count': len(kpi.inputs.all()),
+    }
+
+
+def _management_rows(kpis, team, edit_forms=None):
+    """`_kpi_row` plus what only the management table needs.
 
     Each row carries its own bound-or-fresh `EditKpiForm`, so the Edit modal
     renders real fields with real validation messages rather than a mockup.
@@ -194,23 +227,10 @@ def _management_rows(kpis, team, edit_forms=None):
 
     return [
         {
-            'pk': kpi.pk,
-            'slug': kpi.slug,
-            'name': kpi.name,
-            'description': kpi.description,
-            'category': kpi.category.name if kpi.category else 'Uncategorised',
-            'target_display': kpi.target_display or 'No Target',
-            'target_min': kpi.target_min,
-            'target_max': kpi.target_max,
-            'direction': kpi.direction,
-            'direction_label': _DIRECTION_LABEL[kpi.direction],
-            'frequency': kpi.get_frequency_display(),
-            'formula': kpi.formula_text or kpi.expression,
+            **_kpi_row(kpi),
             # Generated on demand — see apps/kpi/csv_template.py for why it is
             # not a stored file.
             'csv_url': reverse('operations:kpi_template', args=[kpi.slug]),
-            'template_version': kpi.template_version,
-            'input_count': len(kpi.inputs.all()),
             'form': edit_forms.get(kpi.slug) or EditKpiForm(instance=kpi, team=team),
         }
         for kpi in kpis
@@ -369,7 +389,7 @@ def kpi_management(request):
 
             open_create_modal = True
 
-    kpis = _management_queryset(operations_team)
+    kpis = _kpi_queryset(operations_team)
     paginator = Paginator(kpis, PAGE_SIZE)
     page = paginator.get_page(request.GET.get("page"))
 
