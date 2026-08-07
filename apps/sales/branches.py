@@ -245,3 +245,21 @@ def modal_kpis(branch):
                ('kind', 'direction', 'target_min', 'target_max', 'target_display', 'formula')},
         })
     return merged
+
+
+SCOPE = {
+    'title': 'Sales',
+    'badge': 'Sales',
+    'blurb': 'Lead volume through to qualified opportunities, conversion, and cost per lead.',
+    'overview_blurb': 'Sales runs as three branches, each with its own scorecard, targets, and data '
+                      'entry. This page rolls all three together; open a branch for its own KPIs.',
+    'definitions_blurb': 'The metrics below define how this branch measures success, each with its '
+                         'target, cadence, and formula.',
+    'icons': ['line-chart', 'bullhorn', 'handshake-o'],
+    # Per-branch banner overrides, keyed by branch slug. KpiScreens.scope_for()
+    # merges these over SCOPE, so a branch page can carry its own blurb while
+    # the icons and styling stay the team's.
+    'branches': {
+        slug: {'blurb': branch['blurb']} for slug, branch in BRANCHES.items()
+    },
+}

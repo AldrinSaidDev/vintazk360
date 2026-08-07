@@ -44,7 +44,8 @@ from .models import (
 HEADER_LINES = 3
 MAX_BYTES = 5 * 1024 * 1024
 
-_KPI_HEADER = re.compile(r'kpi\s*=\s*([\w-]+)/([\w-]+)', re.IGNORECASE)
+# team/slug, or team/branch/slug for a branch KPI (see csv_template.scope_path).
+_KPI_HEADER = re.compile(r'kpi\s*=\s*([\w-]+)/(?:([\w-]+)/)?([\w-]+)', re.IGNORECASE)
 _TEMPLATE_HEADER = re.compile(r'template\s*=\s*(\d+)', re.IGNORECASE)
 _GENERATED_HEADER = re.compile(r'generated\s*=\s*([0-9T:+\-\.]+)', re.IGNORECASE)
 
@@ -114,22 +115,39 @@ def read_header(text: str) -> dict:
 
     return {
         'team_slug': kpi_match.group(1),
-        'kpi_slug': kpi_match.group(2),
+        'branch_slug': kpi_match.group(2),
+        'kpi_slug': kpi_match.group(3),
         'template_version': int(template_match.group(1)) if template_match else 0,
         'generated': generated_match.group(1) if generated_match else None,
         'comment_count': len(comments),
     }
 
 
-def resolve_kpi(header, team) -> KpiDefinition:
+def resolve_kpi(header, team, branch=None) -> KpiDefinition:
     """Find the KPI the file says it is for, and refuse someone else's."""
     if header['team_slug'] != team.slug:
         raise ImportError_(
             f'This template belongs to "{header["team_slug"]}", not {team.name}.'
         )
 
+    # A slug is unique per (team, branch), so the branch is part of the KPI's
+    # identity and not just a filter. Getting this wrong would file one Sales
+    # branch's numbers under another branch's KPI of the same name.
+    expected = branch.slug if branch is not None else None
+    if header['branch_slug'] != expected:
+        where = f'the {branch.name} branch' if branch is not None else f'{team.name} itself'
+        belongs = (
+            f'the "{header["branch_slug"]}" branch'
+            if header['branch_slug']
+            else f'{team.name} itself'
+        )
+        raise ImportError_(
+            f'This template belongs to {belongs}, not {where}. '
+            'Upload it on that page instead.'
+        )
+
     kpi = KpiDefinition.objects.filter(
-        team=team, slug=header['kpi_slug'], is_active=True
+        team=team, branch=branch, slug=header['kpi_slug'], is_active=True
     ).first()
     if kpi is None:
         raise ImportError_(
@@ -206,7 +224,7 @@ def aggregate(kpi_input, cells):
 # --- the whole run ---------------------------------------------------------
 
 
-def parse_and_apply(raw: bytes, *, team, user, file_name, content_type=''):
+def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branch=None):
     """Import one uploaded file. Returns a `Result`; raises `ImportError_` only
     for whole-file problems, never for a single bad row."""
     if not raw:
@@ -216,7 +234,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type=''):
 
     text = _decode(raw)
     header = read_header(text)
-    kpi = resolve_kpi(header, team)
+    kpi = resolve_kpi(header, team, branch)
 
     inputs = list(kpi.inputs.all())
     expected = [row.key for row in inputs]
@@ -277,7 +295,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type=''):
 
     # The file is stored and the batch written before the records, so a failure
     # part-way through still leaves a trace of what was uploaded.
-    batch = _store(raw, kpi=kpi, team=team, user=user, file_name=file_name,
+    batch = _store(raw, kpi=kpi, team=team, branch=branch, user=user, file_name=file_name,
                    content_type=content_type, header=header)
     result.batch = batch
 
@@ -312,7 +330,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type=''):
     return result
 
 
-def _store(raw, *, kpi, team, user, file_name, content_type, header):
+def _store(raw, *, kpi, team, user, file_name, content_type, header, branch=None):
     """Put the file in object storage and record the pointer.
 
     Dev has no R2 credentials, so the file lands on local disk and
@@ -350,6 +368,7 @@ def _store(raw, *, kpi, team, user, file_name, content_type, header):
 
     return KpiImportBatch.objects.create(
         team=team,
+        branch=branch,
         kpi=kpi,
         file_name=file_name[:255],
         storage_provider=provider,

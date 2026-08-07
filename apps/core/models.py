@@ -103,6 +103,11 @@ class AuditLog(models.Model):
         TARGET_CHANGED = 'target_changed', 'Target changed'
         LOGIN = 'login', 'Logged in'
         LOGOUT = 'logout', 'Logged out'
+        # A rejected sign-in has no user to attach to, so the attempted
+        # username goes in `entity_name`. This is the only action that is a
+        # record of something NOT happening, which is exactly why it is worth
+        # keeping: a missing row otherwise means "nobody tried".
+        LOGIN_FAILED = 'login_failed', 'Failed sign-in'
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

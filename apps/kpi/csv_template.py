@@ -59,8 +59,22 @@ def columns(kpi) -> list[str]:
     return ['period', *keys, 'remarks']
 
 
+def scope_path(kpi) -> str:
+    """The KPI's address inside the org: `team/slug`, or `team/branch/slug`.
+
+    A slug is unique per `(team, branch)`, NOT per team, so two Sales branches
+    can both own "qualified-leads-generated". Without the branch segment the
+    importer would resolve a file to whichever of the two it happened to find
+    first and write the numbers into the wrong branch.
+    """
+    if kpi.branch_id:
+        return f'{kpi.team.slug}/{kpi.branch.slug}/{kpi.slug}'
+    return f'{kpi.team.slug}/{kpi.slug}'
+
+
 def filename(kpi) -> str:
-    return f'{kpi.team.slug}-{kpi.slug}-template-v{kpi.template_version}.csv'
+    stem = scope_path(kpi).replace('/', '-')
+    return f'{stem}-template-v{kpi.template_version}.csv'
 
 
 def build(kpi, when=None) -> str:
@@ -77,7 +91,7 @@ def build(kpi, when=None) -> str:
     buffer = io.StringIO()
     buffer.write(f'# {HEADER_NOTE}\n')
     buffer.write(
-        f'# kpi={kpi.team.slug}/{kpi.slug} | template={kpi.template_version} '
+        f'# kpi={scope_path(kpi)} | template={kpi.template_version} '
         f'| frequency={kpi.frequency} | generated={generated}\n'
     )
     buffer.write(

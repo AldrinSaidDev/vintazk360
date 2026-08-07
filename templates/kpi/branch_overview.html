@@ -1,18 +1,18 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{# Sales team-level Dashboard. Unlike a flat LOB this one rolls three branches #}
+{# A branch team's own Dashboard. Unlike a flat LOB this one rolls its branches #}
 {# up: tiles and chart score every branch at once, then the branch cards below #}
-{# are the way into each one's own dashboard. See apps/sales/views.index(). #}
+{# are the way into each one. Built by KpiScreens._overview() in apps/kpi/screens.py. #}
 
-{% block title %}Sales Dashboard · Vintazk 360{% endblock %}
+{% block title %}{{ scope.title }} Dashboard · Vintazk 360{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
-{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">Sales</span>{% endblock %}
+{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
-    {% include "partials/lob_banner.html" with department="Sales" blurb="Sales runs as three branches, each with its own scorecard, targets, and data entry. This page rolls all three together; open a branch for its own KPIs." icons=banner_icons count=branch_count count_label="Branches" %}
+    {% include "partials/lob_banner.html" with department=scope.title north_star=scope.north_star north_star_pending=scope.north_star_pending blurb=scope.overview_blurb|default:scope.blurb icons=scope.icons lead_size=scope.lead_size count=branch_count count_label="Branches" %}
 
     {# Summary tiles — every Sales KPI across all three branches. #}
     <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -40,6 +40,16 @@
             <p class="mt-2 font-heading text-3xl font-bold text-status-bad">{{ below_count }}</p>
             <p class="mt-1 text-xs text-slate-400">Needs attention</p>
         </div>
+        {% if no_data_count %}
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">Awaiting Data</p>
+                <span class="h-2 w-2 rounded-full bg-slate-300"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-slate-400">{{ no_data_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">No record entered yet</p>
+        </div>
+        {% else %}
         <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">
                 <p class="text-xs font-medium text-slate-500">No Target Set</p>
@@ -48,6 +58,7 @@
             <p class="mt-2 font-heading text-3xl font-bold text-slate-400">{{ monitored_count }}</p>
             <p class="mt-1 text-xs text-slate-400">Awaiting a target value</p>
         </div>
+        {% endif %}
     </div>
 
     {# Actual vs Target — one bar per branch, not per KPI (see the view). #}
@@ -88,7 +99,10 @@
                         <span class="h-1.5 w-1.5 rounded-full {% if branch.status == 'on_track' %}bg-status-good{% elif branch.status == 'at_risk' %}bg-status-warn{% elif branch.status == 'below' %}bg-status-bad{% else %}bg-slate-300{% endif %}"></span>{{ branch.status_label }}
                     </span>
                 </div>
-                <p class="mt-2 flex-1 text-sm leading-relaxed text-slate-500">{{ branch.blurb }}</p>
+                <p class="mt-2 flex-1 text-sm leading-relaxed text-slate-500">
+                    {{ branch.kpi_count }} KPI{{ branch.kpi_count|pluralize }},
+                    {% if branch.scored_count %}{{ branch.scored_count }} scored this period.{% else %}none recorded yet.{% endif %}
+                </p>
 
                 {% if branch.attainment is not None %}
                 <div class="mt-4 flex items-end justify-between">
@@ -101,7 +115,7 @@
                 {% endif %}
 
                 {# Status split — the same buckets the branch dashboard reports. #}
-                <div class="mt-5 grid grid-cols-4 gap-2 text-center">
+                <div class="mt-5 grid grid-cols-5 gap-2 text-center">
                     <div class="rounded-lg bg-slate-50 px-2 py-2">
                         <p class="font-heading text-lg font-bold text-status-good">{{ branch.on_track_count }}</p>
                         <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">On track</p>
@@ -118,20 +132,29 @@
                         <p class="font-heading text-lg font-bold text-slate-400">{{ branch.monitored_count }}</p>
                         <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">No target</p>
                     </div>
+                    <div class="rounded-lg bg-slate-50 px-2 py-2">
+                        <p class="font-heading text-lg font-bold text-slate-400">{{ branch.no_data_count }}</p>
+                        <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">No data</p>
+                    </div>
                 </div>
 
                 <div class="mt-5 border-t border-dashed border-slate-200 pt-4">
-                    <a href="{% url 'sales:branch_index' branch.slug %}"
+                    <a href="{{ branch.url }}"
                        class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
                         Open {{ branch.name }}
                     </a>
                 </div>
             </article>
+            {% empty %}
+            <div class="col-span-full rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                <p class="font-heading text-sm font-bold text-ink">No branches yet</p>
+                <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
+                    Add a KPI branch in the admin, then define what it measures.
+                </p>
+            </div>
             {% endfor %}
         </div>
     </section>
-
-    <p class="text-center text-xs italic text-slate-400">Placeholder data — not real performance yet.</p>
 </div>
 
 {# Chart data as JSON — single source of truth, read by static/js/kpi-chart.js. #}

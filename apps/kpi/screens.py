@@ -22,9 +22,11 @@ Why a class rather than four functions taking a slug: the views are wired into
 `@login_required` and `@team_required` already applied. Building them in
 `__init__` is what lets a LOB's urls.py stay a plain list of `path()` calls.
 
-There is deliberately NO branch support here. Sales is the only branch team and
-it keeps its own views; adding a second axis to these five methods to serve one
-LOB would cost every other LOB clarity it does not get back.
+A BRANCH team (Sales) passes `branched=True`. Its views then take the branch
+slug from the URL, every query is filtered on `kpi_definition.branch`, and a
+sixth screen appears: `overview`, the team-level rollup across all branches.
+The four screen templates are unchanged, because they never name a URL: the
+branch-aware URLs are resolved in `_urls()` and handed over as context.
 """
 
 from django.contrib import messages
@@ -36,6 +38,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.core import kpi as scoring
 from apps.core.access import team_required
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
@@ -51,6 +54,7 @@ from .forms import (
 )
 from .models import (
     Frequency,
+    KpiBranch,
     KpiCategory,
     KpiDefinition,
     KpiImportBatch,
@@ -95,10 +99,11 @@ def _params_without_page(request):
 class KpiScreens:
     """The four KPI screens plus the CSV template download, for one team."""
 
-    def __init__(self, *, team_slug, namespace=None, scope=None):
+    def __init__(self, *, team_slug, namespace=None, scope=None, branched=False):
         self.team_slug = team_slug
         self.namespace = namespace or team_slug
         self.scope = scope or {}
+        self.branched = branched
 
         guard = [login_required, team_required(team_slug)]
 
@@ -112,33 +117,75 @@ class KpiScreens:
         self.import_data = wrap(self._import_data)
         self.management = wrap(self._management)
         self.template = wrap(self._template)
+        # Only a branch team has anything to roll up.
+        self.overview = wrap(self._overview) if branched else None
 
     # --- shared plumbing ---------------------------------------------------
 
     def team(self):
         return get_object_or_404(Team, slug=self.team_slug)
 
-    def url(self, name, *args):
+    def branch_or_404(self, team, slug):
+        """Resolve a branch slug from the URL. 404 rather than a silent None.
+
+        A typo'd branch must not fall through to the team-level KPIs: those are
+        a different set of rows, and showing them would look like data loss.
+        """
+        return get_object_or_404(KpiBranch, team=team, slug=slug, is_active=True)
+
+    def url(self, name, *args, branch=None):
+        """Reverse one of this LOB's URLs, branch prefix included when needed.
+
+        A branch team's routes are `branch_index` / `branch_kpis` / … and every
+        one takes the branch slug first, so the name and the args both change.
+        """
+        if self.branched and branch is not None:
+            return reverse(f'{self.namespace}:branch_{name}', args=[branch.slug, *args])
         return reverse(f'{self.namespace}:{name}', args=args)
 
-    def _urls(self):
+    def _urls(self, branch=None):
         """Every cross-screen link, pre-resolved.
 
-        The templates are shared, so they cannot name a namespace. Resolving
-        here is also the only place that knows a LOB's URLs might not all exist.
+        The templates are shared, so they cannot name a namespace or know
+        whether this LOB has branches. Both differences are absorbed here.
         """
+        context = {
+            'scope': self.scope_for(branch),
+            'branch': branch,
+            'dashboard_url': self.url('index', branch=branch),
+            'definitions_url': self.url('kpis', branch=branch),
+            'import_url': self.url('import_data', branch=branch),
+            'manage_url': self.url('kpi_management', branch=branch),
+        }
+        if self.branched:
+            # The way back up to the team-level rollup.
+            context['overview_url'] = reverse(f'{self.namespace}:index')
+        return context
+
+    def scope_for(self, branch):
+        """Banner copy for the page being rendered.
+
+        A branch page is titled with the BRANCH, not the team: on `/sales/seo/`
+        the heading that matters is "SEO & Google Ads". The team name still sits
+        in the badge, so the hierarchy stays legible.
+        """
+        if branch is None:
+            return self.scope
         return {
-            'scope': self.scope,
-            'dashboard_url': self.url('index'),
-            'definitions_url': self.url('kpis'),
-            'import_url': self.url('import_data'),
-            'manage_url': self.url('kpi_management'),
+            **self.scope,
+            **(self.scope.get('branches', {}).get(branch.slug) or {}),
+            'title': branch.name,
+            'badge': f'{self.scope.get("badge", "")} · {branch.name}'.strip(' ·'),
         }
 
-    def queryset(self, team):
-        """Every live KPI this team owns, ready for any of the four screens."""
+    def queryset(self, team, branch=None):
+        """Every live KPI in scope, ready for any of the four screens.
+
+        For a branch team `branch=None` would mean the TEAM-LEVEL KPIs, which is
+        not the same as "all of them" — the overview asks for those separately.
+        """
         return (
-            KpiDefinition.objects.filter(team=team, is_active=True)
+            KpiDefinition.objects.filter(team=team, branch=branch, is_active=True)
             .select_related('category')
             .prefetch_related('inputs')
             .order_by('sort_order', 'name')
@@ -172,7 +219,7 @@ class KpiScreens:
 
     # --- dashboard ---------------------------------------------------------
 
-    def _latest_records(self, team):
+    def _latest_records(self, team, branch=None):
         """The most recent `kpi_record` per KPI, keyed by KPI id.
 
         One query. Records arrive newest first, so the first row seen for a KPI
@@ -180,14 +227,16 @@ class KpiScreens:
         """
         latest = {}
         for record in (
-            KpiRecord.objects.filter(kpi__team=team, kpi__is_active=True)
+            KpiRecord.objects.filter(
+                kpi__team=team, kpi__branch=branch, kpi__is_active=True
+            )
             .order_by('kpi_id', '-period_start')
             .only('kpi_id', 'period_start', 'value', 'score', 'value_display')
         ):
             latest.setdefault(record.kpi_id, record)
         return latest
 
-    def scorecard_rows(self, team):
+    def scorecard_rows(self, team, branch=None):
         """One dashboard card per live KPI, from its latest recorded period.
 
         Two states exist beyond the three scored ones, and they are not the
@@ -201,10 +250,10 @@ class KpiScreens:
         the old verdict until every record happened to be re-saved. Design
         principle 6: scores are cached, never authoritative.
         """
-        latest = self._latest_records(team)
+        latest = self._latest_records(team, branch)
         rows = []
 
-        for kpi in self.queryset(team):
+        for kpi in self.queryset(team, branch):
             row = self.row(kpi)
             record = latest.get(kpi.pk)
 
@@ -239,17 +288,18 @@ class KpiScreens:
 
         return rows
 
-    def _dashboard(self, request):
-        """Team dashboard: the KPI scorecard, actual vs target plus status."""
+    def _dashboard(self, request, branch=None):
+        """Team (or branch) dashboard: the KPI scorecard and its chart."""
         team = self.team()
-        kpis = self.scorecard_rows(team)
+        branch = self.branch_or_404(team, branch) if branch else None
+        kpis = self.scorecard_rows(team, branch)
         today = timezone.localdate()
 
         def count(status):
             return sum(1 for k in kpis if k['status'] == status)
 
         return render(request, 'kpi/dashboard.html', {
-            **self._urls(),
+            **self._urls(branch),
             'kpis': kpis,
             'on_track_count': count('on_track'),
             'at_risk_count': count('at_risk'),
@@ -276,25 +326,28 @@ class KpiScreens:
 
     # --- KPI definitions ---------------------------------------------------
 
-    def _definitions(self, request):
+    def _definitions(self, request, branch=None):
         """KPI definitions reference: targets, cadence, formulas, inputs."""
         team = self.team()
-        rows = [self.row(kpi) for kpi in self.queryset(team)]
+        branch = self.branch_or_404(team, branch) if branch else None
+        rows = [self.row(kpi) for kpi in self.queryset(team, branch)]
 
         return render(request, 'kpi/kpi_definitions.html', {
-            **self._urls(),
+            **self._urls(branch),
             'kpis': rows,
             'kpi_count': len(rows),
         })
 
     # --- import data -------------------------------------------------------
 
-    def import_stats(self, team):
+    def import_stats(self, team, branch=None):
         """The four Import Data stat cards, counted from the database."""
-        records = KpiRecord.objects.filter(kpi__team=team)
+        records = KpiRecord.objects.filter(kpi__team=team, kpi__branch=branch)
         today = timezone.localdate()
         last_batch = (
-            KpiImportBatch.objects.filter(team=team).order_by('-uploaded_at').first()
+            KpiImportBatch.objects.filter(team=team, branch=branch)
+            .order_by('-uploaded_at')
+            .first()
         )
 
         return {
@@ -383,11 +436,12 @@ class KpiScreens:
         else:
             messages.success(request, f'{summary}.{repeat}')
 
-    def _import_data(self, request):
+    def _import_data(self, request, branch=None):
         """Import Data: manual entry and CSV upload both write records."""
         team = self.team()
+        branch = self.branch_or_404(team, branch) if branch else None
 
-        add_form = AddRecordForm(team=team)
+        add_form = AddRecordForm(team=team, branch=branch)
         import_form = ImportRecordsForm()
         open_add_modal = open_import_modal = False
 
@@ -404,6 +458,7 @@ class KpiScreens:
                             user=request.user,
                             file_name=upload.name,
                             content_type=upload.content_type or 'text/csv',
+                            branch=branch,
                         )
                     except importer.ImportError_ as error:
                         # A whole-file problem: nothing was written, so it
@@ -431,7 +486,7 @@ class KpiScreens:
                     open_import_modal = True
 
             else:
-                add_form = AddRecordForm(request.POST, team=team)
+                add_form = AddRecordForm(request.POST, team=team, branch=branch)
 
                 if add_form.is_valid():
                     record, created = add_form.save(user=request.user)
@@ -465,7 +520,7 @@ class KpiScreens:
                 open_add_modal = True
 
         records_qs = (
-            KpiRecord.objects.filter(kpi__team=team)
+            KpiRecord.objects.filter(kpi__team=team, kpi__branch=branch)
             .select_related('kpi', 'kpi__category')
             .order_by('-period_start', 'kpi__sort_order')
         )
@@ -480,13 +535,13 @@ class KpiScreens:
         )
 
         batches = (
-            KpiImportBatch.objects.filter(team=team)
+            KpiImportBatch.objects.filter(team=team, branch=branch)
             .select_related('kpi', 'uploaded_by')
             .order_by('-uploaded_at')[:10]
         )
 
         return render(request, 'kpi/import_data.html', {
-            **self._urls(),
+            **self._urls(branch),
             'add_form': add_form,
             'import_form': import_form,
             'open_add_modal': open_add_modal,
@@ -513,14 +568,14 @@ class KpiScreens:
                     ),
                     'inputs': list(kpi.inputs.all()),
                 }
-                for kpi in self.queryset(team)
+                for kpi in self.queryset(team, branch)
             ],
-            **self.import_stats(team),
+            **self.import_stats(team, branch),
         })
 
     # --- KPI management ----------------------------------------------------
 
-    def management_rows(self, kpis, team, edit_forms=None):
+    def management_rows(self, kpis, team, edit_forms=None, branch=None):
         """`row()` plus what only the management table needs.
 
         Each row carries its own bound-or-fresh `EditKpiForm`, so the Edit
@@ -534,13 +589,16 @@ class KpiScreens:
                 **self.row(kpi),
                 # Generated on demand: see apps/kpi/csv_template.py for why it
                 # is not a stored file.
-                'csv_url': self.url('kpi_template', kpi.slug),
-                'form': edit_forms.get(kpi.slug) or EditKpiForm(instance=kpi, team=team),
+                'csv_url': self.url('kpi_template', kpi.slug, branch=branch),
+                'form': (
+                    edit_forms.get(kpi.slug)
+                    or EditKpiForm(instance=kpi, team=team, branch=branch)
+                ),
             }
             for kpi in kpis
         ]
 
-    def _back_to_page(self, request):
+    def _back_to_page(self, request, branch=None):
         """Return to the view the change was made from, every modal closed.
 
         A form with no `action` posts to the current URL, query string
@@ -556,12 +614,13 @@ class KpiScreens:
             params.pop('page', None)
 
         query = params.urlencode()
-        url = self.url('kpi_management')
+        url = self.url('kpi_management', branch=branch)
         return f'{url}{"?" + query if query else ""}#{TABLE_ANCHOR}'
 
-    def _management(self, request):
+    def _management(self, request, branch=None):
         """KPI Management: create, edit, soft-delete, search, filter."""
         team = self.team()
+        branch = self.branch_or_404(team, branch) if branch else None
 
         # All three modals open via CSS :target. On a validation failure the
         # re-rendered page has no fragment, so the modal would land CLOSED with
@@ -569,7 +628,7 @@ class KpiScreens:
         open_create_modal = False
         open_edit_slug = None
 
-        form = CreateKpiForm(team=team)
+        form = CreateKpiForm(team=team, branch=branch)
         edit_forms = {}
 
         if request.method == 'POST':
@@ -579,6 +638,7 @@ class KpiScreens:
                 kpi = get_object_or_404(
                     KpiDefinition,
                     team=team,
+                    branch=branch,
                     slug=request.POST.get('_slug', ''),
                     is_active=True,
                 )
@@ -601,16 +661,19 @@ class KpiScreens:
                 )
 
                 messages.success(request, f'KPI "{kpi.name}" has been deleted.')
-                return redirect(self._back_to_page(request))
+                return redirect(self._back_to_page(request, branch))
 
             if request.POST.get('_action') == 'edit':
                 kpi = get_object_or_404(
                     KpiDefinition,
                     team=team,
+                    branch=branch,
                     slug=request.POST.get('_slug', ''),
                     is_active=True,
                 )
-                edit_form = EditKpiForm(request.POST, instance=kpi, team=team)
+                edit_form = EditKpiForm(
+                    request.POST, instance=kpi, team=team, branch=branch
+                )
 
                 if edit_form.is_valid():
                     targets_changed = edit_form.targets_changed
@@ -657,13 +720,13 @@ class KpiScreens:
                     else:
                         messages.info(request, 'Nothing changed.')
 
-                    return redirect(self._back_to_page(request))
+                    return redirect(self._back_to_page(request, branch))
 
                 edit_forms[kpi.slug] = edit_form
                 open_edit_slug = kpi.slug
 
             else:
-                form = CreateKpiForm(request.POST, team=team)
+                form = CreateKpiForm(request.POST, team=team, branch=branch)
 
                 if form.is_valid():
                     kpi = form.save(user=request.user)
@@ -685,7 +748,7 @@ class KpiScreens:
                     )
 
                     messages.success(request, f'KPI "{kpi.name}" has been created.')
-                    return redirect(self._back_to_page(request))
+                    return redirect(self._back_to_page(request, branch))
 
                 open_create_modal = True
 
@@ -699,7 +762,7 @@ class KpiScreens:
         chosen_categories = [c for c in request.GET.getlist('category') if c]
         chosen_frequencies = [f for f in request.GET.getlist('frequency') if f]
 
-        kpis = self.queryset(team)
+        kpis = self.queryset(team, branch)
         if search:
             kpis = kpis.filter(
                 Q(name__icontains=search)
@@ -715,16 +778,16 @@ class KpiScreens:
         page = paginator.get_page(request.GET.get('page'))
 
         return render(request, 'kpi/kpi_management.html', {
-            **self._urls(),
+            **self._urls(branch),
             'form': form,
             'open_create_modal': open_create_modal,
             'open_edit_slug': open_edit_slug,
-            'kpis': self.management_rows(page.object_list, team, edit_forms),
+            'kpis': self.management_rows(page.object_list, team, edit_forms, branch),
             'page_obj': page,
             # The count of what the filters MATCHED. The stat card above the
             # table keeps counting the whole scorecard.
             'result_count': paginator.count,
-            'kpi_count': self.queryset(team).count(),
+            'kpi_count': self.queryset(team, branch).count(),
             'categories': categories,
             # One popover replaces the two inert dropdowns. Each option carries
             # its own checked flag so the template holds no lookup logic.
@@ -741,18 +804,103 @@ class KpiScreens:
             # has its own visible box, so it is not counted here.
             'active_filter_count': len(chosen_categories) + len(chosen_frequencies),
             'has_any_filter': bool(search or chosen_categories or chosen_frequencies),
-            'clear_url': self.url('kpi_management'),
+            'clear_url': self.url('kpi_management', branch=branch),
             # Pagination has to carry the filters, or page 2 silently drops them.
             'page_query': _query_without_page(request),
             'page_params': _params_without_page(request),
         })
 
+    # --- branch overview ---------------------------------------------------
+
+    def _overview(self, request):
+        """A branch team's own Dashboard: every branch rolled up.
+
+        It IS the team dashboard, not a table of contents above one. The tiles
+        tally every branch's KPIs together, and the chart carries one bar per
+        BRANCH rather than per KPI, because the per-KPI breakdown already lives
+        on each branch's own dashboard and repeating all of them here would just
+        be the same chart three times over.
+        """
+        team = self.team()
+        branches = KpiBranch.objects.filter(team=team, is_active=True)
+
+        cards = []
+        everything = []
+
+        for branch in branches:
+            rows = self.scorecard_rows(team, branch)
+            everything += rows
+
+            # A branch's headline number is the mean attainment of its SCORED
+            # KPIs. 'No Target' and 'No Data' KPIs have nothing to average, so
+            # they are left out rather than dragged in as zero, which would
+            # report an unmeasured branch as a failing one.
+            scored = [r['attainment'] for r in rows if r['attainment'] is not None]
+            average = round(sum(scored) / len(scored), 1) if scored else None
+            status = 'monitored' if average is None else scoring.status(average)
+
+            cards.append({
+                'slug': branch.slug,
+                'name': branch.name,
+                'url': self.url('index', branch=branch),
+                'kpi_count': len(rows),
+                'scored_count': len(scored),
+                'on_track_count': sum(1 for r in rows if r['status'] == 'on_track'),
+                'at_risk_count': sum(1 for r in rows if r['status'] == 'at_risk'),
+                'below_count': sum(1 for r in rows if r['status'] == 'below'),
+                'monitored_count': sum(1 for r in rows if r['status'] == 'monitored'),
+                'no_data_count': sum(1 for r in rows if r['status'] == 'no_data'),
+                'attainment': average,
+                'bar_pct': 0 if average is None else min(int(average), 100),
+                'status': status,
+                'status_label': (
+                    'No Data' if average is None
+                    else KpiRecord.Status(status).label
+                ),
+            })
+
+        def count(status):
+            return sum(1 for r in everything if r['status'] == status)
+
+        today = timezone.localdate()
+
+        return render(request, 'kpi/branch_overview.html', {
+            'scope': self.scope,
+            'branches': cards,
+            'branch_count': len(cards),
+            'manage_url': None,
+            # Tiles tally every KPI across every branch, not just scored ones.
+            'kpi_count': len(everything),
+            'on_track_count': count('on_track'),
+            'at_risk_count': count('at_risk'),
+            'below_count': count('below'),
+            'monitored_count': count('monitored'),
+            'no_data_count': count('no_data'),
+            'period': f'{today:%B %Y}',
+            'chart_data': [
+                {
+                    'name': card['name'],
+                    'attainment': card['attainment'],
+                    'status': card['status'],
+                    'actual_display': (
+                        f'{card["on_track_count"]} of {card["scored_count"]} KPIs on target'
+                    ),
+                    'target_display': '100%',
+                    'period': '',
+                }
+                for card in cards
+                if card['attainment'] is not None
+            ],
+        })
+
     # --- CSV template ------------------------------------------------------
 
-    def _template(self, request, slug):
+    def _template(self, request, slug, branch=None):
         """Download one KPI's CSV template, built from its own inputs (§D)."""
+        team = self.team()
+        branch = self.branch_or_404(team, branch) if branch else None
         kpi = get_object_or_404(
-            KpiDefinition, team__slug=self.team_slug, slug=slug, is_active=True
+            KpiDefinition, team=team, branch=branch, slug=slug, is_active=True
         )
 
         response = HttpResponse(

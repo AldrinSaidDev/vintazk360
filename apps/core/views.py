@@ -1,54 +1,127 @@
+"""Shared, non-LOB screens: the activity log and account settings."""
+
+import datetime as dt
+
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
-# Static placeholder rows — same directive as the KPI screens: no DB yet. When an
-# audit-log model lands, only this list is replaced; the template already loops.
-# status ∈ success | warning | failed  → drives the pill color (status tokens).
-_LOG_ENTRIES = [
-    {'timestamp': 'Jul 28, 2026 · 09:41 AM', 'user': 'admin', 'role': 'Super Admin',
-     'action': 'Imported Excel file', 'module': 'Operations',
-     'details': 'BPAO_Scorecard_July2026.xlsx — 128 records', 'status': 'success'},
-    {'timestamp': 'Jul 28, 2026 · 09:02 AM', 'user': '2026-01-439', 'role': 'Manager',
-     'action': 'Added performance record', 'module': 'Operations',
-     'details': 'CSAT — 92.4% vs target 90%', 'status': 'success'},
-    {'timestamp': 'Jul 27, 2026 · 04:47 PM', 'user': 'demo_manager', 'role': 'Manager',
-     'action': 'Updated KPI target', 'module': 'Operations',
-     'details': 'Attrition threshold 5% → 4.5%', 'status': 'warning'},
-    {'timestamp': 'Jul 27, 2026 · 02:15 PM', 'user': 'demo_admin', 'role': 'Admin',
-     'action': 'Changed user role', 'module': 'Access Control',
-     'details': 'demo_sales → Manager', 'status': 'success'},
-    {'timestamp': 'Jul 27, 2026 · 11:38 AM', 'user': 'demo_sales', 'role': 'User',
-     'action': 'Import failed', 'module': 'Sales',
-     'details': 'Unrecognized column "Rev Target Q3"', 'status': 'failed'},
-    {'timestamp': 'Jul 27, 2026 · 08:05 AM', 'user': 'demo_hr', 'role': 'User',
-     'action': 'Signed in', 'module': 'Authentication',
-     'details': 'Session started', 'status': 'success'},
-    {'timestamp': 'Jul 26, 2026 · 05:20 PM', 'user': 'admin', 'role': 'Super Admin',
-     'action': 'Deleted KPI record', 'module': 'Finance',
-     'details': 'Billable Hours — June 2026', 'status': 'warning'},
-    {'timestamp': 'Jul 26, 2026 · 01:11 PM', 'user': 'demo_academy', 'role': 'User',
-     'action': 'Failed sign-in attempt', 'module': 'Authentication',
-     'details': 'Incorrect password (3rd attempt)', 'status': 'failed'},
-]
+from . import activity
+from .access import accessible_teams
+from .models import AuditLog
 
-# Filter dropdown options. Static for now; these become distinct values off the
-# log table once it exists.
-_LOG_MODULES = ['Operations', 'Sales', 'HR', 'Finance', 'Access Control', 'Authentication']
-_LOG_ACTIONS = ['Import', 'Record change', 'Target change', 'Access change', 'Sign-in']
+# Rows per page on the Logs table.
+PAGE_SIZE = 20
+
+# The table's own id, so a pager link lands on the table rather than the top of
+# the page. See the note on `anchor` in partials/pagination.html.
+_TABLE_ANCHOR = 'activity-log'
+
+
+def _query_without_page(request):
+    params = request.GET.copy()
+    params.pop('page', None)
+    return params.urlencode()
+
+
+def _params_without_page(request):
+    return [
+        {'key': key, 'value': value}
+        for key, values in request.GET.lists()
+        if key != 'page'
+        for value in values
+        if value
+    ]
 
 
 @login_required
 def logs(request):
-    """Activity log (static placeholder — controls are inert until it's DB-backed)."""
+    """The activity log, read from `audit_log`.
+
+    Scoped by `activity.visible_to`: an admin sees everything, everyone else
+    sees their teams' entries plus their own. Filters are plain GET, so a
+    filtered view is a URL somebody can send to somebody else.
+    """
+    entries = activity.visible_to(request.user)
+
+    search = request.GET.get('q', '').strip()
+    chosen_modules = [m for m in request.GET.getlist('module') if m]
+    chosen_actions = [a for a in request.GET.getlist('action') if a]
+    on_date = request.GET.get('date', '').strip()
+
+    if search:
+        entries = entries.filter(
+            Q(user__username__icontains=search)
+            | Q(entity_name__icontains=search)
+            | Q(entity_type__icontains=search)
+        )
+    if chosen_actions:
+        entries = entries.filter(action__in=chosen_actions)
+    if chosen_modules:
+        # "Authentication" and the other system modules are not teams, so the
+        # module filter is two filters wearing one coat: team names match a
+        # team, the rest match the actions that produce them.
+        team_names = [m for m in chosen_modules if m not in activity.SYSTEM_MODULE_NAMES]
+        system = [m for m in chosen_modules if m in activity.SYSTEM_MODULE_NAMES]
+        condition = Q()
+        if team_names:
+            condition |= Q(team__name__in=team_names)
+        if system:
+            condition |= Q(action__in=activity.actions_for_modules(system))
+        entries = entries.filter(condition)
+
+    date_error = ''
+    if on_date:
+        try:
+            # `__date` compares in the project timezone. Handing a plain date to
+            # a DateTimeField would compare a naive value and slide entries
+            # either side of midnight.
+            entries = entries.filter(created_at__date=dt.date.fromisoformat(on_date))
+        except ValueError:
+            date_error = 'That date could not be read. Use the picker.'
+            on_date = ''
+
+    paginator = Paginator(entries, PAGE_SIZE)
+    page = paginator.get_page(request.GET.get('page'))
+    page_numbers = list(
+        paginator.get_elided_page_range(page.number, on_each_side=1, on_ends=1)
+    )
+
+    # Only the modules this user could actually see, so the filter never offers
+    # a team whose entries would all be hidden anyway.
+    modules = activity.module_options(request.user, chosen_modules)
+
     return render(request, 'core/logs.html', {
         'title': 'Logs',
-        'entries': _LOG_ENTRIES,
-        'modules': _LOG_MODULES,
-        'actions': _LOG_ACTIONS,
+        'entries': activity.rows(page.object_list),
+        'entry_count': paginator.count,
+        'page_obj': page,
+        'page_numbers': page_numbers,
+        'anchor': _TABLE_ANCHOR,
+        'search': search,
+        'date': on_date,
+        'date_error': date_error,
+        'module_options': modules,
+        'action_options': [
+            {'value': value, 'label': label, 'checked': value in chosen_actions}
+            for value, label in AuditLog.Action.choices
+        ],
+        'active_filter_count': (
+            len(chosen_modules) + len(chosen_actions) + (1 if on_date else 0)
+        ),
+        'has_any_filter': bool(search or chosen_modules or chosen_actions or on_date),
+        'clear_url': reverse('core:logs'),
+        'page_query': _query_without_page(request),
+        'page_params': _params_without_page(request),
+        # Says whose log this is, since a manager and an admin see the same page
+        # with very different contents.
+        'is_scoped': not activity.sees_everything(request.user),
+        'scoped_teams': accessible_teams(request.user) if not activity.sees_everything(request.user) else None,
     })
 
 
@@ -63,14 +136,16 @@ _INPUT_CLASSES = (
     'focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20'
 )
 
+# Entries shown on the Activity tab. It is a recent-history panel, not the log.
+MY_ACTIVITY_LIMIT = 20
+
 
 @login_required
 def account_settings(request):
     """Account settings: profile details, password change, and own activity.
 
-    Unlike the KPI screens this one is real — the password form is Django's
-    ``PasswordChangeForm`` and actually changes the password. Only the Activity
-    tab is placeholder, since it reads the same static log list as /logs/.
+    The password form is Django's ``PasswordChangeForm`` and really changes the
+    password; the Activity tab is this account's own slice of `audit_log`.
     """
     tab = request.GET.get('tab', 'profile')
     if tab not in _SETTINGS_TABS:
@@ -93,7 +168,6 @@ def account_settings(request):
         field.widget.attrs['class'] = _INPUT_CLASSES
 
     profile = getattr(request.user, 'profile', None)
-    username = request.user.get_username()
 
     return render(request, 'core/settings.html', {
         'title': 'Settings',
@@ -101,6 +175,12 @@ def account_settings(request):
         'form': form,
         'profile': profile,
         'teams': profile.teams.all() if profile else [],
-        # This account's slice of the activity log (same static source as /logs/).
-        'my_entries': [e for e in _LOG_ENTRIES if e['user'] == username],
+        # This account's own entries, newest first. `visible_to` is not needed:
+        # your own actions are yours to read.
+        'my_entries': activity.rows(
+            AuditLog.objects.filter(user=request.user)
+            .select_related('user', 'team', 'user__profile')[:MY_ACTIVITY_LIMIT]
+        ),
+        'my_activity_limit': MY_ACTIVITY_LIMIT,
+        'logs_url': reverse('core:logs'),
     })

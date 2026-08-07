@@ -166,6 +166,18 @@ def unit_suffix(kind, spec):
     return f' {unit}' if unit[0].isalnum() else unit
 
 
+# Decimal places per display format. A peso amount reading "₱1,180.0" and a
+# lead count reading "58.0" both look like a bug, so neither gets one.
+PRECISION = {
+    DisplayFormat.PERCENT: 1,
+    DisplayFormat.NUMBER: 1,
+    DisplayFormat.RATIO: 1,
+    DisplayFormat.DAYS: 1,
+    DisplayFormat.CURRENCY: 0,
+    DisplayFormat.INTEGER: 0,
+}
+
+
 def _decimal(value):
     return None if value is None else Decimal(str(value))
 
@@ -177,11 +189,15 @@ def target_band(kpi):
     return _decimal(kpi.get('target_min')), _decimal(kpi.get('target_max'))
 
 
-def unique_slug(team, name):
-    """A slug stable enough to bind a downloaded CSV to."""
+def unique_slug(team, name, branch=None):
+    """A slug stable enough to bind a downloaded CSV to.
+
+    Unique per (team, branch), which is what the DB constraint says: two Sales
+    branches may each own a "Qualified Leads Generated".
+    """
     base = slugify(name)[:110] or 'kpi'
     candidate, counter = base, 2
-    existing = KpiDefinition.objects.filter(team=team, branch=None)
+    existing = KpiDefinition.objects.filter(team=team, branch=branch)
     while existing.filter(slug=candidate).exists():
         candidate = f'{base}-{counter}'
         counter += 1
@@ -189,7 +205,7 @@ def unique_slug(team, name):
 
 
 @transaction.atomic
-def seed_kpi(team, kpi, spec, *, sort_order=0, user=None):
+def seed_kpi(team, kpi, spec, *, branch=None, sort_order=0, user=None):
     """Create one `KpiDefinition` with its inputs and seed formula history.
 
     Returns the definition. The caller decides whether to skip an existing slug;
@@ -219,9 +235,10 @@ def seed_kpi(team, kpi, spec, *, sort_order=0, user=None):
 
     definition = KpiDefinition.objects.create(
         team=team,
+        branch=branch,
         category=category,
         name=kpi['name'],
-        slug=unique_slug(team, kpi['name']),
+        slug=unique_slug(team, kpi['name'], branch),
         description=kpi.get('description', ''),
         expression=expression,
         score_expression=score_expression,
@@ -233,7 +250,7 @@ def seed_kpi(team, kpi, spec, *, sort_order=0, user=None):
         target_display=kpi.get('target_display', ''),
         display_format=KINDS[kind]['format'],
         unit=unit_suffix(kind, spec),
-        precision=1,
+        precision=PRECISION[KINDS[kind]['format']],
         accumulation=Accumulation.PERIOD,
         sort_order=sort_order,
         created_by=user,

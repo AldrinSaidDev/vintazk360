@@ -186,8 +186,8 @@
                     <tbody class="divide-y divide-slate-100">
                         {% for entry in my_entries %}
                         <tr class="transition hover:bg-slate-50/60">
-                            <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ entry.timestamp }}</td>
-                            <td class="px-4 py-3">{{ entry.action }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ entry.timestamp|date:"M j, Y · g:i A" }}</td>
+                            <td class="whitespace-nowrap px-4 py-3">{{ entry.action }}</td>
                             <td class="px-4 py-3">
                                 <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">{{ entry.module }}</span>
                             </td>
@@ -212,11 +212,18 @@
                             </td>
                         </tr>
                         {% empty %}
-                        <tr><td class="px-4 py-8 text-center text-slate-300" colspan="5">No activity recorded for this account yet.</td></tr>
+                        <tr><td class="px-4 py-8 text-center text-sm text-slate-400" colspan="5">No activity recorded for this account yet.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+
+            {% if my_entries %}
+            <p class="mt-4 text-xs text-slate-400">
+                Your {{ my_entries|length }} most recent action{{ my_entries|length|pluralize }}, newest first.
+                <a href="{{ logs_url }}" class="font-semibold text-brand hover:underline">See the full log</a>.
+            </p>
+            {% endif %}
         </div>
         {% endif %}
     </section>

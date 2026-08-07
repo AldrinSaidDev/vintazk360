@@ -167,11 +167,17 @@ class BaseKpiForm(forms.ModelForm):
         required=False, widget=forms.HiddenInput(), label="Inputs"
     )
 
-    def __init__(self, *args, team=None, **kwargs):
+    def __init__(self, *args, team=None, branch=None, **kwargs):
         super().__init__(*args, **kwargs)
         if team is None and self.instance.pk:
             team = self.instance.team
+        # A branch KPI belongs to the branch it was authored on. Falling back to
+        # the instance matters on edit: the branch is not a form field, so
+        # without this a saved KPI would quietly become team-level.
+        if branch is None and self.instance.pk:
+            branch = self.instance.branch
         self.team = team
+        self.branch = branch
 
         # Without this scoping an Operations manager could file a KPI under an
         # HR category.
@@ -350,7 +356,7 @@ class CreateKpiForm(BaseKpiForm):
         """
         base = slugify(name)[:110] or "kpi"
         candidate, counter = base, 2
-        existing = KpiDefinition.objects.filter(team=self.team, branch=None)
+        existing = KpiDefinition.objects.filter(team=self.team, branch=self.branch)
         while existing.filter(slug=candidate).exists():
             candidate = f"{base}-{counter}"
             counter += 1
@@ -363,6 +369,7 @@ class CreateKpiForm(BaseKpiForm):
         kpi = super().save(commit=False)
 
         kpi.team = self.team
+        kpi.branch = self.branch
         kpi.slug = self._unique_slug(kpi.name)
         kpi.created_by = user if user and user.is_authenticated else None
         kpi.template_version = 1
@@ -650,11 +657,12 @@ class AddRecordForm(forms.Form):
         ),
     )
 
-    def __init__(self, *args, team=None, **kwargs):
+    def __init__(self, *args, team=None, branch=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.team = team
+        self.branch = branch
         self.fields["kpi"].queryset = (
-            KpiDefinition.objects.filter(team=team, is_active=True)
+            KpiDefinition.objects.filter(team=team, branch=branch, is_active=True)
             .prefetch_related("inputs")
             .order_by("sort_order", "name")
         )
