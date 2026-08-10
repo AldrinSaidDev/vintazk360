@@ -14,7 +14,10 @@ from apps.kpi.screens import KpiScreens
 
 from .branches import SCOPE
 
-screens = KpiScreens(team_slug='sales', namespace='sales', scope=SCOPE, branched=True)
+screens = KpiScreens(
+    team_slug='sales', namespace='sales', scope=SCOPE, branched=True,
+    workbook_template=True,
+)
 
 index = screens.overview                        # team rollup across all branches
 
@@ -23,3 +26,6 @@ branch_kpis = screens.definitions
 branch_import_data = screens.import_data
 branch_kpi_management = screens.management
 branch_kpi_template = screens.template
+# One workbook per BRANCH, not per team: a KPI belongs to a branch, and the
+# four screens are branch-scoped, so the download follows the screen it sits on.
+branch_kpi_workbook = screens.workbook

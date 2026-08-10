@@ -448,6 +448,22 @@ class KpiScreens:
         else:
             messages.success(request, f'{summary}.{repeat}')
 
+    def _back_to_records(self, request):
+        """Return to the records view the change was made from, filters intact.
+
+        The forms carry no `action`, so they post to the current URL, query
+        string included, and `request.GET` still holds whatever search and
+        filters were applied. Redirecting to a bare `request.path` would reset
+        them underneath the user. The anchor is mandatory for the same reason
+        as `_back_to_page()`: a browser reattaches the request's own fragment
+        to a Location that has none (RFC 7231 §7.1.2), which would reopen the
+        modal that was just submitted.
+        """
+        query = request.GET.urlencode()
+        return (
+            f'{request.path}{"?" + query if query else ""}#{RECORDS_ANCHOR}'
+        )
+
     def _import_data(self, request, branch=None):
         """Import Data: manual entry and CSV upload both write records."""
         team = self.team()
@@ -498,7 +514,7 @@ class KpiScreens:
                             },
                         )
                         self._report_import(request, result)
-                        return redirect(f'{request.path}#{RECORDS_ANCHOR}')
+                        return redirect(self._back_to_records(request))
                 else:
                     open_import_modal = True
 
@@ -532,15 +548,61 @@ class KpiScreens:
                         f'{"recorded" if created else "updated"}: '
                         f'{record.value_display} ({record.get_status_display()}).',
                     )
-                    return redirect(f'{request.path}#{RECORDS_ANCHOR}')
+                    return redirect(self._back_to_records(request))
 
                 open_add_modal = True
+
+        # Every category the team HAS, not just the ones currently in use, so
+        # the filter still offers a category whose last KPI was deleted.
+        categories = sorted(
+            KpiCategory.objects.filter(team=team).values_list('name', flat=True)
+        )
+
+        # Every KPI a row in this table could belong to. NOT just the live ones:
+        # a soft-deleted KPI keeps its records and they still list here, so
+        # filtering to one has to stay possible. Deleted ones say so, or the
+        # list reads as if the KPI were back.
+        kpi_options_qs = (
+            KpiDefinition.objects.filter(team=team, branch=branch)
+            .filter(Q(is_active=True) | Q(records__isnull=False))
+            .distinct()
+            .order_by('sort_order', 'name')
+        )
+
+        # Search and filters, the same one-GET-form shape as KPI Management:
+        # two controls in one form, so applying a filter cannot wipe the search.
+        search = request.GET.get('q', '').strip()
+        chosen_kpis = [k for k in request.GET.getlist('kpi') if k]
+        chosen_categories = [c for c in request.GET.getlist('category') if c]
+        chosen_statuses = [s for s in request.GET.getlist('status') if s]
+        chosen_sources = [s for s in request.GET.getlist('source') if s]
 
         records_qs = (
             KpiRecord.objects.filter(kpi__team=team, kpi__branch=branch)
             .select_related('kpi', 'kpi__category')
             .order_by('-period_start', 'kpi__sort_order')
         )
+        if search:
+            # The KPI's name and the row's own remarks: the two free-text
+            # things in this table. Everything else is a facet below.
+            records_qs = records_qs.filter(
+                Q(kpi__name__icontains=search) | Q(remarks__icontains=search)
+            )
+        if chosen_kpis:
+            # By slug, not pk: it survives in a bookmarked or shared URL and is
+            # the same handle the CSV header and the management screen use.
+            records_qs = records_qs.filter(kpi__slug__in=chosen_kpis)
+        if chosen_categories:
+            records_qs = records_qs.filter(kpi__category__name__in=chosen_categories)
+        if chosen_statuses:
+            # The STORED status, which is what this table prints. The dashboard
+            # recomputes instead, because a card must not show a verdict from a
+            # target that has since moved; here the filter and the badge have to
+            # agree, so both read the same column.
+            records_qs = records_qs.filter(status__in=chosen_statuses)
+        if chosen_sources:
+            records_qs = records_qs.filter(source__in=chosen_sources)
+
         paginator = Paginator(records_qs, RECORDS_PAGE_SIZE)
         page = paginator.get_page(request.GET.get('page'))
         # Records accumulate every period, so the page list is elided rather
@@ -564,11 +626,47 @@ class KpiScreens:
             'open_add_modal': open_add_modal,
             'open_import_modal': open_import_modal,
             'records': self.record_rows(page.object_list),
+            # What the filters MATCHED. The Total Records stat card above keeps
+            # counting every record, filtered or not.
             'record_count': paginator.count,
             'page_obj': page,
             'page_numbers': page_numbers,
             'extra_query': _query_without_page(request),
             'extra_params': _params_without_page(request),
+            # Each option carries its own checked flag, so the template holds
+            # no lookup logic.
+            'kpi_options': [
+                {
+                    'value': kpi.slug,
+                    'label': kpi.name if kpi.is_active else f'{kpi.name} (deleted)',
+                    'checked': kpi.slug in chosen_kpis,
+                }
+                for kpi in kpi_options_qs
+            ],
+            'category_options': [
+                {'value': name, 'label': name, 'checked': name in chosen_categories}
+                for name in categories
+            ],
+            'status_options': [
+                {'value': value, 'label': label, 'checked': value in chosen_statuses}
+                for value, label in KpiRecord.Status.choices
+            ],
+            'source_options': [
+                {'value': value, 'label': label, 'checked': value in chosen_sources}
+                for value, label in KpiRecord.Source.choices
+            ],
+            'search': search,
+            # Drives the button's active styling and its count badge. Search is
+            # excluded: it has its own visible box.
+            'active_filter_count': (
+                len(chosen_kpis) + len(chosen_categories)
+                + len(chosen_statuses) + len(chosen_sources)
+            ),
+            'has_any_filter': bool(
+                search or chosen_kpis or chosen_categories
+                or chosen_statuses or chosen_sources
+            ),
+            'clear_url': self.url('import_data', branch=branch),
             'imports': self.import_rows(batches),
             # The Add-Record modal renders one field group per KPI; only the
             # selected one is enabled, so only its operands are submitted.

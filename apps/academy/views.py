@@ -10,10 +10,13 @@ from apps.kpi.screens import KpiScreens
 
 from .kpis import SCOPE
 
-screens = KpiScreens(team_slug='academy', namespace='academy', scope=SCOPE)
+screens = KpiScreens(
+    team_slug='academy', namespace='academy', scope=SCOPE, workbook_template=True,
+)
 
 index = screens.dashboard                 # team dashboard (KPI scorecard)
 kpi_reference = screens.definitions       # KPI definitions reference
 import_data = screens.import_data         # manual entry + CSV import
 kpi_management = screens.management       # create / edit / soft-delete
-kpi_template = screens.template           # per-KPI CSV template download
+kpi_template = screens.template           # per-KPI CSV (kept: existing links)
+kpi_workbook = screens.workbook           # ONE .xlsx for the whole team
