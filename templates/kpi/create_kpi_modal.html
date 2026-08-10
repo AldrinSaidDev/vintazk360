@@ -54,13 +54,20 @@
                     </div>
 
                     <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
-                            Description
-                        </label>
-                        {{ form.description }}
-                        {% include "partials/field_errors.html" with field=form.description %}
-                    </div>
+                        <div class="mb-1.5 flex items-center justify-between">
+                            <label class="text-sm font-medium text-slate-700">
+                                Description
+                            </label>
+                            <span
+                                class="text-xs text-slate-400"
+                                data-char-count="{{ form.description.id_for_label }}"
+                            ></span>
+                            </div>
 
+                            {{ form.description }}
+
+                            {% include "partials/field_errors.html" with field=form.description %}
+                        </div>
                     <div>
                         {% include "partials/category_picker.html" with form=form %}
                     </div>

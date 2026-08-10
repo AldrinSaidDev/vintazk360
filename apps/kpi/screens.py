@@ -759,7 +759,7 @@ class KpiScreens:
                 ),
                 'form': (
                     edit_forms.get(kpi.slug)
-                    or EditKpiForm(instance=kpi, team=team, branch=branch)
+                    or EditKpiForm(instance=kpi, team=team, branch=branch, prefix=kpi.slug)
                 ),
             }
             for kpi in kpis
@@ -795,7 +795,7 @@ class KpiScreens:
         open_create_modal = False
         open_edit_slug = None
 
-        form = CreateKpiForm(team=team, branch=branch)
+        form = CreateKpiForm(team=team, branch=branch, prefix='create')
         edit_forms = {}
 
         if request.method == 'POST':
@@ -839,7 +839,7 @@ class KpiScreens:
                     is_active=True,
                 )
                 edit_form = EditKpiForm(
-                    request.POST, instance=kpi, team=team, branch=branch
+                    request.POST, instance=kpi, team=team, branch=branch, prefix=kpi.slug
                 )
 
                 if edit_form.is_valid():
@@ -893,7 +893,7 @@ class KpiScreens:
                 open_edit_slug = kpi.slug
 
             else:
-                form = CreateKpiForm(request.POST, team=team, branch=branch)
+                form = CreateKpiForm(request.POST, team=team, branch=branch, prefix='create')
 
                 if form.is_valid():
                     kpi = form.save(user=request.user)

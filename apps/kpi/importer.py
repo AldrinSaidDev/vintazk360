@@ -34,6 +34,8 @@ from django.utils import timezone
 
 from . import periods, records, workbook
 from .models import (
+    REMARKS_MAX_LENGTH,
+    DESCRIPTION_MAX_LENGTH,
     Aggregation,
     KpiDefinition,
     KpiImportBatch,
@@ -43,6 +45,34 @@ from .models import (
 
 HEADER_LINES = 3
 MAX_BYTES = 5 * 1024 * 1024
+
+
+def _remarks_error(text):
+    """The message for an over-long note, or None when it fits.
+
+    An over-long remark is a bad cell like any other, so the row is skipped and
+    the issue names it. Quietly trimming what someone wrote would be worse: the
+    upload would report success and the note would come back shorter.
+    """
+    if len(text) <= REMARKS_MAX_LENGTH:
+        return None
+    return (
+        f'Remarks: {len(text)} characters is over the '
+        f'{REMARKS_MAX_LENGTH} character limit. Shorten the note, then upload again.'
+    )
+
+
+def _join_remarks(parts):
+    """One period's notes as a single string, capped at the stored length.
+
+    Every part already fits on its own, but several rows collapsing into one
+    period can still add up past the limit. Returns `(text, truncated)` so the
+    caller can say so rather than shortening it silently.
+    """
+    joined = ' · '.join(parts)
+    if len(joined) <= REMARKS_MAX_LENGTH:
+        return joined, False
+    return joined[:REMARKS_MAX_LENGTH], True
 
 # team/slug, or team/branch/slug for a branch KPI (see csv_template.scope_path).
 _KPI_HEADER = re.compile(r'kpi\s*=\s*([\w-]+)/(?:([\w-]+)/)?([\w-]+)', re.IGNORECASE)
@@ -283,11 +313,17 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
             )
             continue
 
+        remarks = (row.get('remarks') or '').strip()
+        too_long = _remarks_error(remarks)
+        if too_long:
+            result.issues.append(Issue(line_number, too_long, 'remarks', remarks[:255]))
+            continue
+
         bucket = buckets.setdefault(period_start, {'rows': [], 'lines': [], 'remarks': []})
         bucket['rows'].append(values)
         bucket['lines'].append(line_number)
-        if (row.get('remarks') or '').strip():
-            bucket['remarks'].append(row['remarks'].strip())
+        if remarks:
+            bucket['remarks'].append(remarks)
 
     if not buckets and not result.issues:
         raise ImportError_('That file has no data rows to import.')
@@ -319,6 +355,16 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
 
     for period_start in sorted(buckets):
         bucket = buckets[period_start]
+        remarks, shortened = _join_remarks(bucket['remarks'])
+        if shortened:
+            result.issues.append(Issue(
+                bucket['lines'][0],
+                f'Remarks: the notes on {len(bucket["remarks"])} rows for this '
+                f'period were shortened to {REMARKS_MAX_LENGTH} characters. '
+                'The figures were imported.',
+                'remarks',
+                severity=KpiImportIssue.Severity.WARNING,
+            ))
         try:
             collapsed = {
                 kpi_input.key: aggregate(
@@ -333,7 +379,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
                 source=KpiRecord.Source.IMPORT,
                 user=user,
                 batch=batch,
-                remarks=' · '.join(bucket['remarks'])[:2000],
+                remarks=remarks,
             )
         except records.RecordError as error:
             result.issues.append(
@@ -486,11 +532,17 @@ def _collect(kpi, rows, result, label=''):
                  (row.get(error.field) or '') if error.field else '')
             continue
 
+        remarks = (row.get('remarks') or '').strip()
+        too_long = _remarks_error(remarks)
+        if too_long:
+            note(line_number, too_long, 'remarks', remarks[:255])
+            continue
+
         bucket = buckets.setdefault(period_start, {'rows': [], 'lines': [], 'remarks': []})
         bucket['rows'].append(values)
         bucket['lines'].append(line_number)
-        if (row.get('remarks') or '').strip():
-            bucket['remarks'].append(row['remarks'].strip())
+        if remarks:
+            bucket['remarks'].append(remarks)
 
     return buckets, filled
 
@@ -501,6 +553,19 @@ def _apply(kpi, buckets, batch, result, user, label=''):
 
     for period_start in sorted(buckets):
         bucket = buckets[period_start]
+        remarks, shortened = _join_remarks(bucket['remarks'])
+        if shortened:
+            message = (
+                f'Remarks: the notes on {len(bucket["remarks"])} rows for this '
+                f'period were shortened to {REMARKS_MAX_LENGTH} characters. '
+                'The figures were imported.'
+            )
+            result.issues.append(Issue(
+                bucket['lines'][0],
+                f'{label}{message}' if label else message,
+                'remarks',
+                severity=KpiImportIssue.Severity.WARNING,
+            ))
         try:
             collapsed = {
                 kpi_input.key: aggregate(
@@ -515,7 +580,7 @@ def _apply(kpi, buckets, batch, result, user, label=''):
                 source=KpiRecord.Source.IMPORT,
                 user=user,
                 batch=batch,
-                remarks=' · '.join(bucket['remarks'])[:2000],
+                remarks=remarks,
             )
         except records.RecordError as error:
             result.issues.append(

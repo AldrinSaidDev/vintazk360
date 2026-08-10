@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load icons %}
+{% load icons static %}
 
 {% block title %}Import Data · {{ scope.title }} · Vintazk 360{% endblock %}
 {% block page_title %}Import Data{% endblock %}
@@ -352,11 +352,13 @@
                     </div>
 
                     <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                        <div class="mb-1.5 flex items-baseline justify-between gap-2">
+                            <label class="block text-sm font-medium text-slate-700">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                            <span class="text-xs text-slate-400" data-char-count="id_remarks"></span>
+                        </div>
                         {{ add_form.remarks }}
                         {% include "partials/field_errors.html" with field=add_form.remarks %}
                     </div>
-
                 </div>
             </div>
 
@@ -469,15 +471,9 @@
         </div>
 
         <div class="border-t border-slate-100 bg-slate-50/60 px-6 py-4">
-            {# The arming timer. The bar and the countdown are driven by ONE clock in the page script, which is also what enables the button, so the number can never say 0 while the button is still locked. #}
+            {# The arming hint. The ring on the button, the count in its label and the disabled state are all driven by ONE clock in the page script, so the number can never read 0 while the button is still locked. #}
             <div data-delete-timer class="mb-3 hidden" data-delete-seconds="5">
-                <div class="mb-1.5 flex items-center justify-between text-xs text-slate-500">
-                    <span>Check the period and value above.</span>
-                    <span class="font-medium tabular-nums text-slate-600" data-delete-countdown>5s</span>
-                </div>
-                <div class="h-1 w-full overflow-hidden rounded-full bg-slate-200">
-                    <div class="h-full w-full rounded-full bg-status-bad" data-delete-bar></div>
-                </div>
+                <p class="text-xs text-slate-500">Check the period and value above.</p>
             </div>
 
             <div class="flex items-center justify-end gap-3">
@@ -486,11 +482,20 @@
                     {% csrf_token %}
                     <input type="hidden" name="_action" value="delete-record">
                     <input type="hidden" name="_record" value="{{ record.pk }}">
-                    {# Rendered ENABLED: if the page script never runs, the guard is lost but the button still works. A dead button would be worse than an unguarded one. #}
-                    <button type="submit" data-delete-confirm
-                            class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
-                        {% icon 'trash-o' %} Delete record
-                    </button>
+                    {# The countdown IS the button's border: an SVG outline tracing the perimeter, erased by the same clock that unlocks the button. pathLength="100" normalises the perimeter to 100 units, so the dash values are straight percentages and the sweep runs at an even speed around the rounded corners instead of racing them. It starts as "0 100" (nothing drawn) because the ring only exists while the timer runs. Colour matches the disabled button fill, so the ring reads as part of the muted button rather than a red alarm. #}
+                    <span class="relative inline-flex text-slate-300">
+                        <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+                            <rect x="0" y="0" width="100%" height="100%" rx="8" ry="8"
+                                  fill="none" stroke="currentColor" stroke-width="2"
+                                  pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0"
+                                  data-delete-ring></rect>
+                        </svg>
+                        {# Rendered ENABLED: if the page script never runs, the guard is lost but the button still works. A dead button would be worse than an unguarded one. #}
+                        <button type="submit" data-delete-confirm
+                                class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
+                            {% icon 'trash-o' %} Delete record{# The count sits at the END of the label so it only ever changes the button's left edge. The button is right-aligned in this row, so the edge under the pointer stays put when the number goes. #}<span class="tabular-nums" data-delete-countdown></span>
+                        </button>
+                    </span>
                 </form>
             </div>
         </div>
@@ -500,6 +505,10 @@
 {% endblock %}
 
 {% block scripts %}
+{# Arms the delete confirm on a 5s timer. Shared with KPI Management, so both screens agree on how long the wait is and when the button goes live. #}
+<script src="{% static 'js/confirm-timer.js' %}" defer></script>
+{# Live character counter for the remarks field. #}
+<script src="{% static 'js/char-counter.js' %}" defer></script>
 <script>
 (function () {
     "use strict";
@@ -532,74 +541,6 @@
 
         select.addEventListener("change", show);
         show();
-    }
-
-    // --- Delete record: arm the confirm button on a timer -------------------
-    // ONE clock, the same principle as the toast countdown: this loop drives
-    // the bar, the number AND the disabled state off a single timestamp, so
-    // the countdown can never read 0 while the button is still locked.
-    //
-    // The button is rendered ENABLED, so if this script never runs the guard is
-    // lost but deleting still works. A permanently dead button would be worse.
-    var timers = Array.prototype.slice.call(document.querySelectorAll("[data-delete-timer]"));
-    if (timers.length) {
-        var frame = null;
-
-        function disarm(block) {
-            var modal = block.closest(".modal-overlay");
-            var button = modal && modal.querySelector("[data-delete-confirm]");
-            block.classList.add("hidden");
-            if (button) button.disabled = false;
-        }
-
-        function arm(block) {
-            var modal = block.closest(".modal-overlay");
-            var button = modal.querySelector("[data-delete-confirm]");
-            var bar = block.querySelector("[data-delete-bar]");
-            var label = block.querySelector("[data-delete-countdown]");
-            var total = (parseFloat(block.dataset.deleteSeconds) || 5) * 1000;
-            var start = null;
-
-            button.disabled = true;
-            block.classList.remove("hidden");
-
-            function tick(now) {
-                if (start === null) start = now;
-                var left = Math.max(0, total - (now - start));
-                bar.style.width = (left / total * 100) + "%";
-
-                if (left > 0) {
-                    label.textContent = Math.ceil(left / 1000) + "s";
-                    frame = window.requestAnimationFrame(tick);
-                    return;
-                }
-                // The block STAYS visible once it unlocks. Hiding it would
-                // shrink the footer and move the button up at the exact moment
-                // the user is reaching for it.
-                label.textContent = "Ready";
-                frame = null;
-                button.disabled = false;
-            }
-
-            frame = window.requestAnimationFrame(tick);
-        }
-
-        function sync() {
-            if (frame !== null) {
-                window.cancelAnimationFrame(frame);
-                frame = null;
-            }
-            timers.forEach(disarm);
-
-            // getElementById, not querySelector: a hash is not always a valid
-            // CSS selector.
-            var open = location.hash ? document.getElementById(location.hash.slice(1)) : null;
-            var block = open && open.querySelector("[data-delete-timer]");
-            if (block) arm(block);
-        }
-
-        window.addEventListener("hashchange", sync);
-        sync();
     }
 
     // --- Import: name the chosen file, since the input itself is visually hidden

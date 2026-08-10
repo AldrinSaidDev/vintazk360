@@ -27,6 +27,7 @@ from apps.kpi import formula as formula_engine
 from apps.kpi import importer, periods, records
 from apps.kpi.models import (
     KEY_VALIDATOR,
+    REMARKS_MAX_LENGTH,
     DataType,
     KpiCategory,
     KpiDefinition,
@@ -110,6 +111,7 @@ _SHARED_WIDGETS = {
         attrs={
             "class": TAILWIND_INPUT,
             "rows": 3,
+            'maxlength': 500,
             "placeholder": "Describe what this KPI measures...",
         }
     ),
@@ -648,13 +650,19 @@ class AddRecordForm(forms.Form):
     )
     remarks = forms.CharField(
         required=False,
+        # Server-side limit AND a browser `maxlength`, from the one constant the
+        # model and the importer also read. The attribute is set explicitly
+        # rather than left to Django, so the cap is visible in this file.
+        max_length=REMARKS_MAX_LENGTH,
         widget=forms.Textarea(
             attrs={
                 "class": TAILWIND_INPUT,
                 "rows": 3,
+                "maxlength": REMARKS_MAX_LENGTH,
                 "placeholder": "Add any context for this record…",
             }
         ),
+        help_text=f"Optional. Up to {REMARKS_MAX_LENGTH} characters.",
     )
 
     def __init__(self, *args, team=None, branch=None, **kwargs):

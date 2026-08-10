@@ -245,7 +245,7 @@ class KpiCategory(models.Model):
 # ---------------------------------------------------------------------------
 # 5–6 · The KPI itself, and its operands
 # ---------------------------------------------------------------------------
-
+DESCRIPTION_MAX_LENGTH = 500
 
 class KpiDefinition(models.Model):
     """One team's KPI: what it measures, how it is calculated, what it aims at.
@@ -288,7 +288,7 @@ class KpiDefinition(models.Model):
         max_length=120,
         help_text='Stable — the CSV template binds to this. Renaming breaks old templates.',
     )
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, max_length=DESCRIPTION_MAX_LENGTH)
 
     expression = models.CharField(
         max_length=255,
@@ -449,6 +449,12 @@ class KpiInput(models.Model):
 # 7–8 · The actuals
 # ---------------------------------------------------------------------------
 
+# How long a record's note may be. Defined once and imported by the form, the
+# importer and the field below, so the modal, an uploaded file and the database
+# cannot disagree about what fits. Remarks are context for one figure, not a
+# report: past a few sentences it belongs in the KPI's description.
+REMARKS_MAX_LENGTH = 400
+
 
 class KpiRecord(models.Model):
     """One actual value, for one KPI, for one reporting period.
@@ -510,7 +516,11 @@ class KpiRecord(models.Model):
         related_name='records',
         help_text='Which upload produced this, if any.',
     )
-    remarks = models.TextField(blank=True)
+    remarks = models.TextField(
+        blank=True,
+        max_length=REMARKS_MAX_LENGTH,
+        help_text=f'Context for this figure. Up to {REMARKS_MAX_LENGTH} characters.',
+    )
 
     entered_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

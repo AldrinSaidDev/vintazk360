@@ -303,6 +303,7 @@
 
                     <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-sm font-medium text-slate-700">Description</label>
+                        <span class="text-xs text-slate-400" data-char-count="{{ kpi.form.description.id_for_label }}"></span>
                         {{ kpi.form.description }}
                         {% include "partials/field_errors.html" with field=kpi.form.description %}
                     </div>
@@ -343,17 +344,35 @@
             </div>
         </div>
 
-        <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
-            <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="_action" value="delete">
-                <input type="hidden" name="_slug" value="{{ kpi.slug }}">
-                <input type="hidden" name="_page" value="{{ page_obj.number }}">
-                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95">
-                    {% icon 'trash-o' %} Delete KPI
-                </button>
-            </form>
+        <div class="border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            {# The arming hint. The ring on the button, the count in its label and the disabled state are all driven by ONE clock in static/js/confirm-timer.js. #}
+            <div data-delete-timer class="mb-3 hidden" data-delete-seconds="5">
+                <p class="text-xs text-slate-500">Deleting a KPI also removes it from every scorecard. Check this is the right one.</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-3">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="_action" value="delete">
+                    <input type="hidden" name="_slug" value="{{ kpi.slug }}">
+                    <input type="hidden" name="_page" value="{{ page_obj.number }}">
+                    {# The countdown IS the button's border, drained by the same clock that unlocks it. See templates/kpi/import_data.html for the same block, and confirm-timer.js for the geometry. #}
+                    <span class="relative inline-flex text-slate-300">
+                        <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+                            <rect x="0" y="0" width="100%" height="100%" rx="8" ry="8"
+                                  fill="none" stroke="currentColor" stroke-width="2"
+                                  pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0"
+                                  data-delete-ring></rect>
+                        </svg>
+                        {# Rendered ENABLED: if the script never loads the guard is lost but the button still works. #}
+                        <button type="submit" data-delete-confirm
+                                class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
+                            {% icon 'trash-o' %} Delete KPI<span class="tabular-nums" data-delete-countdown></span>
+                        </button>
+                    </span>
+                </form>
+            </div>
         </div>
     </div>
 </div>
@@ -364,5 +383,9 @@
 {% block scripts %}
 {# One tag for the page: the create modal and every edit modal are separate builders, and the script initialises them all. #}
 <script src="{% static 'js/formula_builder.js' %}" defer></script>
+{# Arms every delete confirm on a 5s timer. Shared with Import Data, so both screens agree on how long the wait is and when the button goes live. #}
+<script src="{% static 'js/confirm-timer.js' %}" defer></script>
+{# Live character counter for description fields. #}
+<script src="{% static 'js/char-counter.js' %}" defer></script>
 {% endblock %}
 

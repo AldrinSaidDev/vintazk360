@@ -29,7 +29,14 @@ from apps.core import kpi as scoring
 
 from . import formula as formula_engine
 from . import periods
-from .models import DataType, Accumulation, DisplayFormat, KpiRecord, KpiRecordInput
+from .models import (
+    REMARKS_MAX_LENGTH,
+    Accumulation,
+    DataType,
+    DisplayFormat,
+    KpiRecord,
+    KpiRecordInput,
+)
 
 
 class RecordError(ValueError):
@@ -204,7 +211,10 @@ def save_record(
             'status': status,
             'source': source,
             'import_batch': batch,
-            'remarks': remarks or '',
+            # Both callers validate the length and report it properly; this is
+            # the backstop that keeps the invariant true whatever calls in,
+            # since Postgres does not enforce a TextField's max_length.
+            'remarks': (remarks or '')[:REMARKS_MAX_LENGTH],
             'entered_by': user if user and user.is_authenticated else None,
             # REVIVE a deleted row rather than leaving the new figure invisible.
             # The unique key is (kpi, period_start) and it counts deleted rows,
