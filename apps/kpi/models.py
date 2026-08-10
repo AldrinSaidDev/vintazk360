@@ -519,6 +519,18 @@ class KpiRecord(models.Model):
         blank=True,
         related_name='kpi_records_entered',
     )
+    # SOFT delete, same as kpi_definition (design principle 7). A figure entered
+    # against the wrong period is the one mistake a re-upload cannot fix: the
+    # upsert key is (kpi, period_start), so a corrected file writes the right
+    # period and leaves the wrong one behind. This is how that row leaves the
+    # table without destroying it or its operands.
+    #
+    # NOTE: the unique constraint on (kpi, period_start) still counts a deleted
+    # row, which is deliberate. Re-entering that period REVIVES this row rather
+    # than failing on the constraint. See records.save_record().
+    is_active = models.BooleanField(
+        default=True, help_text='Cleared when the record is deleted.'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

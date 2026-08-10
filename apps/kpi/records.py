@@ -167,7 +167,9 @@ def save_record(
         # NOTE: inserting an EARLIER period after a later one leaves the later
         # ones stale — they are recomputed only when re-saved.
         previous = (
-            KpiRecord.objects.filter(kpi=kpi, period_start__lt=period_start)
+            KpiRecord.objects.filter(
+                kpi=kpi, period_start__lt=period_start, is_active=True
+            )
             .order_by('-period_start')
             .first()
         )
@@ -204,6 +206,12 @@ def save_record(
             'import_batch': batch,
             'remarks': remarks or '',
             'entered_by': user if user and user.is_authenticated else None,
+            # REVIVE a deleted row rather than leaving the new figure invisible.
+            # The unique key is (kpi, period_start) and it counts deleted rows,
+            # so this update lands on the soft-deleted one. Without this, typing
+            # or uploading that period again would report success and show
+            # nothing, which reads as data loss.
+            'is_active': True,
         },
     )
 

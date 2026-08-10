@@ -142,6 +142,7 @@
                         <th class="px-4 py-3 font-semibold">Period</th>
                         <th class="px-4 py-3 font-semibold">Status</th>
                         <th class="px-4 py-3 font-semibold">Source</th>
+                        <th class="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -172,10 +173,16 @@
                             {% if record.attainment %}<span class="ml-1 text-[11px] text-slate-400">{{ record.attainment }}%</span>{% endif %}
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ record.source }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right">
+                            <a href="#recordDelete-{{ record.pk }}"
+                               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-status-bad hover:text-status-bad">
+                                {% icon 'trash-o' %} Delete
+                            </a>
+                        </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="7" class="px-4 py-12 text-center">
+                        <td colspan="8" class="px-4 py-12 text-center">
                             {% if has_any_filter %}
                             {# "Nothing here" and "nothing matches" are different problems and need different ways out. #}
                             <p class="font-heading text-sm font-bold text-ink">No records match these filters</p>
@@ -426,6 +433,70 @@
         </form>
     </div>
 </div>
+
+{# ============ Delete-record confirms ============ #}
+{# Outside the table: a <div> is not valid inside <tbody>, so these live here and the row links to them by id, same as KPI Management's per-row modals. #}
+{% for record in records %}
+<div id="recordDelete-{{ record.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="px-6 pb-5 pt-6">
+            <div class="flex items-start gap-4">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>
+                <div class="min-w-0">
+                    <h3 class="font-heading text-base font-bold text-ink">Delete this record?</h3>
+                    <p class="mt-1.5 text-sm leading-6 text-slate-500">
+                        Nothing is destroyed. The figure and the numbers behind it are kept, and re-entering this period restores the record.
+                    </p>
+                </div>
+            </div>
+
+            {# What is actually being deleted. A period and a value are the two things worth checking before confirming. #}
+            <dl class="mt-4 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">KPI</dt>
+                    <dd class="min-w-0 truncate font-medium text-ink">{{ record.kpi }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Period</dt>
+                    <dd class="font-medium text-ink">{{ record.period }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Value</dt>
+                    <dd class="font-heading font-bold text-ink">{{ record.actual }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            {# The arming timer. The bar and the countdown are driven by ONE clock in the page script, which is also what enables the button, so the number can never say 0 while the button is still locked. #}
+            <div data-delete-timer class="mb-3 hidden" data-delete-seconds="5">
+                <div class="mb-1.5 flex items-center justify-between text-xs text-slate-500">
+                    <span>Check the period and value above.</span>
+                    <span class="font-medium tabular-nums text-slate-600" data-delete-countdown>5s</span>
+                </div>
+                <div class="h-1 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div class="h-full w-full rounded-full bg-status-bad" data-delete-bar></div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="_action" value="delete-record">
+                    <input type="hidden" name="_record" value="{{ record.pk }}">
+                    {# Rendered ENABLED: if the page script never runs, the guard is lost but the button still works. A dead button would be worse than an unguarded one. #}
+                    <button type="submit" data-delete-confirm
+                            class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
+                        {% icon 'trash-o' %} Delete record
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
 {% endblock %}
 
 {% block scripts %}
@@ -461,6 +532,74 @@
 
         select.addEventListener("change", show);
         show();
+    }
+
+    // --- Delete record: arm the confirm button on a timer -------------------
+    // ONE clock, the same principle as the toast countdown: this loop drives
+    // the bar, the number AND the disabled state off a single timestamp, so
+    // the countdown can never read 0 while the button is still locked.
+    //
+    // The button is rendered ENABLED, so if this script never runs the guard is
+    // lost but deleting still works. A permanently dead button would be worse.
+    var timers = Array.prototype.slice.call(document.querySelectorAll("[data-delete-timer]"));
+    if (timers.length) {
+        var frame = null;
+
+        function disarm(block) {
+            var modal = block.closest(".modal-overlay");
+            var button = modal && modal.querySelector("[data-delete-confirm]");
+            block.classList.add("hidden");
+            if (button) button.disabled = false;
+        }
+
+        function arm(block) {
+            var modal = block.closest(".modal-overlay");
+            var button = modal.querySelector("[data-delete-confirm]");
+            var bar = block.querySelector("[data-delete-bar]");
+            var label = block.querySelector("[data-delete-countdown]");
+            var total = (parseFloat(block.dataset.deleteSeconds) || 5) * 1000;
+            var start = null;
+
+            button.disabled = true;
+            block.classList.remove("hidden");
+
+            function tick(now) {
+                if (start === null) start = now;
+                var left = Math.max(0, total - (now - start));
+                bar.style.width = (left / total * 100) + "%";
+
+                if (left > 0) {
+                    label.textContent = Math.ceil(left / 1000) + "s";
+                    frame = window.requestAnimationFrame(tick);
+                    return;
+                }
+                // The block STAYS visible once it unlocks. Hiding it would
+                // shrink the footer and move the button up at the exact moment
+                // the user is reaching for it.
+                label.textContent = "Ready";
+                frame = null;
+                button.disabled = false;
+            }
+
+            frame = window.requestAnimationFrame(tick);
+        }
+
+        function sync() {
+            if (frame !== null) {
+                window.cancelAnimationFrame(frame);
+                frame = null;
+            }
+            timers.forEach(disarm);
+
+            // getElementById, not querySelector: a hash is not always a valid
+            // CSS selector.
+            var open = location.hash ? document.getElementById(location.hash.slice(1)) : null;
+            var block = open && open.querySelector("[data-delete-timer]");
+            if (block) arm(block);
+        }
+
+        window.addEventListener("hashchange", sync);
+        sync();
     }
 
     // --- Import: name the chosen file, since the input itself is visually hidden

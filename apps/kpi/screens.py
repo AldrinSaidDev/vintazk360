@@ -240,7 +240,8 @@ class KpiScreens:
         latest = {}
         for record in (
             KpiRecord.objects.filter(
-                kpi__team=team, kpi__branch=branch, kpi__is_active=True
+                kpi__team=team, kpi__branch=branch, kpi__is_active=True,
+                is_active=True,
             )
             .order_by('kpi_id', '-period_start')
             .only('kpi_id', 'period_start', 'value', 'score', 'value_display')
@@ -354,7 +355,9 @@ class KpiScreens:
 
     def import_stats(self, team, branch=None):
         """The four Import Data stat cards, counted from the database."""
-        records = KpiRecord.objects.filter(kpi__team=team, kpi__branch=branch)
+        records = KpiRecord.objects.filter(
+            kpi__team=team, kpi__branch=branch, is_active=True
+        )
         today = timezone.localdate()
         last_batch = (
             KpiImportBatch.objects.filter(team=team, branch=branch)
@@ -384,6 +387,10 @@ class KpiScreens:
         """KPI Records table rows, from `kpi_record`."""
         return [
             {
+                # The delete form posts this. Records have no slug of their own,
+                # and (kpi, period) as a composite handle would be two fields to
+                # validate for no gain.
+                'pk': record.pk,
                 'kpi': record.kpi.name,
                 'category': record.kpi.category.name if record.kpi.category_id else '—',
                 'actual': record.value_display or record.value,
@@ -474,6 +481,46 @@ class KpiScreens:
         open_add_modal = open_import_modal = False
 
         if request.method == 'POST':
+            if request.POST.get('_action') == 'delete-record':
+                # SOFT delete (design principle 7): the row leaves every table,
+                # tile and chart, but the figure, its raw operands and the
+                # import batch it came from all survive. Scoped to this team and
+                # branch, so a guessed id from another LOB is a 404, not a
+                # delete.
+                record = get_object_or_404(
+                    KpiRecord,
+                    pk=request.POST.get('_record', ''),
+                    kpi__team=team,
+                    kpi__branch=branch,
+                    is_active=True,
+                )
+                period = kpi_periods.label(record.period_start, record.kpi.frequency)
+
+                record.is_active = False
+                record.save(update_fields=['is_active', 'updated_at'])
+
+                log_action(
+                    request,
+                    action=AuditLog.Action.DELETED,
+                    entity=record,
+                    entity_type='kpi_record',
+                    team=team,
+                    old_values={'is_active': True},
+                    new_values={
+                        'is_active': False,
+                        'kpi': record.kpi.name,
+                        'period': period,
+                        'value': record.value_display,
+                    },
+                )
+
+                messages.success(
+                    request,
+                    f'{record.kpi.name} for {period} has been deleted. '
+                    'Re-entering that period restores it.',
+                )
+                return redirect(self._back_to_records(request))
+
             if request.POST.get('_action') == 'import':
                 import_form = ImportRecordsForm(request.POST, request.FILES)
 
@@ -564,7 +611,7 @@ class KpiScreens:
         # list reads as if the KPI were back.
         kpi_options_qs = (
             KpiDefinition.objects.filter(team=team, branch=branch)
-            .filter(Q(is_active=True) | Q(records__isnull=False))
+            .filter(Q(is_active=True) | Q(records__is_active=True))
             .distinct()
             .order_by('sort_order', 'name')
         )
@@ -578,7 +625,9 @@ class KpiScreens:
         chosen_sources = [s for s in request.GET.getlist('source') if s]
 
         records_qs = (
-            KpiRecord.objects.filter(kpi__team=team, kpi__branch=branch)
+            KpiRecord.objects.filter(
+                kpi__team=team, kpi__branch=branch, is_active=True
+            )
             .select_related('kpi', 'kpi__category')
             .order_by('-period_start', 'kpi__sort_order')
         )

@@ -90,8 +90,13 @@ class KpiRecordInputInline(admin.TabularInline):
 
 @admin.register(KpiRecord)
 class KpiRecordAdmin(admin.ModelAdmin):
-    list_display = ('kpi', 'period_start', 'value_display', 'attainment', 'status', 'source')
-    list_filter = ('status', 'source', 'kpi__team', 'period_start')
+    # `is_active` is listed and filterable because admin is the only place a
+    # soft-deleted record can be brought back without re-entering its period.
+    list_display = (
+        'kpi', 'period_start', 'value_display', 'attainment', 'status', 'source',
+        'is_active',
+    )
+    list_filter = ('is_active', 'status', 'source', 'kpi__team', 'period_start')
     search_fields = ('kpi__name', 'remarks')
     date_hierarchy = 'period_start'
     inlines = (KpiRecordInputInline,)
