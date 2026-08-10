@@ -16,15 +16,30 @@
     {# the sidebar, leadership sees ten, and the same sentence has to be true for both. #}
     {% include "partials/info_banner.html" with text="Vintazk 360 brings company performance into a single view. The Overall Goal below is the rollup for the current reporting period, drawn from the KPI scorecards of every department you have access to. Open a department in the sidebar for its own scorecard — definitions, targets, actuals, and the records behind each number." %}
 
-    {# Overall Goal #}
+    {# Overall Goal — the mean of every reporting department's own attainment. #}
     <section class="rounded-xl bg-white p-6 shadow-sm">
         <div class="flex items-center gap-2">
             <h2 class="text-xl font-bold text-ink">Overall Goal</h2>
-            {% include "partials/info_icon.html" with text="Combined progress across every Line of Business for the current reporting period. 100% means every team hit its target." align="left" %}
+            {% include "partials/info_icon.html" with text="The average attainment of every department that has reported, each counted once regardless of how many KPIs it tracks. 100% means every department is at target. Departments with nothing scored yet are left out rather than counted as zero." align="left" %}
         </div>
+
+        {# Movement against the previous reporting period. Points, not percent: #}
+        {# it is the difference between two percentages. #}
+        {% if org.delta is not None %}
         <p class="mt-1 flex items-center gap-2 text-xs font-normal text-ink">
-            {% icon 'long-arrow-up' %} +18 This Week
-        </p> <br>
+            {% if org.delta > 0 %}
+                <span class="text-status-good">{% icon 'long-arrow-up' %} +{{ org.delta }} pts</span>
+            {% elif org.delta < 0 %}
+                <span class="text-status-bad">{% icon 'long-arrow-down' %} {{ org.delta }} pts</span>
+            {% else %}
+                <span class="text-slate-500">No change</span>
+            {% endif %}
+            <span class="text-slate-400">vs last period, across {{ org.delta_departments }} department{{ org.delta_departments|pluralize }}</span>
+        </p>
+        {% else %}
+        <p class="mt-1 text-xs text-slate-400">No previous period to compare against yet.</p>
+        {% endif %}
+        <br>
 
         {# Progress track. Each end carries a circular marker with its icon sitting on #}
         {# top of it; both are absolutely positioned so the wrapper's own height stays #}
@@ -38,19 +53,63 @@
             </span>
 
             <div class="h-2.5 w-full rounded-full bg-blush/30">
-                <div class="h-2.5 rounded-full bg-brand" style="width: {{ goal_progress }}%"></div>
+                <div class="h-2.5 rounded-full bg-brand" style="width: {{ org.bar_pct }}%"></div>
             </div>
 
             {# Goal marker. Dimmed until progress actually gets there. #}
-            <span class="absolute right-0 top-1/2 h-5 w-5 translate-x-1/2 -translate-y-1/2 rounded-full bg-brand {% if goal_progress < 100 %}opacity-50{% endif %}">
+            <span class="absolute right-0 top-1/2 h-5 w-5 translate-x-1/2 -translate-y-1/2 rounded-full bg-brand {% if not org.reached %}opacity-50{% endif %}">
                 <span class="absolute bottom-full left-1/2 -mb-1 -translate-x-1/2 text-3xl leading-none text-status-warn">{% icon 'trophy' %}</span>
             </span>
         </div>
 
         <div class="mt-3 flex justify-between text-xs text-slate-400">
             <span>0%</span>
-            <span>{{ goal_progress }}%</span>
+            <span class="font-semibold text-ink">{% if org.attainment is not None %}{{ org.attainment }}%{% else %}No data{% endif %}</span>
             <span>100%</span>
+        </div>
+
+        {# Coverage belongs next to the figure, not buried in the modal: a #}
+        {# company number drawn from two departments out of ten reads as the #}
+        {# whole company unless it says otherwise. The two meters carry the #}
+        {# proportion so nobody has to divide 5 by 79 in their head. #}
+        <div class="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border px-4 py-3
+                    {% if org.complete %}border-status-good/20 bg-status-good/5
+                    {% elif org.reporting %}border-status-warn/30 bg-status-warn/5
+                    {% else %}border-slate-200 bg-slate-50{% endif %}">
+
+            <span class="flex items-center gap-2 text-xs font-semibold text-ink">
+                <span class="text-sm {% if org.complete %}text-status-good{% elif org.reporting %}text-status-warn{% else %}text-slate-400{% endif %}">
+                    {% if org.complete %}{% icon 'check-circle' %}{% else %}{% icon 'pie-chart' %}{% endif %}
+                </span>
+                Coverage
+            </span>
+
+            {% if org.reporting %}
+                <span class="flex items-center gap-2.5">
+                    <span class="text-xs text-slate-500">Departments</span>
+                    <span class="h-1.5 w-20 overflow-hidden rounded-full bg-white ring-1 ring-inset ring-slate-200">
+                        <span class="block h-full rounded-full {% if org.complete %}bg-status-good{% else %}bg-status-warn{% endif %}"
+                              style="width: {{ org.reporting_pct }}%"></span>
+                    </span>
+                    <span class="text-xs font-bold text-ink">{{ org.reporting }}<span class="font-normal text-slate-400"> of {{ org.department_count }}</span></span>
+                </span>
+
+                <span class="flex items-center gap-2.5">
+                    <span class="text-xs text-slate-500">KPIs scored</span>
+                    <span class="h-1.5 w-20 overflow-hidden rounded-full bg-white ring-1 ring-inset ring-slate-200">
+                        <span class="block h-full rounded-full {% if org.complete %}bg-status-good{% else %}bg-status-warn{% endif %}"
+                              style="width: {{ org.kpis_scored_pct }}%"></span>
+                    </span>
+                    <span class="text-xs font-bold text-ink">{{ org.kpis_scored }}<span class="font-normal text-slate-400"> of {{ org.kpis_total }}</span></span>
+                </span>
+
+                {# The caveat only matters while something is missing. #}
+                {% if not org.complete %}
+                <span class="text-xs text-slate-500">Departments with no figures yet are left out of the average, not counted as zero.</span>
+                {% endif %}
+            {% else %}
+                <span class="text-xs text-slate-500">No department has reported figures yet, so there is nothing to average.</span>
+            {% endif %}
         </div>
 
         <div class="mt-4 flex justify-end">
@@ -130,17 +189,230 @@
         </div>
     </section>
 
-    {# Chart placeholder #}
-    <section class="rounded-xl bg-white p-6 shadow-sm">
-        <div class="mb-4 flex items-center gap-2">
-            <h2 class="text-base font-bold text-ink">Lorem Ipsum</h2>
-            {% include "partials/info_icon.html" with text="This is a placeholder for a chart showing performance metrics." %}
+    {# ============ Department scorecards ============ #}
+    {# One card per department the signed-in user can open. The headline number #}
+    {# is the mean attainment of that team's scored KPIs, recomputed on read. #}
+    <section id="departments" class="rounded-xl bg-white p-6 shadow-sm">
+        <div class="mb-1 flex items-center gap-2">
+            <h2 class="text-xl font-bold text-ink">Departments</h2>
+            {% include "partials/info_icon.html" with text="One card per department you can open. The percentage is the average attainment of that team's scored KPIs for their latest reported period. KPIs with no target and KPIs with no figures yet are counted separately and left out of the average." align="left" %}
         </div>
-        <div class="flex h-56 items-end justify-center rounded-lg bg-blush/10">
-            <p class="pb-20 text-sm text-slate-400">Chart placeholder</p>
+        <p class="mb-5 text-xs text-slate-500">
+            {{ departments|length }} department{{ departments|length|pluralize }}
+            {% if org.attainment is not None %}· company average {{ org.attainment }}%{% endif %}
+        </p>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {% for dept in departments %}
+            <div class="flex flex-col rounded-xl border border-slate-200 p-5 transition hover:border-brand/40 hover:shadow-sm">
+
+                <div class="min-w-0">
+                    <h3 class="truncate font-heading text-sm font-bold text-ink">{{ dept.name }}</h3>
+                    <p class="mt-0.5 text-xs text-slate-500">{{ dept.kpi_count }} KPI{{ dept.kpi_count|pluralize }} tracked</p>
+                </div>
+
+                {# Gauge. The arc is every KPI the team owns, split by state; the #}
+                {# figure inside it is the average attainment of the scored ones. #}
+                {# Each segment is drawn on the SAME path, normalised by #}
+                {# pathLength="100" so its length and start are plain percentages #}
+                {# rather than fractions of the arc's real length. #}
+                <div class="relative mx-auto mt-4 w-full max-w-[13rem]">
+                    <svg viewBox="0 0 120 66" class="w-full" role="img"
+                         aria-label="{{ dept.name }}: {% if dept.avg is not None %}{{ dept.avg }}% average attainment{% else %}no scored KPIs{% endif %}">
+                        <path d="M 11 60 A 49 49 0 0 1 109 60" fill="none" stroke-width="11"
+                              pathLength="100" class="stroke-slate-100"/>
+                        {# The stroke class is chosen HERE, not in the view: Tailwind #}
+                        {# scans templates and JS but never Python, so a class built #}
+                        {# in views.py would be purged out of output.css. #}
+                        {% for seg in dept.segments %}
+                        <path d="M 11 60 A 49 49 0 0 1 109 60" fill="none" stroke-width="11"
+                              pathLength="100"
+                              class="{% if seg.key == 'on_track' %}stroke-status-good{% elif seg.key == 'at_risk' %}stroke-status-warn{% elif seg.key == 'below' %}stroke-status-bad{% else %}stroke-slate-200{% endif %}"
+                              stroke-dasharray="{{ seg.pct }} 100"
+                              stroke-dashoffset="-{{ seg.start }}"/>
+                        {% endfor %}
+                    </svg>
+
+                    <div class="absolute inset-x-0 bottom-0 text-center">
+                        {% if dept.avg is not None %}
+                            <p class="font-heading text-2xl font-black leading-none text-ink">{{ dept.avg }}%</p>
+                            <p class="mt-0.5 text-[11px] text-slate-400">avg attainment</p>
+                        {% else %}
+                            <p class="font-heading text-base font-bold leading-none text-slate-400">No Data</p>
+                            <p class="mt-0.5 text-[11px] text-slate-400">nothing scored</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {# Legend. The gauge shows the proportions, this gives the counts. #}
+                {# All three scored states always show, so the row lines up card #}
+                {# to card even at zero. #}
+                <div class="mt-3 flex items-center justify-center gap-4 text-[11px] text-slate-500">
+                    <span class="flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-status-good"></span>
+                        {{ dept.on_track }} on track
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-status-warn"></span>
+                        {{ dept.at_risk }} at risk
+                    </span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="inline-block h-2 w-2 rounded-full bg-status-bad"></span>
+                        {{ dept.below }} below
+                    </span>
+                </div>
+
+                {# What to look at. The lowest-scoring KPI that is not on track is #}
+                {# the whole point of this page, so it is named rather than counted. #}
+                <div class="mt-4 flex-1 space-y-2 border-t border-slate-100 pt-4 text-xs">
+                    {% if dept.focus %}
+                    <div class="flex items-start gap-2">
+                        <span class="mt-px shrink-0 text-status-bad">{% icon 'exclamation-circle' %}</span>
+                        <p class="min-w-0 text-slate-600">
+                            <span class="font-semibold text-ink">Needs attention:</span>
+                            {{ dept.focus.name }}
+                            <span class="whitespace-nowrap font-semibold text-status-bad">{{ dept.focus.attainment }}%</span>
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if dept.best %}
+                    <div class="flex items-start gap-2">
+                        <span class="mt-px shrink-0 text-status-good">{% icon 'check-circle' %}</span>
+                        <p class="min-w-0 text-slate-600">
+                            <span class="font-semibold text-ink">Strongest:</span>
+                            {{ dept.best.name }}
+                            <span class="whitespace-nowrap font-semibold text-status-good">{{ dept.best.attainment }}%</span>
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if dept.no_data or dept.monitored %}
+                    <p class="text-slate-400">
+                        {% if dept.no_data %}{{ dept.no_data }} awaiting figures{% endif %}
+                        {% if dept.no_data and dept.monitored %} · {% endif %}
+                        {% if dept.monitored %}{{ dept.monitored }} with no target{% endif %}
+                    </p>
+                    {% endif %}
+
+                    {% if not dept.scored_count %}
+                    <p class="italic text-slate-400">Nothing scored yet for this department.</p>
+                    {% endif %}
+                </div>
+
+                {% if dept.url %}
+                <a href="{{ dept.url }}" class="mt-4 block rounded-lg bg-blush/20 py-2 text-center text-xs font-semibold text-brand transition hover:bg-blush/40">
+                    Open scorecard
+                </a>
+                {% endif %}
+            </div>
+            {% empty %}
+            <p class="col-span-full rounded-lg bg-blush/10 p-6 text-center text-sm text-slate-500">
+                No departments have KPIs set up yet.
+            </p>
+            {% endfor %}
         </div>
     </section>
+
+    {# ============ Contribution + comparison ============ #}
+    {% if chart_data %}
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-5">
+
+        {# Share of total attainment, department by department. #}
+        <section class="rounded-xl bg-white p-6 shadow-sm lg:col-span-2">
+            <div class="mb-1 flex items-center gap-2">
+                <h2 class="text-base font-bold text-ink">Contribution</h2>
+                {% include "partials/info_icon.html" with text="Each department's share of the combined attainment across every department you can see. It answers which teams are carrying the company average, not how large a team is." align="left" %}
+            </div>
+            <p class="mb-4 text-xs text-slate-500">Share of combined attainment</p>
+            <div class="mx-auto max-w-xs">
+                <canvas id="contributionChart" height="260"></canvas>
+            </div>
+        </section>
+
+        {# The same numbers ranked against the company average. #}
+        <section class="rounded-xl bg-white p-6 shadow-sm lg:col-span-3">
+            <div class="mb-1 flex items-center gap-2">
+                <h2 class="text-base font-bold text-ink">Against the company average</h2>
+                {% include "partials/info_icon.html" with text="Every department's attainment measured against the average of them all. Departments with nothing scored are not listed, since they would read as 0% rather than as unknown." align="left" %}
+            </div>
+            <p class="mb-4 text-xs text-slate-500">Company average {{ org.attainment }}%</p>
+
+            <div class="max-h-[19rem] space-y-2 overflow-y-auto pr-1">
+                {% for dept in departments %}{% if dept.avg is not None %}
+                <div class="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50">
+                    <span class="w-40 shrink-0 truncate text-xs font-medium text-ink">{{ dept.name }}</span>
+
+                    <span class="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <span class="block h-full rounded-full {% if dept.avg >= 100 %}bg-status-good{% elif dept.avg >= 90 %}bg-status-warn{% else %}bg-status-bad{% endif %}"
+                              style="width: {{ dept.bar_pct }}%"></span>
+                    </span>
+
+                    <span class="w-14 shrink-0 text-right text-xs font-bold text-ink">{{ dept.avg }}%</span>
+                    <span class="w-24 shrink-0 text-right text-[11px]">
+                        {% if dept.avg >= org.attainment %}
+                            <span class="text-status-good">{% icon 'long-arrow-up' %} above avg</span>
+                        {% else %}
+                            <span class="text-status-bad">{% icon 'long-arrow-down' %} below avg</span>
+                        {% endif %}
+                    </span>
+                </div>
+                {% endif %}{% endfor %}
+            </div>
+        </section>
+    </div>
+    {% endif %}
+
+    {# ============ This period vs last ============ #}
+    {# The other comparison is department against department. This one is each #}
+    {# department against ITSELF a period ago, which is the only one that says #}
+    {# whether things are getting better. #}
+    <section class="rounded-xl bg-white p-6 shadow-sm">
+        <div class="mb-1 flex items-center gap-2">
+            <h2 class="text-base font-bold text-ink">This period vs last</h2>
+            {% include "partials/info_icon.html" with text="Each department's attainment now against its previous reporting period, measured only over the KPIs that have figures for both. Comparing a full current set against a shorter previous one would report newly arrived data as a change in performance." align="left" %}
+        </div>
+        <p class="mb-5 text-xs text-slate-500">Movement in percentage points, biggest gain first</p>
+
+        {% if movers %}
+        <div class="space-y-2">
+            {% for dept in movers %}
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-slate-100 px-4 py-3">
+
+                <div class="min-w-0 flex-1">
+                    <p class="truncate text-xs font-semibold text-ink">{{ dept.name }}</p>
+                    <p class="text-[11px] text-slate-400">{{ dept.trend.kpi_count }} KPI{{ dept.trend.kpi_count|pluralize }} comparable</p>
+                </div>
+
+                {# then → now, so the direction is read left to right. #}
+                <div class="flex shrink-0 items-center gap-2 text-xs">
+                    <span class="text-slate-400">{{ dept.trend.then }}%</span>
+                    <span class="text-slate-300">{% icon 'long-arrow-right' %}</span>
+                    <span class="font-bold text-ink">{{ dept.trend.now }}%</span>
+                </div>
+
+                <span class="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold
+                             {% if dept.trend.delta > 0 %}bg-status-good/10 text-status-good
+                             {% elif dept.trend.delta < 0 %}bg-status-bad/10 text-status-bad
+                             {% else %}bg-slate-100 text-slate-500{% endif %}">
+                    {% if dept.trend.delta > 0 %}{% icon 'long-arrow-up' %} +{{ dept.trend.delta }} pts
+                    {% elif dept.trend.delta < 0 %}{% icon 'long-arrow-down' %} {{ dept.trend.delta }} pts
+                    {% else %}no change{% endif %}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        {# Honest empty state: this needs two reported periods to say anything. #}
+        <div class="rounded-lg bg-blush/10 p-6 text-center">
+            <p class="text-sm text-slate-500">No department has two reported periods yet.</p>
+            <p class="mt-1 text-xs text-slate-400">This fills in once a second period of figures is imported.</p>
+        </div>
+        {% endif %}
+    </section>
 </div>
+
+{{ chart_data|json_script:"contribution-data" }}
 
 {# ============ Overall Goal Information modal — CSS-only via :target ============ #}
 <div id="goalDetailsModal"
@@ -151,7 +423,7 @@
         <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
             <div>
                 <h3 class="font-heading text-lg font-bold leading-tight">Overall Goal Information</h3>
-                <p class="text-xs text-white/70">Combined progress across every Line of Business · July 2026</p>
+                <p class="text-xs text-white/70">Combined progress across every Line of Business · {{ period_label }}</p>
             </div>
             <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
                 <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -160,81 +432,113 @@
 
         <div class="flex-1 space-y-5 overflow-y-auto p-6">
 
-            {# Goal Information — the four headline numbers #}
+            {# Goal Information — the four headline numbers. "Goal" is 100%, not #}
+            {# an arbitrary count: the goal is every department at target. #}
             <section class="rounded-2xl bg-blush/10 p-5">
                 <h4 class="mb-4 font-heading text-base font-bold text-ink">Goal Information</h4>
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div class="flex items-stretch overflow-hidden rounded-xl bg-blush/20">
                         <span class="flex w-14 shrink-0 items-center justify-center bg-blush/40 text-xl text-brand">{% icon 'bullseye' %}</span>
                         <div class="flex-1 px-3 py-3 text-center">
-                            <p class="font-heading text-2xl font-black text-ink">{{ goal_target }}</p>
+                            <p class="font-heading text-2xl font-black text-ink">100%</p>
                             <p class="text-xs text-slate-500">Goal</p>
                         </div>
                     </div>
                     <div class="flex items-stretch overflow-hidden rounded-xl bg-blush/20">
                         <span class="flex w-14 shrink-0 items-center justify-center bg-blush/40 text-xl text-brand">{% icon 'line-chart' %}</span>
                         <div class="flex-1 px-3 py-3 text-center">
-                            <p class="font-heading text-2xl font-black text-ink">{{ goal_progress }}%</p>
-                            <p class="text-xs text-slate-500">Progress</p>
-                        </div>
-                    </div>
-                    <div class="flex items-stretch overflow-hidden rounded-xl bg-blush/20">
-                        <span class="flex w-14 shrink-0 items-center justify-center bg-blush/40 text-xl text-brand">{% icon 'pie-chart' %}</span>
-                        <div class="flex-1 px-3 py-3 text-center">
-                            <p class="font-heading text-2xl font-black text-ink">{{ goal_remaining }}</p>
-                            <p class="text-xs text-slate-500">Remaining</p>
+                            <p class="font-heading text-2xl font-black text-ink">{% if org.attainment is not None %}{{ org.attainment }}%{% else %}—{% endif %}</p>
+                            <p class="text-xs text-slate-500">Attainment</p>
                         </div>
                     </div>
                     <div class="flex items-stretch overflow-hidden rounded-xl bg-blush/20">
                         <span class="flex w-14 shrink-0 items-center justify-center bg-blush/40 text-xl text-brand">{% icon 'check-circle' %}</span>
                         <div class="flex-1 px-3 py-3 text-center">
-                            <p class="font-heading text-2xl font-black text-ink">{{ goal_completed }}</p>
-                            <p class="text-xs text-slate-500">Completed</p>
+                            <p class="font-heading text-2xl font-black text-ink">{{ org.at_target }}</p>
+                            <p class="text-xs text-slate-500">Departments at target</p>
+                        </div>
+                    </div>
+                    <div class="flex items-stretch overflow-hidden rounded-xl bg-blush/20">
+                        <span class="flex w-14 shrink-0 items-center justify-center bg-blush/40 text-xl text-brand">{% icon 'pie-chart' %}</span>
+                        <div class="flex-1 px-3 py-3 text-center">
+                            <p class="font-heading text-2xl font-black text-ink">{{ org.kpis_on_track }}</p>
+                            <p class="text-xs text-slate-500">KPIs on track</p>
                         </div>
                     </div>
                 </div>
             </section>
 
-            {# Progress Summary + Timeline, side by side #}
+            {# Progress Summary + Coverage, side by side #}
             <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <section class="rounded-2xl bg-blush/10 p-5">
                     <h4 class="mb-3 font-heading text-base font-bold text-ink">Progress Summary</h4>
                     <div class="h-2 w-full overflow-hidden rounded-full bg-white">
-                        <div class="h-full rounded-full bg-brand" style="width: {{ goal_progress }}%"></div>
+                        <div class="h-full rounded-full bg-brand" style="width: {{ org.bar_pct }}%"></div>
                     </div>
                     <dl class="mt-4 space-y-2 text-sm">
                         <div class="flex items-center justify-between">
-                            <dt class="text-slate-500">Completed</dt>
-                            <dd class="font-semibold text-ink">{{ goal_completed }} of {{ goal_target }}</dd>
+                            <dt class="text-slate-500">Departments at target</dt>
+                            <dd class="font-semibold text-ink">{{ org.at_target }} of {{ org.reporting }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
-                            <dt class="text-slate-500">Remaining</dt>
-                            <dd class="font-semibold text-ink">{{ goal_remaining }}</dd>
+                            <dt class="text-slate-500">Departments below target</dt>
+                            <dd class="font-semibold text-ink">{{ org.below_target }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
-                            <dt class="text-slate-500">Attainment</dt>
-                            <dd class="font-semibold text-ink">{{ goal_progress }}%</dd>
+                            <dt class="text-slate-500">Company attainment</dt>
+                            <dd class="font-semibold text-ink">{% if org.attainment is not None %}{{ org.attainment }}%{% else %}No data{% endif %}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <dt class="text-slate-500">Movement vs last period</dt>
+                            <dd class="font-semibold {% if org.delta > 0 %}text-status-good{% elif org.delta < 0 %}text-status-bad{% else %}text-ink{% endif %}">
+                                {% if org.delta is not None %}{% if org.delta > 0 %}+{% endif %}{{ org.delta }} pts{% else %}No comparison{% endif %}
+                            </dd>
                         </div>
                     </dl>
                 </section>
 
+                {# Coverage. The figure above is only as good as the number of #}
+                {# departments behind it, so that is stated rather than implied. #}
                 <section class="rounded-2xl bg-blush/10 p-5">
-                    <h4 class="mb-3 font-heading text-base font-bold text-ink">Timeline</h4>
-                    <div class="flex h-[124px] items-center justify-center">
-                        <p class="text-sm italic text-slate-400">Not wired up yet</p>
-                    </div>
+                    <h4 class="mb-3 font-heading text-base font-bold text-ink">Coverage</h4>
+                    <dl class="space-y-2 text-sm">
+                        <div class="flex items-center justify-between">
+                            <dt class="text-slate-500">Departments reporting</dt>
+                            <dd class="font-semibold text-ink">{{ org.reporting }} of {{ org.department_count }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <dt class="text-slate-500">KPIs scored</dt>
+                            <dd class="font-semibold text-ink">{{ org.kpis_scored }} of {{ org.kpis_total }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <dt class="text-slate-500">Compared to last period</dt>
+                            <dd class="font-semibold text-ink">{{ org.delta_departments }} department{{ org.delta_departments|pluralize }}</dd>
+                        </div>
+                    </dl>
+                    {% if org.reporting < org.department_count %}
+                    <p class="mt-3 text-xs text-status-warn">
+                        Departments with no figures yet are left out of the average, not counted as zero.
+                    </p>
+                    {% endif %}
                 </section>
             </div>
 
-            {# Performance — full width #}
+            {# Per department, so the company figure can be traced to its parts. #}
             <section class="rounded-2xl bg-blush/10 p-5">
-                <h4 class="mb-3 font-heading text-base font-bold text-ink">Performance</h4>
-                <div class="flex h-40 items-center justify-center">
-                    <p class="text-sm italic text-slate-400">Not wired up yet</p>
+                <h4 class="mb-3 font-heading text-base font-bold text-ink">By department</h4>
+                <div class="max-h-56 space-y-1 overflow-y-auto">
+                    {% for dept in departments %}
+                    <div class="flex items-center justify-between rounded-lg bg-white/60 px-3 py-2 text-sm">
+                        <span class="min-w-0 truncate text-slate-600">{{ dept.name }}</span>
+                        <span class="ml-3 shrink-0 font-semibold {% if dept.avg is None %}text-slate-400{% elif dept.avg >= 100 %}text-status-good{% elif dept.avg >= 90 %}text-status-warn{% else %}text-status-bad{% endif %}">
+                            {% if dept.avg is not None %}{{ dept.avg }}%{% else %}No data{% endif %}
+                        </span>
+                    </div>
+                    {% endfor %}
                 </div>
             </section>
 
-            <p class="text-center text-xs italic text-slate-400">Placeholder data — not real performance yet.</p>
+            <p class="text-center text-xs italic text-slate-400">Every figure here is recomputed from the latest KPI records, so a moved target is reflected straight away.</p>
         </div>
 
         <div class="flex items-center justify-end border-t border-slate-100 bg-slate-50/60 px-6 py-4">
@@ -246,4 +550,62 @@
 
 {% block scripts %}
 <script src="{% static 'js/date-range-picker.js' %}"></script>
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script>
+<script>
+(function () {
+    var canvas = document.getElementById('contributionChart');
+    var payload = document.getElementById('contribution-data');
+    if (!canvas || !payload) return;
+
+    var data = JSON.parse(payload.textContent);
+    if (!data.length) return;
+
+    // Brand ramp, walked in order. Ten departments is the current ceiling and
+    // the palette covers it; past that it wraps rather than inventing shades.
+    var RAMP = ['#4F3D67', '#6B5583', '#8A6E9C', '#B27FA0', '#C79AB0',
+                '#DFADB6', '#E7C2C8', '#D9A441', '#C25B6E', '#A0AEC0'];
+
+    new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+            labels: data.map(function (d) { return d.name; }),
+            datasets: [{
+                data: data.map(function (d) { return d.share; }),
+                backgroundColor: data.map(function (d, i) { return RAMP[i % RAMP.length]; }),
+                borderColor: '#ffffff',
+                borderWidth: 2,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '62%',
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        boxWidth: 10,
+                        boxHeight: 10,
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        padding: 12,
+                        color: '#475569',
+                        font: { size: 11 },
+                    },
+                },
+                tooltip: {
+                    // The share is what the slice is; the attainment is what
+                    // people actually want to read off it, so give both.
+                    callbacks: {
+                        label: function (ctx) {
+                            var row = data[ctx.dataIndex];
+                            return row.share + '% of total · ' + row.avg + '% attainment';
+                        },
+                    },
+                },
+            },
+        },
+    });
+}());
+</script>
 {% endblock %}

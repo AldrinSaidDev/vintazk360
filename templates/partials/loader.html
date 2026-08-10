@@ -1,0 +1,41 @@
+{# Reusable loader spinner for pages, tables, modals, and buttons.
+
+   Usage in templates:
+
+   Full-page overlay (default):
+     {% include "partials/loader.html" %}
+
+   Inline/embedded (e.g., in a table cell or card):
+     {% include "partials/loader.html" with variant="inline" size="md" %}
+
+   In a modal:
+     {% include "partials/loader.html" with variant="inline" size="lg" %}
+
+   Button state:
+     {% include "partials/loader.html" with variant="inline" size="sm" %}
+
+   Parameters:
+   - variant: "overlay" (default) | "inline" — overlay covers full screen, inline sits in place
+   - size: "sm" | "md" (default) | "lg" — controls spinner diameter
+   - text: optional loading text (only shown in overlay variant)
+   - dark: True/False — force dark or light mode (defaults to current theme)
+#}
+
+{% if variant == "inline" %}
+  {# Inline loader — no background overlay, sits where it's placed. #}
+  <div class="inline-flex items-center justify-center {% if size == 'sm' %}h-4 w-4{% elif size == 'lg' %}h-12 w-12{% else %}h-8 w-8{% endif %}" role="status" aria-label="Loading">
+    <div class="loader-spinner {% if size == 'sm' %}text-slate-400{% elif size == 'lg' %}text-slate-400{% else %}text-slate-400{% endif %}"></div>
+  </div>
+{% else %}
+  {# Full-page overlay loader (default variant). #}
+  <div class="fixed inset-0 z-[9998] flex items-center justify-center loader-overlay" role="status" aria-label="Loading">
+    <div class="flex flex-col items-center gap-4">
+      <div class="h-12 w-12 flex items-center justify-center" aria-hidden="true">
+        <div class="loader-spinner text-white"></div>
+      </div>
+      {% if text %}
+        <p class="text-sm font-medium text-white">{{ text }}</p>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
