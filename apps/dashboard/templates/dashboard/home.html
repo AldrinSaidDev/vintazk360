@@ -19,7 +19,9 @@
     {% include "partials/info_banner.html" with text="Vintazk 360 brings company performance into a single view. The Overall Goal below is the rollup for the current reporting period, drawn from the KPI scorecards of every department you have access to. Open a department in the sidebar for its own scorecard — definitions, targets, actuals, and the records behind each number." %}
 
     {# Overall Goal — the mean of every reporting department's own attainment. #}
-    <section class="rounded-xl bg-white p-6 shadow-sm">
+    {# data-tour marks a panel the guided tour points at. See apps/core/tour.py: #}
+    {# these are the tour's own handles, so restyling a panel cannot break it. #}
+    <section data-tour="overall-goal" class="rounded-xl bg-white p-6 shadow-sm">
         <div class="flex items-center gap-2">
             <h2 class="text-xl font-bold text-ink">Overall Goal</h2>
             {% include "partials/info_icon.html" with text="The average attainment of every department that has reported, each counted once regardless of how many KPIs it tracks. 100% means every department is at target. Departments with nothing scored yet are left out rather than counted as zero." align="left" %}
@@ -125,7 +127,7 @@
 
     {# Global Filters. Front-end only — options come from the view's picklists #}
     {# (see FILTER_* there); nothing is wired to a queryset yet. #}
-    <section class="rounded-xl bg-white p-6 shadow-sm">
+    <section data-tour="global-filters" class="rounded-xl bg-white p-6 shadow-sm">
         <div class="mb-4 flex items-center gap-1.5">
             <h2 class="text-sm font-semibold text-slate-600">Global Filters</h2>
             {% include "partials/info_icon.html" with text="Narrows every figure on this page. Reporting period is the primary control, since KPIs are scored per period; the custom range covers daily data and any window the presets don't." align="left" %}
@@ -194,6 +196,13 @@
     {# ============ Department scorecards ============ #}
     {# One card per department the signed-in user can open. The headline number #}
     {# is the mean attainment of that team's scored KPIs, recomputed on read. #}
+    {# Everything from here down is one step of the guided tour (apps/core/tour.py): #}
+    {# the department cards, the two charts and the period comparison are the same #}
+    {# performance read three ways, and stopping at each in turn made three steps #}
+    {# that said the same thing. The wrapper keeps its own space-y-6, so the #}
+    {# spacing between the panels is unchanged. #}
+    <div data-tour="dashboard-detail" class="space-y-6">
+
     <section id="departments" class="rounded-xl bg-white p-6 shadow-sm">
         <div class="mb-1 flex items-center gap-2">
             <h2 class="text-xl font-bold text-ink">Departments</h2>
@@ -415,6 +424,8 @@
         </div>
         {% endif %}
     </section>
+
+    </div>{# /data-tour="dashboard-detail" #}
 </div>
 
 {{ chart_data|json_script:"contribution-data" }}

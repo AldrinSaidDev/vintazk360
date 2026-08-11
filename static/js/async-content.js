@@ -8,21 +8,48 @@
 (function () {
     'use strict';
 
-    /* Scripts inserted with innerHTML never execute. The screens carry real
-       scripts in their content (the Chart.js setup, the formula builder), so
-       each one is rebuilt as a fresh element to make it run. json_script blocks
-       are data, not code, but they are re-created the same way so the order the
-       template wrote them in is preserved. */
+    /* Scripts inserted with innerHTML never execute, so each one is rebuilt as a
+       fresh element to make it run — ONE AT A TIME, waiting for a src to finish
+       loading before the next goes in.
+
+       The waiting is the whole point. A screen's scripts block is a library and
+       then the inline code that uses it:
+
+           <script src="chart.umd.min.js"></script>
+           <script>new Chart(...)</script>
+
+       Inserted together, the inline block runs the moment it is added to the
+       document while the 200KB library is still downloading, so it finds no
+       `Chart`, returns, and leaves a blank panel where the chart should be.
+       Setting `async = false` does not fix that: it orders src scripts against
+       each other, but an inline script has nothing to wait for and runs
+       immediately whatever the flag says. Sequencing them here is what restores
+       document order. A script that fails to load does not stall the rest. */
     function runScripts(container) {
-        var scripts = container.querySelectorAll('script');
-        Array.prototype.forEach.call(scripts, function (old) {
+        var scripts = Array.prototype.slice.call(container.querySelectorAll('script'));
+
+        (function next(i) {
+            if (i >= scripts.length) return;
+
+            var old = scripts[i];
             var fresh = document.createElement('script');
             Array.prototype.forEach.call(old.attributes, function (attr) {
                 fresh.setAttribute(attr.name, attr.value);
             });
+            fresh.async = false;
+
+            if (old.getAttribute('src')) {
+                var carryOn = function () { next(i + 1); };
+                fresh.addEventListener('load', carryOn);
+                fresh.addEventListener('error', carryOn);
+                old.parentNode.replaceChild(fresh, old);
+                return;
+            }
+
             fresh.textContent = old.textContent;
             old.parentNode.replaceChild(fresh, old);
-        });
+            next(i + 1);
+        })(0);
     }
 
     /* The browser applies a :target modal and scrolls to an anchor when the

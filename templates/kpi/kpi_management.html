@@ -15,7 +15,7 @@
     {% include "partials/kpi_management_stats.html" %}
 
     {# KPI definitions table. The id is where a successful save redirects to: it gives the Location header a fragment of its own, so the browser can't reattach the #kpiEdit-<slug> one and reopen the modal. #}
-    <section id="kpi-definitions" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+    <section id="kpi-definitions" data-tour="kpi-definitions" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-1.5">
                 <h2 class="font-heading text-base font-bold text-ink">KPI Definitions</h2>
@@ -92,24 +92,27 @@
                     </div>
                 </details>
 
-                {# One workbook for the whole team, a sheet per KPI. Replaces the per-row Download column. #}
-                {% if workbook_url %}
-                {# data-no-loader: a download leaves this page in place, so the page loader would have nothing to hide it. #}
-                <a href="{{ workbook_url }}" data-no-loader
-                   class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
-                    {% icon 'download' %}
-                    Download template
-                </a>
-                {% endif %}
+                {# Defining a KPI and collecting figures for it are the same job from two ends, so the guided tour spotlights them together (apps/core/tour.py). The wrapper is a flex item in a flex row, which is what the links already were, so the layout is unchanged. #}
+                <span data-tour="manage-actions" class="flex flex-wrap items-center gap-2">
+                    {# One workbook for the whole team, a sheet per KPI. Replaces the per-row Download column. #}
+                    {% if workbook_url %}
+                    {# data-no-loader: a download leaves this page in place, so the page loader would have nothing to hide it. #}
+                    <a href="{{ workbook_url }}" data-no-loader
+                       class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
+                        {% icon 'download' %}
+                        Download template
+                    </a>
+                    {% endif %}
 
-                {# Read-only roles (User, Viewer) get the screen but not the actions. The view refuses the POST too: a hidden button is not access control. #}
-                {% if can_edit %}
-                <a href="#createKpiModal"
-                    class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                    {% icon 'plus' %}
-                    Create KPI
-                </a>
-                {% endif %}
+                    {# Read-only roles (User, Viewer) get the screen but not the actions. The view refuses the POST too: a hidden button is not access control. #}
+                    {% if can_edit %}
+                    <a href="#createKpiModal"
+                        class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                        {% icon 'plus' %}
+                        Create KPI
+                    </a>
+                    {% endif %}
+                </span>
             </form>
         </div>
 

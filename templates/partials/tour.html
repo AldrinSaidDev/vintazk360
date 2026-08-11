@@ -1,0 +1,55 @@
+{# Guided tour overlay. Included from base.html, OUTSIDE {% block layout %}: the #}
+{# login page replaces that block wholesale and has no tour, but keeping the #}
+{# include in one place means every signed-in screen carries it. #}
+{# #}
+{# The steps are built on the server (apps/core/tour.py) because which ones a #}
+{# user gets depends on their role and their teams. This file only draws them. #}
+{# Context: tour_steps (list), tour_autostart (bool). #}
+{% if tour_steps %}
+{{ tour_steps|json_script:"tour-steps" }}
+<div data-tour-root hidden
+     data-tour-autostart="{{ tour_autostart|yesno:'1,0' }}"
+     data-tour-seen-url="{% url 'core:tour_seen' %}"
+     data-tour-csrf="{{ csrf_token }}">
+
+    {# Swallows clicks so nothing behind the tour is pressed by accident. It also #}
+    {# carries the dimming on a step that has no element to spotlight. #}
+    <div class="tour-blocker" data-tour-blocker></div>
+
+    <div class="tour-spotlight" data-tour-spotlight hidden></div>
+
+    <div class="tour-card rounded-xl border border-slate-200 bg-white p-5 shadow-2xl"
+         data-tour-card role="dialog" aria-modal="true" aria-labelledby="tour-title" tabindex="-1">
+
+        <div class="flex items-start justify-between gap-4">
+            <p class="text-[11px] font-bold uppercase tracking-wider text-brand">
+                Step <span data-tour-index>1</span> of <span data-tour-total>1</span>
+            </p>
+            <button type="button" data-tour-skip
+                    class="shrink-0 text-xs font-medium text-slate-400 transition hover:text-brand">
+                Skip tour
+            </button>
+        </div>
+
+        <h2 id="tour-title" data-tour-title class="mt-2 font-heading text-base font-bold text-ink"></h2>
+        <p data-tour-body class="mt-1.5 text-sm leading-relaxed text-slate-600"></p>
+
+        <div class="mt-4 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+            <div class="tour-progress-fill h-full rounded-full bg-brand" data-tour-progress style="width: 0%"></div>
+        </div>
+
+        <div class="mt-4 flex items-center justify-between gap-3">
+            <button type="button" data-tour-back
+                    class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 transition hover:text-brand
+                           disabled:cursor-default disabled:text-slate-300 disabled:hover:text-slate-300">
+                Back
+            </button>
+            <button type="button" data-tour-next
+                    class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark
+                           focus:outline-none focus:ring-2 focus:ring-brand/40">
+                Next
+            </button>
+        </div>
+    </div>
+</div>
+{% endif %}

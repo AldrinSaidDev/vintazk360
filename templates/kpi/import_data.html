@@ -20,8 +20,8 @@
     {# Counted from kpi_record / kpi_import_batch — the view puts total_records, added_this_month, period and last_import in the context. #}
     {% include "partials/kpi_import_stats.html" %}
 
-    {# KPI Records. The id is where a successful save redirects to, so the modal's own fragment cannot be inherited and re-open it. #}
-    <section id="kpi-records" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+    {# KPI Records. The id is where a successful save redirects to, so the modal's own fragment cannot be inherited and re-open it. data-tour marks it as a step of the guided tour (apps/core/tour.py). #}
+    <section id="kpi-records" data-tour="kpi-records" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 class="font-heading text-base font-bold text-ink">KPI Records</h2>
 
@@ -125,15 +125,17 @@
 
                 {# Read-only roles (User, Viewer) read this table and enter nothing into it. The view refuses the POST too: a hidden button is not access control. #}
                 {% if can_edit %}
-                <a href="#importModal"
-                   class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
-                    {% icon 'upload' %} Import {% if workbook_url %}workbook{% else %}CSV{% endif %}
-                </a>
+                <span class="flex flex-wrap items-center gap-2">
+                    <a href="#importModal"
+                       class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
+                        {% icon 'upload' %} Import {% if workbook_url %}workbook{% else %}CSV{% endif %}
+                    </a>
 
-                <a href="#addRecordModal"
-                   class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                    {% icon 'plus' %} Add Record
-                </a>
+                    <a href="#addRecordModal"
+                       class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                        {% icon 'plus' %} Add Record
+                    </a>
+                </span>
                 {% endif %}
             </form>
         </div>

@@ -8,8 +8,10 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_POST
 
 from . import activity, async_content
 from .access import accessible_teams
@@ -207,3 +209,23 @@ def account_settings(request):
         'my_activity_limit': MY_ACTIVITY_LIMIT,
         'logs_url': reverse('core:logs'),
     })
+
+
+@login_required
+@require_POST
+def tour_seen(request):
+    """Mark the guided tour as done for this account.
+
+    Posted once, when the user finishes the last step or skips out. It only
+    ever clears the flag: replaying the tour from the help button leaves it
+    alone, so nothing a user does by choice can put them back into the
+    automatic first-run path.
+
+    A profile-less account (a bare superuser created before the signal) has
+    nothing to record, and that is not an error worth showing anyone.
+    """
+    profile = getattr(request.user, 'profile', None)
+    if profile is not None and profile.is_new_user:
+        profile.is_new_user = False
+        profile.save(update_fields=['is_new_user'])
+    return JsonResponse({'ok': True})

@@ -185,9 +185,20 @@
                            class="w-56 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm
                                   focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
                 </div>
-                {# Help is the same filled info icon used beside every heading in the app, so one mark means "explain this" everywhere. It carries copy now instead of only a title attribute, which a touch device never shows. Anchored right: it sits a few pixels from the viewport edge. #}
-                <span class="flex h-8 w-8 items-center justify-center">
-                    {% include "partials/info_icon.html" with text="Every panel has one of these beside its heading. Open one for what that figure means and how it is worked out." align="right" label="Help" %}
+                {# Help is the same filled info mark used beside every heading in the app, so one symbol means "explain this" everywhere. This one starts the guided tour instead of showing a single tooltip: the marks beside a heading explain one panel, this explains the app. Tooltip anchored right, since the button sits a few pixels from the viewport edge. #}
+                <span class="group relative flex h-8 w-8 items-center justify-center">
+                    <button type="button" data-tour-start aria-label="Take a tour"
+                            class="inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand
+                                   text-[9px] leading-none text-white transition hover:bg-brand-dark
+                                   focus:outline-none focus:ring-2 focus:ring-brand/40">
+                        {% icon 'info' %}
+                    </button>
+                    <span role="tooltip"
+                          class="pointer-events-none absolute right-0 top-full z-50 mt-2 hidden w-64 rounded-lg border border-brand/15 bg-white px-3.5 py-2.5
+                                 text-left text-xs font-normal normal-case leading-relaxed text-slate-600 shadow-lg
+                                 group-hover:block group-focus-within:block">
+                        Take the guided tour: the dashboard, the sidebar, and your department's screens. The small marks beside each heading explain one panel on the spot.
+                    </span>
                 </span>
                 {# Avatar menu — native <details>, no JS needed #}
                 <details class="group relative">
@@ -242,8 +253,14 @@
 {# Outside the layout block for the same reason: the login form is the first #}
 {# navigation anyone makes, and signing in to the dashboard is the slowest. #}
 {% include "partials/loader.html" %}
+
+{# Outside the layout block too: the tour is only built for a signed-in user, so #}
+{# the partial renders nothing on the login screen. #}
+{% include "partials/tour.html" %}
+
 <script src="{% static 'js/page-loader.js' %}" defer></script>
 <script src="{% static 'js/async-content.js' %}" defer></script>
+<script src="{% static 'js/tour.js' %}" defer></script>
 
 {% block scripts %}{% endblock %}
 </body>

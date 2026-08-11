@@ -87,6 +87,17 @@ class UserProfile(models.Model):
             "(both reach every team). A plain User should have exactly one."
         ),
     )
+    # True until the guided tour has been finished or skipped once. It only
+    # decides whether the tour plays BY ITSELF on the dashboard: the help
+    # button in the header replays it at any time and never sets this back.
+    is_new_user = models.BooleanField(
+        default=True,
+        verbose_name='new user',
+        help_text=(
+            "Plays the guided tour automatically the next time this user "
+            "opens the dashboard. Cleared once they finish or skip it."
+        ),
+    )
 
     def __str__(self):
         return f"{self.user.get_username()} ({self.get_role_display()})"

@@ -163,6 +163,71 @@
     .skeleton { animation: none; opacity: 0.7; }
 }
 
+/* ---- Guided tour -----------------------------------------------------------
+   The spotlight is ONE element, not four masking panels: a box the size of the
+   highlighted element with a 9999px shadow spread, so everything outside it is
+   dimmed by the same shadow that outlines it. Nothing can fall out of step,
+   because there is only one box to place.
+
+   It is placed from JS (static/js/tour.js) — position, size and the card's
+   anchor are all read off getBoundingClientRect(), so these rules carry only
+   what does not change per step. */
+.tour-blocker {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    /* Transparent by default: the dimming is the spotlight's shadow. This layer
+       only carries that dimming for a step with nothing to point at. */
+    background-color: transparent;
+    /* It does NOT catch the pointer. An overlay that swallows clicks swallows
+       the wheel with it, and the page has to stay scrollable while the tour is
+       open so the ring can follow a region taller than the screen. Clicks are
+       blocked by a capture-phase listener in tour.js instead. */
+    pointer-events: none;
+}
+
+/* A step with nothing to point at (the welcome, the sign off) dims the page
+   here instead, since there is no spotlight to cast the shadow. */
+.tour-blocker.is-dim {
+    background-color: rgba(4, 4, 4, 0.62);
+}
+
+.tour-spotlight {
+    position: fixed;
+    z-index: 81;
+    border-radius: 0.875rem;
+    /* Ring first, then the dimming spread. Accent rather than brand purple: the
+       ring sits on the dark shadow, where the lighter tone is what reads. */
+    box-shadow: 0 0 0 2px #B27FA0, 0 0 0 9999px rgba(4, 4, 4, 0.62);
+    pointer-events: none;
+}
+
+/* Moving between two steps is worth animating. Following the page as it scrolls
+   is NOT: the box is rewritten every frame there, and a transition on top of
+   that leaves the ring trailing behind the panel it is supposed to be around.
+   tour.js adds this class for the length of the move and takes it off again. */
+.tour-spotlight.is-shifting {
+    transition: top 180ms ease, left 180ms ease, width 180ms ease, height 180ms ease;
+}
+
+.tour-card {
+    position: fixed;
+    z-index: 82;
+    width: 23rem;
+    max-width: calc(100vw - 2rem);
+}
+
+/* The progress line is the step count drawn rather than counted, so the width
+   is set from JS off the same index the label prints. */
+.tour-progress-fill {
+    transition: width 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tour-spotlight.is-shifting,
+    .tour-progress-fill { transition: none; }
+}
+
 /* Category picker: the "new category" text box only appears once the dropdown's
    "Create new category" option is chosen, so the common case (pick an existing
    one) isn't cluttered by a field nobody is filling in. No JS — :has() reads the

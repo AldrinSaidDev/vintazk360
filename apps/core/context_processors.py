@@ -3,6 +3,7 @@ from importlib import import_module
 
 from django.urls import NoReverseMatch, reverse
 
+from . import async_content, tour as tour_steps
 from .access import accessible_teams, can_edit_data, is_admin
 
 # Per-team sub-navigation. Each team's dropdown shows a Dashboard link plus any
@@ -112,3 +113,37 @@ def permissions(request):
     if user is None:
         return {'can_edit': False, 'is_admin': False}
     return {'can_edit': can_edit_data(user), 'is_admin': is_admin(user)}
+
+
+def tour(request):
+    """Expose the guided tour (apps/core/tour.py) to base.html.
+
+    `tour_steps` is the whole walk-through for this user, already narrowed to
+    the screens their role can reach. `tour_autostart` is the first-run case
+    only: a profile that has never finished or skipped it, landing on the
+    dashboard, which is where the tour begins. Everywhere else it waits for the
+    help button.
+
+    Skipped for the ?partial=1 fetch. That response renders the content block
+    alone, so the tour markup in base.html is not in it and building the steps
+    would be work thrown away.
+    """
+    empty = {'tour_steps': [], 'tour_autostart': False}
+
+    user = getattr(request, 'user', None)
+    if user is None or not user.is_authenticated:
+        return empty
+    if async_content.is_partial(request):
+        return empty
+
+    steps = tour_steps.steps_for(user)
+    if not steps:
+        return empty
+
+    profile = getattr(user, 'profile', None)
+    first_run = profile is not None and profile.is_new_user
+
+    return {
+        'tour_steps': steps,
+        'tour_autostart': first_run and request.path == steps[0]['page'],
+    }
