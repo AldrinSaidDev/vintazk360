@@ -5,8 +5,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VINTAZK 360</title>
-    <link rel="icon" type="image/png" href="{% static 'img/logo_vintazk_360.png' %}">
-    <link rel="apple-touch-icon" href="{% static 'img/logo_vintazk_360.png' %}">
+    {# .ico first for older browsers, PNG after so modern ones pick the sharper file. #}
+    <link rel="icon" href="{% static 'img/favicon.ico' %}" sizes="any">
+    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'img/favicon.png' %}">
     <link rel="stylesheet" href="{% static 'fontawesome/css/font-awesome.min.css' %}">
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
 </head>
