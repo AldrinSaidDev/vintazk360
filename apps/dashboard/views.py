@@ -5,6 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 
+from apps.core import async_content
 from apps.core.access import accessible_teams
 from apps.kpi import records as kpi_records
 from apps.kpi.models import KpiDefinition, KpiRecord
@@ -266,6 +267,22 @@ def _org_summary(departments):
 @login_required
 def home(request):
     """Landing page for the dashboard (requires authentication)."""
+    # Two-stage render (apps/core/async_content.py). This page is the landing
+    # screen after sign-in and the heaviest one in the app: it walks every
+    # department the user can see and scores two periods of every KPI in each.
+    # Answering the first request with the frame and a skeleton means the sign-in
+    # lands on the dashboard immediately, and the wait for the numbers happens
+    # here with something to look at rather than on the login screen.
+    #
+    # This returns before any of that work starts. Everything below runs on the
+    # follow-up fetch.
+    if async_content.wants_shell(request):
+        return async_content.render_shell(
+            request,
+            shell_template='dashboard/shell.html',
+            skeleton='partials/skeletons/dashboard.html',
+        )
+
     # Welcome header. First name when we have one; the employee ID (username)
     # is the fallback, since that's what people log in with.
     user = request.user
@@ -299,7 +316,7 @@ def home(request):
 
     today = datetime.now(SITE_TZ).date()
 
-    return render(request, 'dashboard/home.html', {
+    return async_content.render_content(request, 'dashboard/home.html', {
         'title': 'Dashboard',
         'display_name': display_name,
         'today': today,

@@ -38,6 +38,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.core import async_content
 from apps.core import kpi as scoring
 from apps.core.access import team_required
 from apps.core.audit import log_action
@@ -113,19 +114,58 @@ class KpiScreens:
 
         guard = [login_required, team_required(team_slug)]
 
-        def wrap(view):
+        def wrap(view, shell_title=None):
+            # The shell wrapper goes on FIRST so the guards end up outside it.
+            # Reversed, an anonymous visitor would be handed a page frame before
+            # anything checked whether they may see the team at all.
+            if shell_title is not None:
+                view = self._shell_first(view, shell_title)
             for decorator in reversed(guard):
                 view = decorator(view)
             return view
 
-        self.dashboard = wrap(self._dashboard)
-        self.definitions = wrap(self._definitions)
-        self.import_data = wrap(self._import_data)
-        self.management = wrap(self._management)
+        # A shell_title means the screen renders in two stages: frame and
+        # skeleton now, data on the follow-up fetch. The downloads have no
+        # frame to paint, so they stay single-stage.
+        self.dashboard = wrap(self._dashboard, 'Dashboard')
+        self.definitions = wrap(self._definitions, 'KPI Definitions')
+        self.import_data = wrap(self._import_data, 'Import Data')
+        self.management = wrap(self._management, 'KPI Management')
         self.template = wrap(self._template)
         self.workbook = wrap(self._workbook) if workbook_template else None
         # Only a branch team has anything to roll up.
-        self.overview = wrap(self._overview) if branched else None
+        self.overview = wrap(self._overview, 'Dashboard') if branched else None
+
+    def _shell_first(self, view, shell_title):
+        """Answer a plain GET with the page frame and a skeleton, no queries.
+
+        The real view then runs on the ?partial=1 fetch that the skeleton kicks
+        off, so the skeleton is on screen for exactly as long as the data takes.
+        A POST goes straight through: it is going to redirect or to re-render
+        with its errors, and neither wants a skeleton.
+        """
+        def screen(request, *args, **kwargs):
+            if not async_content.wants_shell(request):
+                return view(request, *args, **kwargs)
+
+            # The branch is resolved even here, so a typo'd branch slug 404s
+            # now rather than painting a frame whose fetch then fails. It is one
+            # indexed lookup, and it is what titles the page.
+            branch_slug = kwargs.get('branch')
+            branch = (
+                self.branch_or_404(self.team(), branch_slug)
+                if branch_slug else None
+            )
+            return async_content.render_shell(
+                request,
+                shell_template='kpi/screen_shell.html',
+                context={
+                    'scope': self.scope_for(branch),
+                    'shell_title': shell_title,
+                },
+            )
+
+        return screen
 
     # --- shared plumbing ---------------------------------------------------
 
@@ -311,7 +351,7 @@ class KpiScreens:
         def count(status):
             return sum(1 for k in kpis if k['status'] == status)
 
-        return render(request, 'kpi/dashboard.html', {
+        return async_content.render_content(request, 'kpi/dashboard.html', {
             **self._urls(branch),
             'kpis': kpis,
             'on_track_count': count('on_track'),
@@ -345,7 +385,7 @@ class KpiScreens:
         branch = self.branch_or_404(team, branch) if branch else None
         rows = [self.row(kpi) for kpi in self.queryset(team, branch)]
 
-        return render(request, 'kpi/kpi_definitions.html', {
+        return async_content.render_content(request, 'kpi/kpi_definitions.html', {
             **self._urls(branch),
             'kpis': rows,
             'kpi_count': len(rows),
@@ -668,7 +708,7 @@ class KpiScreens:
             .order_by('-uploaded_at')[:10]
         )
 
-        return render(request, 'kpi/import_data.html', {
+        return async_content.render_content(request, 'kpi/import_data.html', {
             **self._urls(branch),
             'add_form': add_form,
             'import_form': import_form,
@@ -944,7 +984,7 @@ class KpiScreens:
         paginator = Paginator(kpis, PAGE_SIZE)
         page = paginator.get_page(request.GET.get('page'))
 
-        return render(request, 'kpi/kpi_management.html', {
+        return async_content.render_content(request, 'kpi/kpi_management.html', {
             **self._urls(branch),
             'form': form,
             'open_create_modal': open_create_modal,
@@ -1031,7 +1071,7 @@ class KpiScreens:
 
         today = timezone.localdate()
 
-        return render(request, 'kpi/branch_overview.html', {
+        return async_content.render_content(request, 'kpi/branch_overview.html', {
             'scope': self.scope,
             'branches': cards,
             'branch_count': len(cards),

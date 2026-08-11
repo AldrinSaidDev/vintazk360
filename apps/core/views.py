@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
-from . import activity
+from . import activity, async_content
 from .access import accessible_teams
 from .models import AuditLog
 
@@ -46,7 +46,17 @@ def logs(request):
     Scoped by `activity.visible_to`: an admin sees everything, everyone else
     sees their teams' entries plus their own. Filters are plain GET, so a
     filtered view is a URL somebody can send to somebody else.
+
+    Two-stage render (apps/core/async_content.py): the frame comes back at once
+    and the entries arrive on the follow-up fetch. This page scans and paginates
+    the whole audit table, and the filters make that cost vary a lot from one
+    view to the next, which is exactly when a skeleton earns its place.
     """
+    if async_content.wants_shell(request):
+        return async_content.render_shell(
+            request, shell_template='core/logs_shell.html',
+        )
+
     entries = activity.visible_to(request.user)
 
     search = request.GET.get('q', '').strip()
@@ -96,7 +106,7 @@ def logs(request):
     # a team whose entries would all be hidden anyway.
     modules = activity.module_options(request.user, chosen_modules)
 
-    return render(request, 'core/logs.html', {
+    return async_content.render_content(request, 'core/logs.html', {
         'title': 'Logs',
         'entries': activity.rows(page.object_list),
         'entry_count': paginator.count,
@@ -146,7 +156,16 @@ def account_settings(request):
 
     The password form is Django's ``PasswordChangeForm`` and really changes the
     password; the Activity tab is this account's own slice of `audit_log`.
+
+    Two-stage render, same as the other screens. The shell has to carry the tab
+    through: the fetch URL is rebuilt from request.GET, so ?tab=account lands
+    back on the tab the user asked for rather than resetting to Profile.
     """
+    if async_content.wants_shell(request):
+        return async_content.render_shell(
+            request, shell_template='core/settings_shell.html',
+        )
+
     tab = request.GET.get('tab', 'profile')
     if tab not in _SETTINGS_TABS:
         tab = 'profile'
@@ -169,7 +188,7 @@ def account_settings(request):
 
     profile = getattr(request.user, 'profile', None)
 
-    return render(request, 'core/settings.html', {
+    return async_content.render_content(request, 'core/settings.html', {
         'title': 'Settings',
         'tab': tab,
         'form': form,

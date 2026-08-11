@@ -1,9 +1,12 @@
 {% extends 'base.html' %}
 
-{% block title %}Sign in · Vintazk 360{% endblock %}
 
 {% block layout %}
-<div class="relative flex min-h-screen items-center justify-center overflow-hidden bg-surface p-4 sm:p-6">
+{# The gutter is the point on a phone: the card floats as a small rounded panel and #}
+{# the night sky reads around it, rather than a full-bleed white sheet hiding it. #}
+{# flex-col so the mobile lockup can stack above the card. It changes nothing at sm: the #}
+{# lockup is display:none there, leaving the card as the only child either way. #}
+<div class="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-surface p-5 sm:p-6">
     {# Backdrop — night-sky forest photo, out of focus and dimmed #}
     <div class="pointer-events-none absolute inset-0 scale-125"
          style="background-image: url('/media/beautiful-constellations-tall-trees.jpg'); background-size: cover; background-position: center; filter: blur(48px) brightness(0.5);"></div>
@@ -12,10 +15,13 @@
          style="background: radial-gradient(80% 70% at 50% 45%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.5) 100%);"></div>
 
     {# Resting sky — the North Star holds the upper right; the Big Dipper watches from below, pointers aimed at it #}
-    <span id="resting-star" class="resting-sky absolute right-[7%] top-[12%] hidden cursor-pointer text-2xl leading-none text-white/80 drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-opacity duration-500 sm:block">✦</span>
-    <div id="resting-dipper" class="resting-sky absolute bottom-[9%] left-[4%] hidden cursor-pointer transition-opacity duration-500 sm:block">
+    {# Shown on a phone too: the card is a small floating panel there, so the sky around #}
+    {# it is visible and these are what make it a sky rather than a flat backdrop. The #}
+    {# Dipper steps down a size so it clears the card on a narrow screen. #}
+    <span id="resting-star" class="resting-sky absolute right-[7%] top-[6%] cursor-pointer text-2xl leading-none text-white/80 drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] transition-opacity duration-500 sm:top-[12%]">✦</span>
+    <div id="resting-dipper" class="resting-sky absolute bottom-[4%] left-[4%] cursor-pointer transition-opacity duration-500 sm:bottom-[9%]">
         <span id="dipper-anger" class="pointer-events-none absolute -right-2 -top-7 hidden font-heading text-3xl font-black leading-none text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.6)]">!</span>
-        <svg class="w-44 rotate-3" viewBox="0 0 62 30" fill="none">
+        <svg class="w-28 rotate-3 sm:w-44" viewBox="0 0 62 30" fill="none">
             <polyline points="4,22 16,16 27,13 38,11 41,25 58,22 56,6 38,11"
                       stroke="#ffffff" stroke-opacity="0.5" stroke-width="0.6"
                       stroke-linecap="round" stroke-linejoin="round"/>
@@ -31,7 +37,28 @@
         </svg>
     </div>
 
-    <div id="auth-card" class="group relative z-10 h-screen w-full animate-fade-up overflow-hidden bg-white shadow-2xl ring-1 ring-white/10 sm:h-[680px] sm:max-w-5xl sm:rounded-2xl" data-revealed="false">
+    {# Phone-only lockup. The dark half that normally carries the brand is hidden below sm, #}
+    {# so without this the sign-in screen never names the product. Same editorial stack as #}
+    {# that panel, a size down, width-matched to the card so the rule ends on its edge. #}
+    <div class="relative z-10 mb-6 w-full max-w-sm shrink-0 text-white sm:hidden">
+        <p class="font-heading text-2xl font-black leading-none tracking-tight">VINTAZK</p>
+        <div class="mt-1 flex items-center gap-3">
+            <p class="font-heading text-2xl font-black leading-none tracking-tight text-accent">360<span class="align-super text-xs leading-none">✦</span></p>
+            <span class="h-px flex-1 bg-white/25"></span>
+        </div>
+        <p class="mt-2 text-[9px] font-semibold uppercase tracking-[0.35em] text-white/50">Nexzys Intelligence</p>
+    </div>
+
+    {# Below sm the card is sized by its content, capped at the viewport: a fixed 100vh #}
+    {# card would clip whatever does not fit (a landscape phone is ~375px tall against a #}
+    {# ~470px form) and mobile browsers count the address bar against vh, so 100vh is #}
+    {# taller than the screen anyway. The cap plus a flex column is what lets the form #}
+    {# panel below scroll inside the card instead. The 9rem is the p-5 gutter plus the #}
+    {# lockup above; the outer clips rather than scrolls, so the column has to fit. #}
+    {# At sm it is the fixed 680px panel the two absolutely-positioned halves need, but #}
+    {# clamped to the viewport: a landscape phone is wide enough to be past sm and only #}
+    {# ~375px tall, and an unclamped 680px card would have both ends cut off. #}
+    <div id="auth-card" class="group relative z-10 flex max-h-[calc(100vh-9rem)] w-full max-w-sm animate-fade-up flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-white/10 sm:block sm:h-[min(680px,calc(100vh-3rem))] sm:max-h-none sm:max-w-5xl" data-revealed="false">
 
         {# LEFT HALF — real night sky: Big Dipper + Little Dipper (Polaris at its handle's tip) #}
         <div class="absolute inset-y-0 left-0 z-0 hidden w-1/2 flex-col justify-between overflow-hidden bg-surface px-14 py-12 text-white sm:flex"
@@ -58,8 +85,12 @@
         </div>
 
         {# RIGHT HALF — Login form #}
-        <div class="absolute inset-y-0 right-0 flex w-full flex-col justify-center px-8 sm:w-1/2 sm:px-16">
-            <div class="mx-auto w-full max-w-sm">
+        {# In flow below sm, where it is the card's only content and scrolls inside the #}
+        {# card's viewport cap; absolute at sm, where it is one half of a fixed-height #}
+        {# card and the sky occupies the other. Centred with auto margins rather than #}
+        {# justify-center, which clips the top of a child too tall to fit. #}
+        <div class="relative flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-6 py-8 sm:absolute sm:inset-y-0 sm:right-0 sm:w-1/2 sm:flex-none sm:px-16 sm:py-0">
+            <div class="m-auto w-full max-w-sm">
                 <h1 class="font-heading text-3xl font-black uppercase tracking-[0.2em] text-ink">Sign In</h1>
                 <p class="mt-2 text-sm text-slate-500">Use your Employee ID to continue.</p>
 
@@ -72,7 +103,10 @@
                 </div>
                 {% endif %}
 
-                <form method="post" action="{% url 'login' %}" class="mt-8 space-y-5">
+                {# data-no-loader: signing in must not dim the login screen. The #}
+                {# wait belongs to the dashboard, which paints its own skeleton the #}
+                {# moment it arrives and holds it until the numbers are ready. #}
+                <form method="post" action="{% url 'login' %}" class="mt-8 space-y-5" data-no-loader>
                     {% csrf_token %}
 
                     <div>
@@ -114,8 +148,9 @@
                 </p>
             </div>
 
-            {# Footer — anchored to the card bottom #}
-            <div class="absolute inset-x-0 bottom-6 text-center">
+            {# Footer — anchored to the card bottom once there is room to spare. In the #}
+            {# scrolling column it sits in flow instead, so it cannot land on the form. #}
+            <div class="mt-8 shrink-0 text-center sm:absolute sm:inset-x-0 sm:bottom-6 sm:mt-0">
                 <p class="text-[11px] tracking-wide text-slate-400">
                     Powered by <span class="font-semibold text-brand">Nexzys Intelligence</span>
                 </p>

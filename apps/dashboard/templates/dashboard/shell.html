@@ -1,0 +1,7 @@
+{# Stage 1 for the Overall Dashboard: the frame and a skeleton, no queries. #}
+{# The heading is a constant, so this response needs nothing from the database. #}
+{% extends 'base.html' %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}{% include "partials/async_content.html" %}{% endblock %}

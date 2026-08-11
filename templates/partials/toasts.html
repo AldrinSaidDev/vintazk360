@@ -5,7 +5,10 @@
 {# drives the countdown: the toast is removed when that animation ends, so hovering #}
 {# pauses the animation and the dismissal together. #}
 {% if messages %}
-<div class="pointer-events-none fixed bottom-5 right-4 z-[9999] flex flex-col items-end gap-3 sm:right-6"
+{# data-toast-region: when this renders inside an async fragment, async-content.js #}
+{# lifts it back out to <body>, so the rule above holds however it got here. #}
+<div data-toast-region
+     class="pointer-events-none fixed bottom-5 right-4 z-[9999] flex flex-col items-end gap-3 sm:right-6"
      role="status"
      aria-live="polite">
 

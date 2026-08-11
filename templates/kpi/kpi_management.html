@@ -1,7 +1,9 @@
-{% extends 'base.html' %}
+{# Parent is a variable so this one file serves both stages of the render: #}
+{# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
+{# fetch. See apps/core/async_content.py. #}
+{% extends base_template|default:"base.html" %}
 {% load icons static %}
 
-{% block title %}KPI Management · {{ scope.title }} · Vintazk 360{% endblock %}
 {% block page_title %}KPI Management{% endblock %}
 {% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
 
@@ -45,9 +47,11 @@
                     </summary>
 
                     {# Two columns, each scrolling on its own, so a team with many categories cannot push Apply off the bottom of the screen. #}
-                    <div class="absolute right-0 z-30 mt-2 w-[28rem] max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-slate-200 bg-white text-left shadow-xl">
+                    {# Below sm it is pinned to the viewport instead of anchored to the button: a 28rem panel hung off right-0 on a phone runs off the left edge, and the Filter button can sit anywhere in this wrapping form. Vertical placement is unchanged, since a fixed box with no top/bottom stays where it would have been. #}
+                    <div class="fixed inset-x-4 z-30 mt-2 flex max-h-[75vh] flex-col rounded-xl border border-slate-200 bg-white text-left shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:w-[28rem] sm:max-w-[calc(100vw-3rem)]">
 
-                        <div class="grid grid-cols-2 gap-4 p-4">
+                        {# One column on a phone; the panel scrolls as a whole so the taller stack cannot bury Apply. #}
+                        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 sm:grid-cols-2">
 
                             <fieldset class="min-w-0">
                                 <legend class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Category</legend>
@@ -64,7 +68,8 @@
                                 </div>
                             </fieldset>
 
-                            <fieldset class="min-w-0 border-l border-slate-100 pl-4">
+                            {# The divider follows the layout: a left rule between two columns, a top rule between two stacked rows. #}
+                            <fieldset class="min-w-0 border-t border-slate-100 pt-4 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
                                 <legend class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Frequency</legend>
                                 <div class="max-h-56 space-y-1 overflow-y-auto pr-1">
                                     {% for option in frequency_options %}
@@ -79,7 +84,7 @@
 
                         </div>
 
-                        <div class="flex items-center justify-between gap-3 rounded-b-xl border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+                        <div class="flex shrink-0 items-center justify-between gap-3 rounded-b-xl border-t border-slate-100 bg-slate-50/60 px-4 py-3">
                             <a href="{{ clear_url }}" class="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Clear all</a>
                             <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-dark">Apply filters</button>
                         </div>
@@ -89,7 +94,8 @@
 
                 {# One workbook for the whole team, a sheet per KPI. Replaces the per-row Download column. #}
                 {% if workbook_url %}
-                <a href="{{ workbook_url }}"
+                {# data-no-loader: a download leaves this page in place, so the page loader would have nothing to hide it. #}
+                <a href="{{ workbook_url }}" data-no-loader
                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
                     {% icon 'download' %}
                     Download template
@@ -145,7 +151,7 @@
                         {% if per_kpi_templates %}
                         <td class="whitespace-nowrap px-4 py-3">
                             {# Built on demand from this KPI's own inputs, so the download always carries the current template version. #}
-                            <a href="{{ kpi.csv_url }}"
+                            <a href="{{ kpi.csv_url }}" data-no-loader
                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand">
                                 {% icon 'download' %} Download
                             </a>
@@ -331,7 +337,8 @@
 {# ---- Delete confirmation. Deleting a KPI is a soft delete, and the copy says so. ---- #}
 <div id="kpiDelete-{{ kpi.slug }}"
      class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
-    <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+    {# Scrolls rather than clipping: on a landscape phone the copy plus the confirm row is taller than the viewport. #}
+    <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div class="px-6 pb-5 pt-6">
             <div class="flex items-start gap-4">
                 <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>

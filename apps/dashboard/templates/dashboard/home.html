@@ -1,8 +1,10 @@
-{% extends 'base.html' %}
+{# Parent is a variable so this one file serves both stages of the render: #}
+{# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
+{# fetch. See apps/core/async_content.py. #}
+{% extends base_template|default:"base.html" %}
 {% load icons %}
 {% load static %}
 
-{% block title %}Dashboard · Vintazk 360{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
@@ -340,16 +342,19 @@
 
             <div class="max-h-[19rem] space-y-2 overflow-y-auto pr-1">
                 {% for dept in departments %}{% if dept.avg is not None %}
-                <div class="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-50">
-                    <span class="w-40 shrink-0 truncate text-xs font-medium text-ink">{{ dept.name }}</span>
+                {# The name and the above/below label are both fixed-width, so on a phone they leave the bar nothing to fill. #}
+                {# The name gives up width first, then the label drops: the bar and the figure are what the row is for, and #}
+                {# the bar's own colour already says which side of the average it sits on. #}
+                <div class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-slate-50 sm:gap-3">
+                    <span class="w-24 shrink-0 truncate text-xs font-medium text-ink sm:w-40">{{ dept.name }}</span>
 
                     <span class="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                         <span class="block h-full rounded-full {% if dept.avg >= 100 %}bg-status-good{% elif dept.avg >= 90 %}bg-status-warn{% else %}bg-status-bad{% endif %}"
                               style="width: {{ dept.bar_pct }}%"></span>
                     </span>
 
-                    <span class="w-14 shrink-0 text-right text-xs font-bold text-ink">{{ dept.avg }}%</span>
-                    <span class="w-24 shrink-0 text-right text-[11px]">
+                    <span class="w-12 shrink-0 text-right text-xs font-bold text-ink sm:w-14">{{ dept.avg }}%</span>
+                    <span class="hidden w-24 shrink-0 text-right text-[11px] sm:inline-block">
                         {% if dept.avg >= org.attainment %}
                             <span class="text-status-good">{% icon 'long-arrow-up' %} above avg</span>
                         {% else %}

@@ -1,11 +1,13 @@
-{% extends 'base.html' %}
+{# Parent is a variable so this one file serves both stages of the render: #}
+{# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
+{# fetch. See apps/core/async_content.py. #}
+{% extends base_template|default:"base.html" %}
 {% load static %}
 
 {# A branch team's own Dashboard. Unlike a flat LOB this one rolls its branches #}
 {# up: tiles and chart score every branch at once, then the branch cards below #}
 {# are the way into each one. Built by KpiScreens._overview() in apps/kpi/screens.py. #}
 
-{% block title %}{{ scope.title }} Dashboard · Vintazk 360{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 {% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
 

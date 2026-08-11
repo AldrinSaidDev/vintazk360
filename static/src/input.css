@@ -106,26 +106,61 @@
 }
 
 /* ---- Loaders ---------------------------------------------------------------
-   Simple spinner for loading states. Used across pages, tables, and modals. */
+   Simple spinner for loading states. Used across pages, tables, and modals.
+   The element carries its own width/height (Tailwind h-/w- in the partial); this
+   rule only draws the ring, so one class works at every size. */
 @keyframes loader-spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
 
 .loader-spinner {
-    border: 2px solid currentColor;
+    border-style: solid;
+    border-color: currentColor;
     border-top-color: transparent;
     border-radius: 50%;
     animation: loader-spin 0.8s linear infinite;
 }
 
-.loader-overlay {
-    background-color: rgba(4, 4, 4, 0.6);
+/* The page overlay. It has no duration of its own: JS shows it when a navigation
+   starts and the arriving document is what removes it, so it lasts exactly as
+   long as the server takes. The 120ms delay before it fades in is the one piece
+   of timing here, and it only decides whether the overlay is worth showing at
+   all: a navigation that finishes faster than that never flashes anything. */
+/* A light scrim, not a dark one: the spinner is brand purple, which needs a pale
+   ground to read against. The page underneath stays legible while it shows. */
+.page-loader {
+    background-color: rgba(248, 250, 252, 0.75);
     backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+}
+
+.page-loader.is-active {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 150ms linear 120ms;
+}
+
+/* Skeleton placeholders. The pulse is doing a job rather than decorating: a bar
+   that never moves reads as an empty field the page failed to fill, and the whole
+   point of a skeleton is to say "this is coming". Kept slow and low-contrast so a
+   screen of them does not flicker. */
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+.skeleton {
+    background-color: #e2e8f0;
+    border-radius: 0.375rem;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
     .loader-spinner { animation: none; opacity: 0.6; }
+    .page-loader.is-active { transition: none; }
+    .skeleton { animation: none; opacity: 0.7; }
 }
 
 /* Category picker: the "new category" text box only appears once the dropdown's
@@ -200,6 +235,21 @@
 }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
     background-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Off-canvas sidebar, below md only. Above md the sidebar is a static column and
+   these rules do not exist, so Tailwind's md:flex is the only thing deciding it.
+   Opened with :target (href="#sidebar"), the same no-JS mechanism as the modals:
+   a nav link navigates away, which drops the fragment, so the drawer closes by
+   itself on the way to the next page. Declared AFTER @tailwind utilities so the
+   display rule beats the `hidden`/`flex` utilities on the same element. */
+@media (max-width: 767px) {
+    .sidebar-drawer {
+        display: none;
+    }
+    .sidebar-drawer:target {
+        display: flex;
+    }
 }
 
 /* Space Grotesk — vendored locally (see static/fonts/), used for headings. */

@@ -1,7 +1,9 @@
-{% extends 'base.html' %}
+{# Parent is a variable so this one file serves both stages of the render: #}
+{# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
+{# fetch. See apps/core/async_content.py. #}
+{% extends base_template|default:"base.html" %}
 {% load icons %}
 
-{% block title %}Logs · Vintazk 360{% endblock %}
 {% block page_title %}Logs{% endblock %}
 
 {% block content %}
@@ -41,8 +43,9 @@
                         {% if active_filter_count %}<span class="rounded-full bg-white/25 px-1.5 text-[11px] font-bold">{{ active_filter_count }}</span>{% endif %}
                     </summary>
 
-                    <div class="absolute right-0 z-20 mt-2 w-[26rem] rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
-                        <div class="grid grid-cols-2 gap-4">
+                    {# Below sm it is pinned to the viewport rather than anchored to the button: a 26rem panel hung off right-0 on a phone runs off the left edge. Vertical placement is unchanged, since a fixed box with no top/bottom stays where it would have been. #}
+                    <div class="fixed inset-x-4 z-20 mt-2 flex max-h-[75vh] flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-lg sm:absolute sm:inset-x-auto sm:right-0 sm:w-[26rem] sm:max-w-[calc(100vw-3rem)]">
+                        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto sm:grid-cols-2">
                             <div>
                                 <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Module</p>
                                 <div class="max-h-56 space-y-1.5 overflow-auto pr-1">
@@ -69,7 +72,7 @@
                             </div>
                         </div>
 
-                        <div class="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                        <div class="mt-4 flex shrink-0 items-center justify-between border-t border-slate-100 pt-3">
                             <a href="{{ clear_url }}" class="text-xs font-medium text-slate-500 transition hover:text-brand">Clear all</a>
                             <button type="submit" class="rounded-lg bg-brand px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-dark">Apply</button>
                         </div>

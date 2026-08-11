@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Vintazk 360{% endblock %}</title>
+    <title>VINTAZK 360</title>
     <link rel="icon" type="image/png" href="{% static 'img/logo_vintazk_360.png' %}">
     <link rel="apple-touch-icon" href="{% static 'img/logo_vintazk_360.png' %}">
     <link rel="stylesheet" href="{% static 'fontawesome/css/font-awesome.min.css' %}">
@@ -17,8 +17,17 @@
     {# ============ Sidebar ============ #}
     {# Capped at viewport height and pinned, so opening several team dropdowns #}
     {# scrolls the nav instead of pushing the list off the bottom of the screen. #}
+    {# Below md it is an off-canvas drawer opened by the header's menu button; the #}
+    {# show/hide is `.sidebar-drawer:target` in input.css, so it needs no JS and a #}
+    {# nav link closes it simply by navigating away from the fragment. #}
     <aside id="sidebar"
-           class="hidden w-[17.5rem] shrink-0 flex-col bg-surface text-slate-300 transition-all duration-200 md:sticky md:top-0 md:flex md:h-screen">
+           class="sidebar-drawer fixed bottom-0 left-0 top-0 z-50 w-[17.5rem] shrink-0 flex-col bg-surface text-slate-300 md:sticky md:bottom-auto md:left-auto md:top-0 md:z-auto md:flex md:h-screen">
+
+        {# Scrim — inside the aside on purpose: the aside is the only thing :target #}
+        {# shows, so the dimmed backdrop appears and disappears with it, no sibling #}
+        {# selector needed. Tapping it clears the fragment and closes the drawer. #}
+        <a href="#" aria-label="Close menu"
+           class="fixed inset-y-0 left-[17.5rem] right-0 bg-ink/50 backdrop-blur-sm md:hidden"></a>
 
         {# Logo — outside the scroller, so it never scrolls away. #}
         <div class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-surface px-6 py-6">
@@ -29,6 +38,11 @@
             <span class="twinkle-star shrink-0 leading-none text-blush" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M12 0c0 6.63-5.37 12-12 12 6.63 0 12 5.37 12 12 0-6.63 5.37-12 12-12-6.63 0-12-5.37-12-12z"/></svg>
             </span>
+            {# Close, drawer only. At md the sidebar is a permanent column with nothing to close. #}
+            <a href="#" aria-label="Close menu"
+               class="relative z-10 ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white md:hidden">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
         </div>
 
         {# Nav — the only scrolling region. min-h-0 lets this flex child shrink #}
@@ -151,23 +165,28 @@
     <div class="flex min-w-0 flex-1 flex-col">
 
         {# ---- Top bar ---- #}
-        <header class="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
-            <div class="flex items-center gap-3">
-                <h1 class="font-heading text-lg font-bold text-ink">{% block page_title %}Dashboard{% endblock %}</h1>
-                {% block dept_badge %}{% endblock %}
+        <header class="flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 sm:px-6">
+            {# min-w-0 so a long page title truncates instead of pushing the avatar off the screen. #}
+            <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+                {# Menu, below md only: the sidebar is off-canvas there and this is the only way to it. #}
+                <a href="#sidebar" aria-label="Open menu"
+                   class="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-brand md:hidden">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"/></svg>
+                </a>
+                <h1 class="truncate font-heading text-base font-bold text-ink sm:text-lg">{% block page_title %}Dashboard{% endblock %}</h1>
+                {# The badge repeats the department the drawer already names, and it is the first thing to go when space is tight. #}
+                <span class="hidden shrink-0 sm:inline">{% block dept_badge %}{% endblock %}</span>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex shrink-0 items-center gap-2 sm:gap-3">
                 <div class="relative hidden sm:block">
                     <input type="search" placeholder="Search"
                            class="w-56 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm
                                   focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
                 </div>
-                <button type="button" title="Help"
-                        class="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-brand">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>
-                    </svg>
-                </button>
+                {# Help is the same filled info icon used beside every heading in the app, so one mark means "explain this" everywhere. It carries copy now instead of only a title attribute, which a touch device never shows. Anchored right: it sits a few pixels from the viewport edge. #}
+                <span class="flex h-8 w-8 items-center justify-center">
+                    {% include "partials/info_icon.html" with text="Every panel has one of these beside its heading. Open one for what that figure means and how it is worked out." align="right" label="Help" %}
+                </span>
                 {# Avatar menu — native <details>, no JS needed #}
                 <details class="group relative">
                     <summary class="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-brand hover:ring-2 hover:ring-brand/30 [&::-webkit-details-marker]:hidden">
@@ -197,11 +216,13 @@
         </main>
 
         {# ---- Footer ---- #}
-        <footer class="border-t border-slate-200 bg-white px-6 py-4">
+        <footer class="border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
             <div class="flex flex-col items-center gap-1 text-xs text-slate-400 sm:flex-row sm:justify-between">
+                {# The copyright is the only line that has to be there. The tagline and the #}
+                {# attribution are stacked padding on a phone, so they wait for the room. #}
                 <span>© {% now "Y" %} Vintazk 360. All rights reserved.</span>
-                <span class="italic">Elevating Excellence, Inspiring Innovation</span>
-                <span>A product of <span class="font-semibold text-brand">Nexzys Intelligence</span></span>
+                <span class="hidden italic sm:inline">Elevating Excellence, Inspiring Innovation</span>
+                <span class="hidden sm:inline">A product of <span class="font-semibold text-brand">Nexzys Intelligence</span></span>
             </div>
         </footer>
     </div>
@@ -215,6 +236,12 @@
 {# Outside the layout block: the login page replaces that block entirely, and the #}
 {# right-click rule has to hold there too. #}
 {% include "partials/context_menu_guard.html" %}
+
+{# Outside the layout block for the same reason: the login form is the first #}
+{# navigation anyone makes, and signing in to the dashboard is the slowest. #}
+{% include "partials/loader.html" %}
+<script src="{% static 'js/page-loader.js' %}" defer></script>
+<script src="{% static 'js/async-content.js' %}" defer></script>
 
 {% block scripts %}{% endblock %}
 </body>

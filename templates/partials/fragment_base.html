@@ -1,0 +1,16 @@
+{# Parent template for an async content fetch. #}
+{# #}
+{# A screen template extends `base_template`, which is base.html for a normal #}
+{# page and this file for a ?partial=1 request. Same file, two shapes, so no #}
+{# screen had to be split in two and there is no second copy to keep in step. #}
+{# #}
+{# It emits the content and then the scripts, in that order, because the scripts #}
+{# query the markup above them. async-content.js re-executes them after the swap. #}
+{# Flash messages, for the case where the view adds one while building the #}
+{# fragment. The shell has already rendered and consumed anything a redirect left #}
+{# behind, so this emits nothing on the normal path: `messages` is empty and the #}
+{# partial's own {% if %} short-circuits. Without it, a message raised down here #}
+{# would sit in storage and surface on whatever page the user opened next. #}
+{% include "partials/toasts.html" %}
+{% block content %}{% endblock %}
+{% block scripts %}{% endblock %}

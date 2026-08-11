@@ -1,41 +1,21 @@
-{# Reusable loader spinner for pages, tables, modals, and buttons.
-
-   Usage in templates:
-
-   Full-page overlay (default):
-     {% include "partials/loader.html" %}
-
-   Inline/embedded (e.g., in a table cell or card):
-     {% include "partials/loader.html" with variant="inline" size="md" %}
-
-   In a modal:
-     {% include "partials/loader.html" with variant="inline" size="lg" %}
-
-   Button state:
-     {% include "partials/loader.html" with variant="inline" size="sm" %}
-
-   Parameters:
-   - variant: "overlay" (default) | "inline" — overlay covers full screen, inline sits in place
-   - size: "sm" | "md" (default) | "lg" — controls spinner diameter
-   - text: optional loading text (only shown in overlay variant)
-   - dark: True/False — force dark or light mode (defaults to current theme)
-#}
+{# Reusable loading spinner. Django #}
+{# variant: "overlay" (default) covers the viewport and is driven by page-loader.js. "inline" sits where it is placed. #}
+{# size: "sm" | "md" (default) | "lg". #}
+{# text: optional line under the overlay spinner. Overlay only. #}
+{# #}
+{# Inline, in a table cell or a card:  {% include "partials/loader.html" with variant="inline" size="sm" %} #}
+{# The overlay belongs in base.html once. Do not include it per page. #}
 
 {% if variant == "inline" %}
-  {# Inline loader — no background overlay, sits where it's placed. #}
-  <div class="inline-flex items-center justify-center {% if size == 'sm' %}h-4 w-4{% elif size == 'lg' %}h-12 w-12{% else %}h-8 w-8{% endif %}" role="status" aria-label="Loading">
-    <div class="loader-spinner {% if size == 'sm' %}text-slate-400{% elif size == 'lg' %}text-slate-400{% else %}text-slate-400{% endif %}"></div>
-  </div>
+  <span class="inline-flex items-center justify-center" role="status" aria-label="Loading">
+    <span class="loader-spinner block {% if size == 'sm' %}h-4 w-4 border-2{% elif size == 'lg' %}h-10 w-10 border-[3px]{% else %}h-6 w-6 border-2{% endif %} text-brand"></span>
+  </span>
 {% else %}
-  {# Full-page overlay loader (default variant). #}
-  <div class="fixed inset-0 z-[9998] flex items-center justify-center loader-overlay" role="status" aria-label="Loading">
+  {# Starts hidden. page-loader.js adds .is-active when a navigation actually begins, and the browser removes it by loading the next document. #}
+  <div id="page-loader" class="page-loader fixed inset-0 z-[9998] flex items-center justify-center" role="status" aria-live="polite" aria-label="Loading" aria-hidden="true">
     <div class="flex flex-col items-center gap-4">
-      <div class="h-12 w-12 flex items-center justify-center" aria-hidden="true">
-        <div class="loader-spinner text-white"></div>
-      </div>
-      {% if text %}
-        <p class="text-sm font-medium text-white">{{ text }}</p>
-      {% endif %}
+      <span class="loader-spinner block h-10 w-10 border-[3px] text-brand"></span>
+      {% if text %}<p class="text-sm font-medium text-ink">{{ text }}</p>{% endif %}
     </div>
   </div>
 {% endif %}
