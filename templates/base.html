@@ -212,6 +212,10 @@
 {% include "partials/toasts.html" %}
 {% endblock %}
 
+{# Outside the layout block: the login page replaces that block entirely, and the #}
+{# right-click rule has to hold there too. #}
+{% include "partials/context_menu_guard.html" %}
+
 {% block scripts %}{% endblock %}
 </body>
 </html>

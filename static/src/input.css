@@ -7,6 +7,50 @@
     display: flex;
 }
 
+/* Right-click guard overlay. It has to be driven from JS (a context menu can
+   only be suppressed there), so it can't use the :target trick above. Plain CSS
+   rather than `hidden` + an arbitrary variant, for the reason in CLAUDE.md:
+   `hidden` and `flex` both set display and would fight on the same element. */
+.context-guard {
+    display: none;
+}
+.context-guard.is-open {
+    display: flex;
+}
+
+/* The countdown line IS the auto-close: the modal is dismissed when this
+   animation ends, so hovering pauses the bar and the dismissal together. One
+   clock, exactly as the toasts do it. The class is added on open (and re-added
+   after a reflow) so every right click restarts it from full.
+   Unlike a toast this does NOT pause on hover: the modal takes focus on open and
+   sits under the pointer where the click happened, so a hover or focus-within
+   pause would hold it open indefinitely and read as a stuck dialog. Five seconds
+   means five seconds; the button, Escape and the backdrop end it sooner. */
+/* The alert mark: a soft rose glow that breathes gently twice as the modal
+   appears, then rests. Shadow only, no movement, so nothing shifts under the
+   text the user is reading. It restarts on its own each time the modal opens,
+   because .context-guard goes display:none in between. */
+@keyframes context-guard-alert {
+    0%, 100% { box-shadow: 0 6px 18px rgb(194 91 110 / 0.22); }
+    50%      { box-shadow: 0 6px 22px rgb(194 91 110 / 0.40); }
+}
+.context-guard-alert {
+    box-shadow: 0 6px 18px rgb(194 91 110 / 0.22);
+    animation: context-guard-alert 1.6s ease-in-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+    /* The glow stays; only the movement goes. */
+    .context-guard-alert { animation: none; }
+}
+
+.context-guard-timer {
+    background: theme(colors.status.warn);
+    transform: scaleX(0);
+}
+.context-guard-timer.is-running {
+    animation: toast-timer 5s linear both;
+}
+
 /* ---- Toasts -------------------------------------------------------------
    One accent colour per message level, held as a custom property so the markup
    carries a single modifier class instead of four parallel {% if %} chains.
