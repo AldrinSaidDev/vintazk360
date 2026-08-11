@@ -3,7 +3,7 @@ from importlib import import_module
 
 from django.urls import NoReverseMatch, reverse
 
-from .access import accessible_teams
+from .access import accessible_teams, can_edit_data, is_admin
 
 # Per-team sub-navigation. Each team's dropdown shows a Dashboard link plus any
 # of these extra pages whose URL actually resolves for that team's app. Teams
@@ -97,3 +97,18 @@ def navigation(request):
         return {'nav_teams': []}
     path = request.path
     return {'nav_teams': [_team_nav(t, path) for t in accessible_teams(user)]}
+
+
+def permissions(request):
+    """Expose the write permission to every template.
+
+    `can_edit` is a ROLE test, not a team one, which is all a template needs:
+    a screen is only rendered once `team_required` has already established
+    that this user may be on it, so the only remaining question is whether
+    they may act. The view still calls `access.require_edit()` on POST, since
+    hiding a button is not access control.
+    """
+    user = getattr(request, 'user', None)
+    if user is None:
+        return {'can_edit': False, 'is_admin': False}
+    return {'can_edit': can_edit_data(user), 'is_admin': is_admin(user)}

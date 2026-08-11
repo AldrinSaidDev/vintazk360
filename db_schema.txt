@@ -12,7 +12,7 @@
 |---|---|
 | **What this enables** | Managers create their own KPIs — including the formula — download a matching CSV, fill it in, upload it, and see it scored on the dashboard |
 | **New tables** | 13, in a new `apps/kpi` Django app |
-| **Existing tables changed** | 1 — `core_userprofile.role` narrows from four roles to three |
+| **Existing tables changed** | 1 — `core_userprofile.role` gains a fifth role, `viewer` (read-only, every team) |
 | **Key idea** | A formula is stored as an **expression over named inputs**, and those inputs *are* the CSV columns |
 | **Pre-installed KPIs** | 2 (Attrition Rate, Billable Hours). The other ~80 sit in a library managers adopt from |
 | **File storage** | Uploaded CSVs go to external object storage; the database holds a pointer |
@@ -311,8 +311,8 @@ discarded.
 | Table | Purpose |
 |---|---|
 | `core_team` | One row per LOB. `slug` = URL namespace = access key. |
-| `core_userprofile` | `role` — **three values, see Part C** |
-| `core_userprofile_teams` | M2M — which teams a user may reach |
+| `core_userprofile` | `role` — **five values, see Part C** |
+| `core_userprofile_teams` | M2M — which teams a user may reach. Ignored for `superadmin` and `viewer`. |
 | `auth_user` | Django auth. Employee ID is the username for now. |
 
 ---
@@ -703,25 +703,54 @@ belongs.
 
 # PART C — Access control
 
-**Three roles.**
+**Five roles.**
 
-| Role | Teams reachable |
+| Role | Can do |
 |---|---|
-| `superadmin` | every team |
-| `admin` | every team |
-| `manager` | the teams in their `teams` M2M |
+| `superadmin` | Full system access. Manages all teams, creates/edits/deletes KPIs, manages presets, users and system settings. |
+| `admin` | Creates, edits and manages KPIs within the teams they have access to. Adopts presets, edits targets, uploads CSVs, manages KPI records. |
+| `manager` | Team or department lead. Manages KPIs, adopts presets, edits targets, uploads CSVs, creates and updates KPI records, for their assigned teams only. |
+| `user` | Read only on the dashboards of their assigned team(s). Cannot create, edit, delete or import any KPI data. |
+| `viewer` | Read only on the dashboards of every team. Cannot create, edit, delete or import any KPI data. |
 
-**Within a team every role can do everything** — create KPIs, adopt presets, edit targets, enter
-records, upload CSVs, delete records. The only axis of control is *which teams you reach*, and
-`team_required()` in `apps/core/access.py` already enforces exactly that.
+**Two axes, not one ladder.** *Which teams you reach* and *what you may do there* are separate
+questions, and `viewer` is why: it reaches everything and may change nothing. Ordering the roles on a
+single scale cannot express that.
 
-**Consequence: no new permission code is needed.** With no plain-user role, there is no
-define-vs-enter distinction to enforce. `audit_log` is what makes broad in-team permissions
-acceptable — everything anyone does is attributable after the fact.
+| | reaches every team | may write |
+|---|---|---|
+| `superadmin` | yes | yes |
+| `admin` | no, their `teams` M2M | yes |
+| `manager` | no, their `teams` M2M | yes |
+| `user` | no, their `teams` M2M | no |
+| `viewer` | yes | no |
 
-**Migration note:** `core.UserProfile.Role` currently declares four choices and the throwaway
-`demo_<team>` accounts are all `role='user'`. Removing that choice needs a data migration promoting
-them to `manager` (or deleting them) before the enum is narrowed.
+Both live in `apps/core/access.py`, one helper each, and every screen asks both:
+
+| Question | Helper | Enforced by |
+|---|---|---|
+| may I open this team's screens? | `accessible_teams()` / `can_access_team()` | `@team_required(slug)` on every LOB view, plus the sidebar context processor |
+| may I change anything here? | `can_edit_data()` / `can_edit_team()` | `require_edit()` at the top of every POST branch in `apps/kpi/screens.py` |
+| do I administer the system itself? | `is_admin()` | system-wide `audit_log` entries (sign-ins, role changes) |
+
+**Within a team, a writing role can do everything** — create KPIs, adopt presets, edit targets, enter
+records, upload files, delete records. `admin` and `manager` differ in intent (org-wide vs one
+department) rather than in capability; what separates them is how many teams get assigned.
+
+**The read-only roles are enforced server-side, not by hiding buttons.** Templates read a `can_edit`
+flag from `apps.core.context_processors.permissions` and drop the Create / Edit / Delete / Add Record
+/ Import controls and their modals, but the guard that matters is `require_edit()` in the view: the
+KPI screens serve read and write from ONE view, so a hand-made POST from a Viewer must be refused
+there. Hiding a control is presentation; the 403 is the control.
+
+**`audit_log` still carries the rest.** Broad in-team write permission is acceptable because
+everything anyone does is attributable after the fact.
+
+**Migration note:** `core.0008_userprofile_viewer_role` adds the `viewer` choice. Nothing is renamed
+or dropped, so no data has to move and the throwaway `demo_<team>` accounts stay on `role='user'` —
+which now means read-only rather than "same as manager". Existing `admin` accounts become scoped to
+their `teams` M2M, so **any admin with no teams assigned now reaches no team**: assign teams, or move
+them to `superadmin`.
 
 ---
 
@@ -787,7 +816,9 @@ write audit_log           → one `imported` entry for the batch
 3. **`kpi.0003` (data)** — auto-install the two universal KPIs (**Attrition Rate**, **Billable Hours
    Achievement**) as real `kpi_definition` rows for every team, each with the team's own target,
    plus a seed `kpi_formula_history` row per KPI recording the formula it shipped with.
-4. **`core.00XX` (data)** — promote `role='user'` profiles, then narrow the enum to three.
+4. ~~**`core.00XX` (data)** — promote `role='user'` profiles, then narrow the enum to three.~~
+   **SUPERSEDED 2026-08-11** — the enum went the other way. `core.0008_userprofile_viewer_role` adds
+   `viewer` and `user` stays as a read-only role, so no profile has to move. See Part C.
 5. **Views switch data source** — each LOB's `views.py` swaps its module-level list for a queryset.
    The row shape is deliberately identical, so the templates and the scoring math are untouched.
 6. **Then** build: Add-KPI form + formula builder → preset library screen → template download →
@@ -822,6 +853,19 @@ bucket: keep it **private**, since a public R2 URL needs no credential at all.
   rows still applied.
 - **Storage** — the object exists in the private bucket; its URL is not readable unsigned; the
   download view 403s for a manager on a different team.
+
+**Access control (Part C)**
+
+- A `viewer` opens every team's four screens and every write POST is refused: creating a KPI,
+  editing one, deleting one, adding a record, deleting a record, and uploading a file all 403.
+- A `user` gets the same refusals, and only for their own team; every other team's screens 403 at
+  `team_required` before the write check is reached.
+- The refusal is server-side: a POST assembled by hand, with no button on the page to press, is
+  still refused.
+- A `manager` writes in their assigned teams and 403s on the rest; an `admin` behaves identically,
+  differing only in how many teams are assigned.
+- The sign-in and role-change entries in the log are visible to `superadmin` / `admin` and NOT to a
+  `viewer`, who reaches every team's data but does not administer the system.
 
 **Formula history**
 

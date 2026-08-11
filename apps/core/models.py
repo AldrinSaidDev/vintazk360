@@ -31,10 +31,23 @@ class Team(models.Model):
 class UserProfile(models.Model):
     """Role + team assignment for a user.
 
-    Access model (see also the ``core.access`` helpers):
-      * SUPERADMIN / ADMIN — see every team (the ``teams`` M2M is ignored).
-      * MANAGER — sees the multiple teams in ``teams``.
-      * USER — sees only their single team (first of ``teams``).
+    Access has TWO axes, and they are separate on purpose (see the
+    ``core.access`` helpers and Part C of ``db_schema.txt``):
+
+    *Which teams you reach*
+      * SUPERADMIN — every team (the ``teams`` M2M is ignored).
+      * VIEWER — every team, read-only.
+      * ADMIN / MANAGER — the teams in ``teams``.
+      * USER — their assigned team(s), normally one.
+
+    *What you may do there*
+      * SUPERADMIN / ADMIN / MANAGER — write: create and edit KPIs, move
+        targets, enter records, upload files, delete records.
+      * USER / VIEWER — read only. Every write path is refused.
+
+    The two axes cross: a VIEWER reads everything and writes nothing, a USER
+    reads one team and writes nothing. Collapsing them into a single ladder
+    would make "read-only across the org" impossible to express.
 
     Everyone always sees the shared Dashboard regardless of role.
     """
@@ -44,6 +57,16 @@ class UserProfile(models.Model):
         ADMIN = 'admin', 'Admin'
         MANAGER = 'manager', 'Manager'
         USER = 'user', 'User'
+        VIEWER = 'viewer', 'Viewer'
+
+    # Roles that may change data, in any team they can reach. Everything else
+    # is read-only, and `access.can_edit_data()` is the one test for it.
+    WRITE_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN, Role.MANAGER})
+    # Roles whose reach is every team rather than their `teams` M2M.
+    ALL_TEAM_ROLES = frozenset({Role.SUPERADMIN, Role.VIEWER})
+    # Roles that administer the system itself (users, settings, system-wide
+    # audit entries), as opposed to a team's KPI data.
+    ADMIN_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN})
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -60,8 +83,8 @@ class UserProfile(models.Model):
         blank=True,
         related_name='members',
         help_text=(
-            "Teams this user can access. Ignored for Super Admin / Admin "
-            "(they see everything). A plain User should have exactly one."
+            "Teams this user can access. Ignored for Super Admin and Viewer "
+            "(both reach every team). A plain User should have exactly one."
         ),
     )
 
@@ -70,8 +93,22 @@ class UserProfile(models.Model):
 
     @property
     def sees_all_teams(self):
-        """Super Admin and Admin see every team."""
-        return self.role in {self.Role.SUPERADMIN, self.Role.ADMIN}
+        """Super Admin and Viewer reach every team; everyone else their own."""
+        return self.role in self.ALL_TEAM_ROLES
+
+    @property
+    def can_edit_data(self):
+        """True if this role may write KPI data in the teams it can reach.
+
+        Team reach is a separate question, answered by
+        ``access.accessible_teams()``. A write needs both.
+        """
+        return self.role in self.WRITE_ROLES
+
+    @property
+    def is_admin(self):
+        """True for the roles that administer the system, not just its data."""
+        return self.role in self.ADMIN_ROLES
 
 
 class AuditLog(models.Model):

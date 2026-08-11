@@ -102,11 +102,14 @@
                 </a>
                 {% endif %}
 
+                {# Read-only roles (User, Viewer) get the screen but not the actions. The view refuses the POST too: a hidden button is not access control. #}
+                {% if can_edit %}
                 <a href="#createKpiModal"
                     class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                     {% icon 'plus' %}
                     Create KPI
                 </a>
+                {% endif %}
             </form>
         </div>
 
@@ -121,7 +124,7 @@
                         <th class="px-4 py-3 font-semibold">Direction</th>
                         <th class="px-4 py-3 font-semibold">Frequency</th>
                         {% if per_kpi_templates %}<th class="px-4 py-3 font-semibold">CSV Template</th>{% endif %}
-                        <th class="px-4 py-3 text-right font-semibold">Actions</th>
+                        {% if can_edit %}<th class="px-4 py-3 text-right font-semibold">Actions</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -158,6 +161,7 @@
                             <span class="mt-1 block text-[11px] text-slate-400">v{{ kpi.template_version }} · {{ kpi.input_count }} input{{ kpi.input_count|pluralize }}</span>
                         </td>
                         {% endif %}
+                        {% if can_edit %}
                         <td class="whitespace-nowrap px-4 py-3 text-right">
                             <a href="#kpiEdit-{{ kpi.slug }}"
                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand">
@@ -168,10 +172,12 @@
                                 {% icon 'trash-o' %} Delete
                             </a>
                         </td>
+                        {% endif %}
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="{% if per_kpi_templates %}7{% else %}6{% endif %}" class="px-4 py-12 text-center">
+                        {# Two optional columns, so four possible widths: CSV Template and Actions each come and go. #}
+                        <td colspan="{% if per_kpi_templates %}{% if can_edit %}7{% else %}6{% endif %}{% else %}{% if can_edit %}6{% else %}5{% endif %}{% endif %}" class="px-4 py-12 text-center">
                             {% if has_any_filter %}
                             {# "Nothing here" and "nothing matches" are different problems and need different ways out. #}
                             <p class="font-heading text-sm font-bold text-ink">No KPIs match these filters</p>
@@ -185,6 +191,7 @@
                             {% else %}
                             {# With only what managers create actually stored, an empty scorecard is the most-seen screen in week one, so it gets a real state rather than a dash. #}
                             <p class="font-heading text-sm font-bold text-ink">No KPIs defined yet</p>
+                            {% if can_edit %}
                             <p class="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-slate-500">
                                 Create one to give {{ scope.title }} a scorecard. Its formula decides the columns of the CSV template you'll fill in.
                             </p>
@@ -192,6 +199,12 @@
                               class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                                 {% icon 'plus' %} Create KPI
                             </a>
+                            {% else %}
+                            {# A read-only role cannot fix this state, so it is told who can rather than offered a button that would 403. #}
+                            <p class="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-slate-500">
+                                {{ scope.title }} has no scorecard yet. Your role is read only, so ask a manager or an administrator to define its KPIs.
+                            </p>
+                            {% endif %}
                             {% endif %}
                         </td>
                     </tr>
@@ -209,6 +222,8 @@
     </section>
 </div>
 
+{# Every modal below writes, so a read-only role renders none of them. Nothing links to them either, and the view refuses the POST regardless. #}
+{% if can_edit %}
 {# ============ Edit modals — one per KPI on this page, CSS-only via :target ============ #}
 {# open_edit_slug forces the right one back open after a failed POST, when the :target fragment is gone. #}
 {% for kpi in kpis %}
@@ -385,6 +400,7 @@
 </div>
 {% endfor %}
 {% include "kpi/create_kpi_modal.html" %}
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

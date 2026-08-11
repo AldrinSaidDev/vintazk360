@@ -18,7 +18,7 @@ same reasoning as `formula_text`: store the data, render the words.
 
 from django.db.models import Q
 
-from .access import accessible_teams
+from .access import accessible_teams, is_admin as access_is_admin
 from .models import AuditLog
 
 # An action that rewrites how existing data reads is worth a second look, so it
@@ -76,12 +76,30 @@ def actions_for_modules(names):
     return [action for action, name in _SYSTEM_MODULES.items() if name in wanted]
 
 
-def sees_everything(user):
-    """True for a superuser or an admin/superadmin role.
+def sees_system_entries(user):
+    """True for the roles that may read the system's own trail.
 
-    Same test `accessible_teams` makes, named so the log can say whose view
-    this is without re-deriving the rule at each call site.
+    An entry with no team (a sign-in, a failed sign-in, a role change) is not
+    a team's data, so it is not covered by team reach. Deliberately
+    `access.is_admin`, NOT `sees_all_teams`: a Viewer reaches every team's
+    dashboards and still has no business reading who tried to sign in.
+    Reading every team is not the same as reading everything.
     """
+    return access_is_admin(user)
+
+
+def sees_whole_log(user):
+    """True if this user's log is the whole log, with nothing filtered out.
+
+    Both halves are needed: every team AND the system's own entries. Only a
+    Super Admin (or a Django superuser) has both, which is why an Admin's page
+    now says whose view it is.
+    """
+    return accessible_to_all_teams(user) and sees_system_entries(user)
+
+
+def accessible_to_all_teams(user):
+    """True if `accessible_teams` returns every team there is."""
     if not user.is_authenticated:
         return False
     if user.is_superuser:
@@ -94,34 +112,41 @@ def module_options(user, chosen):
     """Module checkboxes: the teams this user can see, plus the system areas.
 
     Offering a team whose entries would all be filtered out anyway is a filter
-    that silently returns nothing, which reads as a bug.
+    that silently returns nothing, which reads as a bug. The system areas are
+    offered on the same test, so a Viewer is not handed an Authentication
+    filter that can only ever come back empty.
     """
     names = list(accessible_teams(user).values_list('name', flat=True))
+    system = SYSTEM_MODULE_NAMES if sees_system_entries(user) else []
     return [
         {'value': name, 'label': name, 'checked': name in chosen}
-        for name in [*sorted(names), *SYSTEM_MODULE_NAMES]
+        for name in [*sorted(names), *system]
     ]
 
 
 def visible_to(user):
     """The audit entries this user is allowed to read.
 
-    Same rule as `access.accessible_teams`, with two additions that only make
-    sense for a log: an entry with no team (a sign-in, a role change) is
-    system-wide and belongs to whoever can see every team, and everyone can
-    always see their OWN entries whatever team they touched.
+    Team entries follow `access.accessible_teams` exactly, so an Admin scoped
+    to two teams reads two teams' history and not the whole org's. Two
+    additions only a log needs: an entry with NO team is the system's own
+    trail and goes to whoever administers it, and everyone always sees their
+    OWN entries whatever team they touched.
     """
     entries = AuditLog.objects.select_related('user', 'team', 'user__profile')
 
     if not user.is_authenticated:
         return entries.none()
 
-    if sees_everything(user):
+    # A superuser is the escape hatch here as everywhere else.
+    if user.is_superuser:
         return entries
 
-    return entries.filter(
-        Q(team__in=accessible_teams(user)) | Q(user=user)
-    ).distinct()
+    scope = Q(team__in=accessible_teams(user)) | Q(user=user)
+    if sees_system_entries(user):
+        scope |= Q(team__isnull=True)
+
+    return entries.filter(scope).distinct()
 
 
 def module(entry):

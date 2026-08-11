@@ -123,6 +123,8 @@
                     </div>
                 </details>
 
+                {# Read-only roles (User, Viewer) read this table and enter nothing into it. The view refuses the POST too: a hidden button is not access control. #}
+                {% if can_edit %}
                 <a href="#importModal"
                    class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
                     {% icon 'upload' %} Import {% if workbook_url %}workbook{% else %}CSV{% endif %}
@@ -132,6 +134,7 @@
                    class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                     {% icon 'plus' %} Add Record
                 </a>
+                {% endif %}
             </form>
         </div>
 
@@ -147,7 +150,7 @@
                         <th class="px-4 py-3 font-semibold">Period</th>
                         <th class="px-4 py-3 font-semibold">Status</th>
                         <th class="px-4 py-3 font-semibold">Source</th>
-                        <th class="px-4 py-3 text-right font-semibold">Actions</th>
+                        {% if can_edit %}<th class="px-4 py-3 text-right font-semibold">Actions</th>{% endif %}
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -178,16 +181,18 @@
                             {% if record.attainment %}<span class="ml-1 text-[11px] text-slate-400">{{ record.attainment }}%</span>{% endif %}
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ record.source }}</td>
+                        {% if can_edit %}
                         <td class="whitespace-nowrap px-4 py-3 text-right">
                             <a href="#recordDelete-{{ record.pk }}"
                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-status-bad hover:text-status-bad">
                                 {% icon 'trash-o' %} Delete
                             </a>
                         </td>
+                        {% endif %}
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="8" class="px-4 py-12 text-center">
+                        <td colspan="{% if can_edit %}8{% else %}7{% endif %}" class="px-4 py-12 text-center">
                             {% if has_any_filter %}
                             {# "Nothing here" and "nothing matches" are different problems and need different ways out. #}
                             <p class="font-heading text-sm font-bold text-ink">No records match these filters</p>
@@ -200,6 +205,7 @@
                             </a>
                             {% else %}
                             <p class="font-heading text-sm font-bold text-ink">No records yet</p>
+                            {% if can_edit %}
                             <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
                                 Add one by hand, or download the {% if workbook_url %}team workbook{% else %}CSV template{% endif %} from KPI Management, fill it in and upload it here.
                             </p>
@@ -207,6 +213,12 @@
                                class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                                 {% icon 'plus' %} Add Record
                             </a>
+                            {% else %}
+                            {# A read-only role cannot fill this table, so it is told who can rather than offered a button that would 403. #}
+                            <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
+                                Nothing has been reported for this team yet. Your role is read only, so ask a manager or an administrator to enter or upload the figures.
+                            </p>
+                            {% endif %}
                             {% endif %}
                         </td>
                     </tr>
@@ -274,6 +286,8 @@
     </section>
 </div>
 
+{# Every modal below writes, so a read-only role renders none of them. Nothing links to them either, and the view refuses the POST regardless. #}
+{% if can_edit %}
 {# ============ Add Performance Record modal ============ #}
 {# open_add_modal forces it back open after a failed POST, when the :target fragment is gone. #}
 <div id="addRecordModal"
@@ -509,6 +523,7 @@
     </div>
 </div>
 {% endfor %}
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

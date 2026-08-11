@@ -56,6 +56,7 @@
         {# Same empty state as KPI Management: with only what managers create stored, a bare scorecard is the most-seen screen in week one. #}
         <div class="lg:col-span-2 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
             <p class="font-heading text-sm font-bold text-ink">No KPIs defined yet</p>
+            {% if can_edit %}
             <p class="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-slate-500">
                 Create one on KPI Management. Its formula, target and cadence all show up here.
             </p>
@@ -63,6 +64,12 @@
                class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
                 Go to KPI Management
             </a>
+            {% else %}
+            {# A read-only role has nothing to do on KPI Management, so it is not sent there. #}
+            <p class="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-slate-500">
+                Nothing has been defined for this team yet. Your role is read only, so ask a manager or an administrator to set up its KPIs.
+            </p>
+            {% endif %}
         </div>
         {% endfor %}
     </div>

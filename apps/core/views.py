@@ -130,8 +130,12 @@ def logs(request):
         'page_params': _params_without_page(request),
         # Says whose log this is, since a manager and an admin see the same page
         # with very different contents.
-        'is_scoped': not activity.sees_everything(request.user),
-        'scoped_teams': accessible_teams(request.user) if not activity.sees_everything(request.user) else None,
+        'is_scoped': not activity.sees_whole_log(request.user),
+        'scoped_teams': (
+            accessible_teams(request.user)
+            if not activity.sees_whole_log(request.user)
+            else None
+        ),
     })
 
 

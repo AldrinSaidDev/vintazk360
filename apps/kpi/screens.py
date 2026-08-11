@@ -40,7 +40,7 @@ from django.utils import timezone
 
 from apps.core import async_content
 from apps.core import kpi as scoring
-from apps.core.access import team_required
+from apps.core.access import require_edit, team_required
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
 
@@ -521,6 +521,11 @@ class KpiScreens:
         open_add_modal = open_import_modal = False
 
         if request.method == 'POST':
+            # `team_required` said this user may be on the page; this says
+            # whether they may change what is on it. A User or a Viewer reads
+            # the records and is refused every write below (Part C).
+            require_edit(request.user, self.team_slug)
+
             if request.POST.get('_action') == 'delete-record':
                 # SOFT delete (design principle 7): the row leaves every table,
                 # tile and chart, but the figure, its raw operands and the
@@ -839,6 +844,11 @@ class KpiScreens:
         edit_forms = {}
 
         if request.method == 'POST':
+            # Read and write are served from one view, so the write side is
+            # guarded here rather than around the whole thing: a read-only role
+            # still gets the screen, it just cannot submit from it.
+            require_edit(request.user, self.team_slug)
+
             # One view, three modals: each form identifies itself so the create
             # form isn't bound to an edit's POST data, and vice versa.
             if request.POST.get('_action') == 'delete':
