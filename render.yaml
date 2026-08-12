@@ -61,6 +61,17 @@ services:
       - key: R2_BUCKET
         value: vintazk360-imports
 
+      # First-login bootstrap, read by render-start.sh. Free instance types have
+      # no Shell, so the first account has to be created at container start.
+      # Both steps are idempotent: an existing user and an existing KPI slug are
+      # skipped. Change this password from the app once you are in.
+      - key: DJANGO_SUPERUSER_USERNAME
+        sync: false
+      - key: DJANGO_SUPERUSER_EMAIL
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+
       # gunicorn worker count — the free instance has little memory.
       - key: WEB_CONCURRENCY
         value: "2"
