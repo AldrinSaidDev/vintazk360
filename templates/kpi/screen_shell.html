@@ -1,0 +1,13 @@
+{# Stage 1 for every shared KPI screen: the frame, painted before any query runs. #}
+{# #}
+{# It knows only what is free to know. The title and the badge come from the LOB's #}
+{# SCOPE dict, which is plain Python in the app, and the sidebar comes from the #}
+{# navigation context processor, which each page already builds. Nothing here #}
+{# touches kpi_definition or kpi_record, so this response is what the browser gets #}
+{# back immediately while the real work happens in the fetch. #}
+{% extends 'base.html' %}
+
+{% block page_title %}{{ shell_title }}{% endblock %}
+{% block dept_badge %}{% if scope.badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endif %}{% endblock %}
+
+{% block content %}{% include "partials/async_content.html" %}{% endblock %}

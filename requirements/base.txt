@@ -1,8 +1,14 @@
 # Core runtime dependencies shared by every environment.
 asgiref==3.12.1
+# S3 API client — Cloudflare R2 is S3-compatible. Used by apps/core/storage.py
+# for uploaded KPI import files; the Django ORM talks to Postgres directly.
+boto3==1.43.64
 dj-database-url==3.1.2
 Django==6.0.7
 django-icons==24.4
+# XLSX read/write for the one-workbook-per-team KPI template (apps/kpi/workbook.py).
+# Sheets are the whole point of that format, so CSV cannot serve it.
+openpyxl==3.1.5
 psycopg==3.3.4
 psycopg-binary==3.3.4
 python-dotenv==1.2.2

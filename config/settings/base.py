@@ -42,6 +42,8 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     'django_icons',
     'apps.core',
+    # KPI definitions, actuals and import history — shared by every LOB below.
+    'apps.kpi',
     'apps.dashboard',
     # Line-of-business (LOB) screens
     'apps.sales',
@@ -50,7 +52,10 @@ INSTALLED_APPS = [
     'apps.operations',
     'apps.finance',
     'apps.sitelead',
-    'apps.marketing',
+    # VCT / SMM / Content Writing are three separate departments, not one team.
+    'apps.vct',
+    'apps.smm',
+    'apps.content',
     'apps.nexzys',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -83,6 +88,8 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'apps.core.context_processors.navigation',
+                'apps.core.context_processors.permissions',
+                'apps.core.context_processors.tour',
             ],
         },
     },
@@ -100,12 +107,12 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise RuntimeError(
         'DATABASE_URL is not set. Development runs on Docker Compose (Postgres); '
-        'production points at Supabase. See .env.example.'
+        'staging/production point at Render Postgres. See .env.example.'
     )
 
-# SSL is required for remote databases (e.g. Supabase) but must be OFF for the
-# local Postgres container, which does not serve SSL. Local hosts are detected
-# automatically; set DATABASE_SSL=require or DATABASE_SSL=disable to override.
+# SSL is required for remote databases (e.g. Render Postgres) but must be OFF
+# for the local Postgres container, which does not serve SSL. Local hosts are
+# detected automatically; set DATABASE_SSL=require or =disable to override.
 DATABASE_HOST = urlparse(DATABASE_URL).hostname
 LOCAL_DB_HOSTS = {'localhost', '127.0.0.1', 'db'}
 
@@ -126,21 +133,59 @@ DATABASES = {
 }
 
 
+# Object storage — Cloudflare R2
+# https://developers.cloudflare.com/r2/api/s3/api/
+#
+# Two INDEPENDENT channels, don't confuse them:
+#   1. DATABASE_URL (above) — Django's ORM speaking Postgres. Development keeps
+#      pointing this at the local Docker container; staging points it at Render
+#      Postgres.
+#   2. The settings below — uploaded files (KPI import CSVs), which live in a
+#      Cloudflare R2 bucket and are reached over the S3 API through
+#      ``apps.core.storage``. The database stores only a pointer to them.
+#
+# R2 is S3-compatible, so the endpoint is derived from the account ID unless
+# R2_ENDPOINT_URL overrides it. The bucket must be PRIVATE — reads go through a
+# Django view that checks team access and returns a short-lived signed URL.
+
+def _r2_env(name, default=''):
+    """Read ``R2_<name>`` from the environment, trimmed."""
+    return (os.environ.get(f'R2_{name}') or default).strip()
+
+
+R2_ACCOUNT_ID = _r2_env('ACCOUNT_ID')
+R2_ACCESS_KEY_ID = _r2_env('ACCESS_KEY_ID')
+R2_SECRET_ACCESS_KEY = _r2_env('SECRET_ACCESS_KEY')
+R2_BUCKET = _r2_env('BUCKET', 'vintazk360-imports')
+
+# Cloudflare's S3 endpoint for the account. Set R2_ENDPOINT_URL only if you use
+# a jurisdiction-specific endpoint (e.g. `…r2.cloudflarestorage.com/eu`).
+R2_ENDPOINT_URL = _r2_env('ENDPOINT_URL').rstrip('/') or (
+    f'https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com' if R2_ACCOUNT_ID else ''
+)
+
+# R2 has no regions, but the S3 API requires the field — `auto` is what
+# Cloudflare's own examples pass. Timeout and signed-URL lifetime in seconds.
+R2_REGION = _r2_env('REGION', 'auto')
+R2_TIMEOUT = int(_r2_env('TIMEOUT', '10'))
+R2_SIGNED_URL_TTL = int(_r2_env('SIGNED_URL_TTL', '300'))
+
+# True once the endpoint, bucket and both keys are present. Feature code should
+# ask ``apps.core.storage.is_configured()`` rather than reading this directly.
+R2_ENABLED = bool(
+    R2_ENDPOINT_URL and R2_BUCKET and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY
+)
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
+# House rule only (see apps/core/validators.py): 6+ characters, one uppercase,
+# one special character. Django's four defaults are deliberately not used —
+# their combined help text was long and the rules overlapped this one.
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': 'apps.core.validators.PasswordPolicyValidator',
     },
 ]
 

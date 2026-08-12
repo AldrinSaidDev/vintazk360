@@ -24,6 +24,8 @@ urlpatterns = [
     # Built-in auth views: login, logout, password change/reset, etc.
     path('', include('django.contrib.auth.urls')),
     path('', include('apps.dashboard.urls')),
+    # Shared, non-LOB screens (activity log; future org-wide pages).
+    path('', include('apps.core.urls')),
 
     # Line-of-business (LOB) screens — each its own app.
     path('sales/', include('apps.sales.urls')),
@@ -32,7 +34,9 @@ urlpatterns = [
     path('operations/', include('apps.operations.urls')),
     path('finance/', include('apps.finance.urls')),
     path('sitelead/', include('apps.sitelead.urls')),
-    path('marketing/', include('apps.marketing.urls')),
+    path('vct/', include('apps.vct.urls')),
+    path('smm/', include('apps.smm.urls')),
+    path('content/', include('apps.content.urls')),
     path('nexzys/', include('apps.nexzys.urls')),
 ]
 

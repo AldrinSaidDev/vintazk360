@@ -7,7 +7,325 @@
     display: flex;
 }
 
+/* Right-click guard overlay. It has to be driven from JS (a context menu can
+   only be suppressed there), so it can't use the :target trick above. Plain CSS
+   rather than `hidden` + an arbitrary variant, for the reason in CLAUDE.md:
+   `hidden` and `flex` both set display and would fight on the same element. */
+.context-guard {
+    display: none;
+}
+.context-guard.is-open {
+    display: flex;
+}
+
+/* The countdown line IS the auto-close: the modal is dismissed when this
+   animation ends, so hovering pauses the bar and the dismissal together. One
+   clock, exactly as the toasts do it. The class is added on open (and re-added
+   after a reflow) so every right click restarts it from full.
+   Unlike a toast this does NOT pause on hover: the modal takes focus on open and
+   sits under the pointer where the click happened, so a hover or focus-within
+   pause would hold it open indefinitely and read as a stuck dialog. Five seconds
+   means five seconds; the button, Escape and the backdrop end it sooner. */
+/* The alert mark: a soft rose glow that breathes gently twice as the modal
+   appears, then rests. Shadow only, no movement, so nothing shifts under the
+   text the user is reading. It restarts on its own each time the modal opens,
+   because .context-guard goes display:none in between. */
+@keyframes context-guard-alert {
+    0%, 100% { box-shadow: 0 6px 18px rgb(194 91 110 / 0.22); }
+    50%      { box-shadow: 0 6px 22px rgb(194 91 110 / 0.40); }
+}
+.context-guard-alert {
+    box-shadow: 0 6px 18px rgb(194 91 110 / 0.22);
+    animation: context-guard-alert 1.6s ease-in-out 2;
+}
+@media (prefers-reduced-motion: reduce) {
+    /* The glow stays; only the movement goes. */
+    .context-guard-alert { animation: none; }
+}
+
+.context-guard-timer {
+    background: theme(colors.status.warn);
+    transform: scaleX(0);
+}
+.context-guard-timer.is-running {
+    animation: toast-timer 5s linear both;
+}
+
+/* ---- Toasts -------------------------------------------------------------
+   One accent colour per message level, held as a custom property so the markup
+   carries a single modifier class instead of four parallel {% if %} chains.
+   These are plain CSS, not Tailwind utilities, so the dynamic `toast-{{ level }}`
+   class name is safe from purging.
+   Declared AFTER @tailwind utilities so border-left-color beats the border
+   utility on the same element (equal specificity, later rule wins). */
+.toast {
+    --toast-accent: theme(colors.brand.DEFAULT);
+    --toast-tint: rgb(79 61 103 / 0.10);
+    border-left-color: var(--toast-accent);
+}
+.toast-success { --toast-accent: theme(colors.status.good); --toast-tint: rgb(79 61 103 / 0.10); }
+.toast-error   { --toast-accent: theme(colors.status.bad);  --toast-tint: rgb(194 91 110 / 0.12); }
+.toast-warning { --toast-accent: theme(colors.status.warn); --toast-tint: rgb(217 164 65 / 0.16); }
+
+.toast-icon { background: var(--toast-tint); color: var(--toast-accent); }
+.toast-timer { background: var(--toast-accent); }
+
+/* The countdown line IS the dismiss timer: the toast is removed when this
+   animation ends, so pausing it on hover genuinely holds the toast open long
+   enough to finish reading. One mechanism, not a bar plus a separate setTimeout
+   that could drift out of step with it. */
+@keyframes toast-timer {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+}
+.toast-timer {
+    animation: toast-timer 5s linear both;
+}
+.toast:hover .toast-timer,
+.toast:focus-within .toast-timer {
+    animation-play-state: paused;
+}
+
+/* Entry and exit are tied to the toast appearing and leaving, both under 300ms
+   (see the anti-slop guidelines). Nothing loops. */
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(0.75rem) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+    from { opacity: 1; transform: translateY(0); }
+    to   { opacity: 0; transform: translateY(0.5rem) scale(0.98); }
+}
+.toast { animation: toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.toast-leaving { animation: toast-out 260ms ease-in both; }
+
+@media (prefers-reduced-motion: reduce) {
+    /* The slide goes; the countdown stays, because it is information about how
+       long the message will remain rather than decoration. */
+    .toast, .toast-leaving { animation-duration: 1ms; }
+}
+
+/* ---- Loaders ---------------------------------------------------------------
+   Simple spinner for loading states. Used across pages, tables, and modals.
+   The element carries its own width/height (Tailwind h-/w- in the partial); this
+   rule only draws the ring, so one class works at every size. */
+@keyframes loader-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.loader-spinner {
+    border-style: solid;
+    border-color: currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: loader-spin 0.8s linear infinite;
+}
+
+/* The page overlay. It has no duration of its own: JS shows it when a navigation
+   starts and the arriving document is what removes it, so it lasts exactly as
+   long as the server takes. The 120ms delay before it fades in is the one piece
+   of timing here, and it only decides whether the overlay is worth showing at
+   all: a navigation that finishes faster than that never flashes anything. */
+/* A light scrim, not a dark one: the spinner is brand purple, which needs a pale
+   ground to read against. The page underneath stays legible while it shows. */
+.page-loader {
+    background-color: rgba(248, 250, 252, 0.75);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+}
+
+.page-loader.is-active {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 150ms linear 120ms;
+}
+
+/* Skeleton placeholders. The pulse is doing a job rather than decorating: a bar
+   that never moves reads as an empty field the page failed to fill, and the whole
+   point of a skeleton is to say "this is coming". Kept slow and low-contrast so a
+   screen of them does not flicker. */
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
+.skeleton {
+    background-color: #e2e8f0;
+    border-radius: 0.375rem;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .loader-spinner { animation: none; opacity: 0.6; }
+    .page-loader.is-active { transition: none; }
+    .skeleton { animation: none; opacity: 0.7; }
+}
+
+/* ---- Guided tour -----------------------------------------------------------
+   The spotlight is ONE element, not four masking panels: a box the size of the
+   highlighted element with a 9999px shadow spread, so everything outside it is
+   dimmed by the same shadow that outlines it. Nothing can fall out of step,
+   because there is only one box to place.
+
+   It is placed from JS (static/js/tour.js) — position, size and the card's
+   anchor are all read off getBoundingClientRect(), so these rules carry only
+   what does not change per step. */
+.tour-blocker {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    /* Transparent by default: the dimming is the spotlight's shadow. This layer
+       only carries that dimming for a step with nothing to point at. */
+    background-color: transparent;
+    /* It does NOT catch the pointer. An overlay that swallows clicks swallows
+       the wheel with it, and the page has to stay scrollable while the tour is
+       open so the ring can follow a region taller than the screen. Clicks are
+       blocked by a capture-phase listener in tour.js instead. */
+    pointer-events: none;
+}
+
+/* A step with nothing to point at (the welcome, the sign off) dims the page
+   here instead, since there is no spotlight to cast the shadow. */
+.tour-blocker.is-dim {
+    background-color: rgba(4, 4, 4, 0.62);
+}
+
+.tour-spotlight {
+    position: fixed;
+    z-index: 81;
+    border-radius: 0.875rem;
+    /* Ring first, then the dimming spread. Accent rather than brand purple: the
+       ring sits on the dark shadow, where the lighter tone is what reads. */
+    box-shadow: 0 0 0 2px #B27FA0, 0 0 0 9999px rgba(4, 4, 4, 0.62);
+    pointer-events: none;
+}
+
+/* Moving between two steps is worth animating. Following the page as it scrolls
+   is NOT: the box is rewritten every frame there, and a transition on top of
+   that leaves the ring trailing behind the panel it is supposed to be around.
+   tour.js adds this class for the length of the move and takes it off again. */
+.tour-spotlight.is-shifting {
+    transition: top 180ms ease, left 180ms ease, width 180ms ease, height 180ms ease;
+}
+
+.tour-card {
+    position: fixed;
+    z-index: 82;
+    width: 23rem;
+    max-width: calc(100vw - 2rem);
+}
+
+/* The progress line is the step count drawn rather than counted, so the width
+   is set from JS off the same index the label prints. */
+.tour-progress-fill {
+    transition: width 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tour-spotlight.is-shifting,
+    .tour-progress-fill { transition: none; }
+}
+
+/* Category picker: the "new category" text box only appears once the dropdown's
+   "Create new category" option is chosen, so the common case (pick an existing
+   one) isn't cluttered by a field nobody is filling in. No JS — :has() reads the
+   select's own state, the same trick the :target modals use.
+   Server side, the form re-selects __new__ when new_category comes back filled,
+   so a validation error re-renders with the box still open. */
+.category-picker .category-new {
+    display: none;
+}
+.category-picker:has(select option[value="__new__"]:checked) .category-new {
+    display: block;
+}
+
+/* LOB banner texture — fine dust/grain over a soft corner glow.
+   The grain is an inline SVG: fractal-noise turbulence desaturated to grey and
+   laid over the gradient at low opacity, tiling seamlessly (stitchTiles). It
+   gives the banner a surface without drawing any shapes of its own.
+   STATIC ON PURPOSE: no animation (see the anti-slop guidelines). */
+.lob-banner-texture {
+    background-image:
+        radial-gradient(120% 140% at 100% 0%, rgba(255, 255, 255, 0.15) 0%, transparent 55%),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='d' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23d)' opacity='0.5'/%3E%3C/svg%3E");
+    background-size: 100% 100%, 200px 200px;
+    background-repeat: no-repeat, repeat;
+    /* Soft-light lets the grain sit in the gradient rather than on top of it. */
+    mix-blend-mode: soft-light;
+    opacity: 0.9;
+}
+
+/* Sidebar sparkle — the login screen's North Star, carried into the shell as a
+   four-point sparkle next to the logo. It sits on the dark sidebar, so the glow
+   is white/blush like the login sky. It's an SVG, so the glow is drop-shadow
+   rather than text-shadow. Still at rest for most of the cycle with one short
+   glint, so it reads as a brand mark rather than something continuously moving
+   in the corner of the eye — just a shorter cycle, so it fires more often. */
+.twinkle-star {
+    display: inline-block;
+    animation: star-twinkle 2.4s ease-in-out infinite;
+}
+/* The glint turns a full 90° — a four-point star is symmetric at 90°, so the
+   loop lands exactly where it started and never visibly snaps back. Rest holds
+   to 55%, keeping the glint itself about as quick as it was on the 5s cycle. */
+@keyframes star-twinkle {
+    0%, 55% { opacity: 0.65; transform: scale(1) rotate(0deg);     filter: none; }
+    73%     { opacity: 1;    transform: scale(1.3) rotate(45deg);  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 14px rgba(223, 173, 182, 0.7)); }
+    87%     { opacity: 0.85; transform: scale(1.05) rotate(72deg); filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.4)); }
+    100%    { opacity: 0.65; transform: scale(1) rotate(90deg);    filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .twinkle-star { animation: none; }
+}
+
+/* Sidebar nav scroller. The nav is the only scrolling part of the sidebar (the
+   logo and Log Out sit outside it), so with several team dropdowns open the list
+   scrolls instead of running off the bottom of the screen. Thin, muted bar so it
+   doesn't fight the dark surface. */
+.sidebar-scroll {
+    scrollbar-width: thin;                                    /* Firefox */
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Off-canvas sidebar, below md only. Above md the sidebar is a static column and
+   these rules do not exist, so Tailwind's md:flex is the only thing deciding it.
+   Opened with :target (href="#sidebar"), the same no-JS mechanism as the modals:
+   a nav link navigates away, which drops the fragment, so the drawer closes by
+   itself on the way to the next page. Declared AFTER @tailwind utilities so the
+   display rule beats the `hidden`/`flex` utilities on the same element. */
+@media (max-width: 767px) {
+    .sidebar-drawer {
+        display: none;
+    }
+    .sidebar-drawer:target {
+        display: flex;
+    }
+}
+
 /* Space Grotesk — vendored locally (see static/fonts/), used for headings. */
+/* 300 is the lightest face upstream ships; font-extralight/font-thin fall back to it. */
+@font-face {
+    font-family: 'Space Grotesk';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/static/fonts/space-grotesk-latin-300-normal.woff2') format('woff2');
+}
 @font-face {
     font-family: 'Space Grotesk';
     font-style: normal;
@@ -31,6 +349,27 @@
 }
 
 /* Montserrat — vendored locally (see static/fonts/), used as the body font. */
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 100;
+    font-display: swap;
+    src: url('/static/fonts/montserrat-latin-100-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 200;
+    font-display: swap;
+    src: url('/static/fonts/montserrat-latin-200-normal.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Montserrat';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/static/fonts/montserrat-latin-300-normal.woff2') format('woff2');
+}
 @font-face {
     font-family: 'Montserrat';
     font-style: normal;

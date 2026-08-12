@@ -1,0 +1,21 @@
+{# Reusable loading spinner. Django #}
+{# variant: "overlay" (default) covers the viewport and is driven by page-loader.js. "inline" sits where it is placed. #}
+{# size: "sm" | "md" (default) | "lg". #}
+{# text: optional line under the overlay spinner. Overlay only. #}
+{# #}
+{# Inline, in a table cell or a card:  {% include "partials/loader.html" with variant="inline" size="sm" %} #}
+{# The overlay belongs in base.html once. Do not include it per page. #}
+
+{% if variant == "inline" %}
+  <span class="inline-flex items-center justify-center" role="status" aria-label="Loading">
+    <span class="loader-spinner block {% if size == 'sm' %}h-4 w-4 border-2{% elif size == 'lg' %}h-10 w-10 border-[3px]{% else %}h-6 w-6 border-2{% endif %} text-brand"></span>
+  </span>
+{% else %}
+  {# Starts hidden. page-loader.js adds .is-active when a navigation actually begins, and the browser removes it by loading the next document. #}
+  <div id="page-loader" class="page-loader fixed inset-0 z-[9998] flex items-center justify-center" role="status" aria-live="polite" aria-label="Loading" aria-hidden="true">
+    <div class="flex flex-col items-center gap-4">
+      <span class="loader-spinner block h-10 w-10 border-[3px] text-brand"></span>
+      {% if text %}<p class="text-sm font-medium text-ink">{{ text }}</p>{% endif %}
+    </div>
+  </div>
+{% endif %}

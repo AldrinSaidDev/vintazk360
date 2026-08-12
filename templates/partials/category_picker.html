@@ -1,0 +1,17 @@
+{# Category dropdown + the "new category" box, which stays hidden until the #}
+{# dropdown's "Create new category" option is chosen. #}
+{# Usage:  {% include "partials/category_picker.html" with form=form %} #}
+{# CSS-only — .category-picker in static/src/input.css keys off :has(option:checked), #}
+{# same no-JS approach as the :target modals and the <details> sidebar. #}
+<div class="category-picker">
+    <label class="mb-1.5 block text-sm font-medium text-slate-700">Category</label>
+    {{ form.category }}
+
+    <div class="category-new mt-2">
+        {{ form.new_category }}
+        <p class="mt-1.5 text-xs text-slate-400">Named categories are shared across every Operations KPI.</p>
+    </div>
+
+    {% include "partials/field_errors.html" with field=form.category %}
+    {% include "partials/field_errors.html" with field=form.new_category %}
+</div>

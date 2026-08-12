@@ -1,0 +1,169 @@
+{# Parent is a variable so this one file serves both stages of the render: #}
+{# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
+{# fetch. See apps/core/async_content.py. #}
+{% extends base_template|default:"base.html" %}
+{% load static %}
+
+{# A branch team's own Dashboard. Unlike a flat LOB this one rolls its branches #}
+{# up: tiles and chart score every branch at once, then the branch cards below #}
+{# are the way into each one. Built by KpiScreens._overview() in apps/kpi/screens.py. #}
+
+{% block page_title %}Dashboard{% endblock %}
+{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    {% include "partials/lob_banner.html" with department=scope.title north_star=scope.north_star north_star_pending=scope.north_star_pending blurb=scope.overview_blurb|default:scope.blurb icons=scope.icons lead_size=scope.lead_size count=branch_count count_label="Branches" %}
+
+    {# Summary tiles — every Sales KPI across all three branches. #}
+    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">KPIs On Track</p>
+                <span class="h-2 w-2 rounded-full bg-status-good"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-status-good">{{ on_track_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">Out of {{ kpi_count }} KPIs in {{ branch_count }} branches</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">At Risk</p>
+                <span class="h-2 w-2 rounded-full bg-status-warn"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-status-warn">{{ at_risk_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">90–99% of target</p>
+        </div>
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">Below Target</p>
+                <span class="h-2 w-2 rounded-full bg-status-bad"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-status-bad">{{ below_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">Needs attention</p>
+        </div>
+        {% if no_data_count %}
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">Awaiting Data</p>
+                <span class="h-2 w-2 rounded-full bg-slate-300"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-slate-400">{{ no_data_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">No record entered yet</p>
+        </div>
+        {% else %}
+        <div class="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between">
+                <p class="text-xs font-medium text-slate-500">No Target Set</p>
+                <span class="h-2 w-2 rounded-full bg-slate-300"></span>
+            </div>
+            <p class="mt-2 font-heading text-3xl font-bold text-slate-400">{{ monitored_count }}</p>
+            <p class="mt-1 text-xs text-slate-400">Awaiting a target value</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {# Actual vs Target — one bar per branch, not per KPI (see the view). #}
+    {% if chart_data %}
+    <section class="rounded-xl border border-slate-100 bg-white shadow-sm">
+        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <div class="flex items-center gap-1.5">
+                <h2 class="font-heading text-base font-bold text-ink">Branch Attainment</h2>
+                {% include "partials/info_icon.html" with text="Each branch's average % of target across its scored KPIs. 100% = the branch is hitting target on average. KPIs with no target aren't included." align="left" %}
+            </div>
+            <div class="flex items-center gap-4 text-xs font-medium text-slate-500">
+                <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-good"></span>On track</span>
+                <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-warn"></span>At risk</span>
+                <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-bad"></span>Below</span>
+            </div>
+        </div>
+        <div class="px-4 py-5 sm:px-6">
+            <div class="relative h-56">
+                <canvas id="kpiChart"></canvas>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    {# Branch cards — the overview, kept as the way into each branch. #}
+    <section>
+        <div class="mb-3 flex items-center gap-1.5">
+            <h2 class="font-heading text-base font-bold text-ink">Branches</h2>
+            {% include "partials/info_icon.html" with text="Where each branch stands and how its KPIs split by status. Open one for its full scorecard, definitions, and data entry." align="left" %}
+        </div>
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            {% for branch in branches %}
+            <article class="flex flex-col rounded-2xl border border-slate-200/70 bg-white p-6 shadow-sm transition hover:border-brand/30 hover:shadow-md">
+                <div class="flex items-start justify-between gap-3">
+                    <h3 class="font-heading text-lg font-bold text-ink">{{ branch.name }}</h3>
+                    {# Status → color resolved inline so Tailwind sees literal classes. #}
+                    <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold {% if branch.status == 'on_track' %}bg-status-good/10 text-status-good{% elif branch.status == 'at_risk' %}bg-status-warn/15 text-status-warn{% elif branch.status == 'below' %}bg-status-bad/10 text-status-bad{% else %}bg-slate-100 text-slate-500{% endif %}">
+                        <span class="h-1.5 w-1.5 rounded-full {% if branch.status == 'on_track' %}bg-status-good{% elif branch.status == 'at_risk' %}bg-status-warn{% elif branch.status == 'below' %}bg-status-bad{% else %}bg-slate-300{% endif %}"></span>{{ branch.status_label }}
+                    </span>
+                </div>
+                <p class="mt-2 flex-1 text-sm leading-relaxed text-slate-500">
+                    {{ branch.kpi_count }} KPI{{ branch.kpi_count|pluralize }},
+                    {% if branch.scored_count %}{{ branch.scored_count }} scored this period.{% else %}none recorded yet.{% endif %}
+                </p>
+
+                {% if branch.attainment is not None %}
+                <div class="mt-4 flex items-end justify-between">
+                    <p class="font-heading text-3xl font-black {% if branch.status == 'on_track' %}text-status-good{% elif branch.status == 'at_risk' %}text-status-warn{% else %}text-status-bad{% endif %}">{{ branch.attainment }}%</p>
+                    <p class="pb-1 text-xs text-slate-400">avg of target</p>
+                </div>
+                <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div class="h-full rounded-full {% if branch.status == 'on_track' %}bg-status-good{% elif branch.status == 'at_risk' %}bg-status-warn{% else %}bg-status-bad{% endif %}" style="width: {{ branch.bar_pct }}%"></div>
+                </div>
+                {% endif %}
+
+                {# Status split — the same buckets the branch dashboard reports. #}
+                <div class="mt-5 grid grid-cols-5 gap-2 text-center">
+                    <div class="rounded-lg bg-slate-50 px-2 py-2">
+                        <p class="font-heading text-lg font-bold text-status-good">{{ branch.on_track_count }}</p>
+                        <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">On track</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-2 py-2">
+                        <p class="font-heading text-lg font-bold text-status-warn">{{ branch.at_risk_count }}</p>
+                        <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">At risk</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-2 py-2">
+                        <p class="font-heading text-lg font-bold text-status-bad">{{ branch.below_count }}</p>
+                        <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">Below</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-2 py-2">
+                        <p class="font-heading text-lg font-bold text-slate-400">{{ branch.monitored_count }}</p>
+                        <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">No target</p>
+                    </div>
+                    <div class="rounded-lg bg-slate-50 px-2 py-2">
+                        <p class="font-heading text-lg font-bold text-slate-400">{{ branch.no_data_count }}</p>
+                        <p class="text-[10px] font-medium uppercase tracking-wide text-slate-400">No data</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 border-t border-dashed border-slate-200 pt-4">
+                    <a href="{{ branch.url }}"
+                       class="flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark">
+                        Open {{ branch.name }}
+                    </a>
+                </div>
+            </article>
+            {% empty %}
+            <div class="col-span-full rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center">
+                <p class="font-heading text-sm font-bold text-ink">No branches yet</p>
+                <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
+                    Add a KPI branch in the admin, then define what it measures.
+                </p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+
+{# Chart data as JSON — single source of truth, read by static/js/kpi-chart.js. #}
+{{ chart_data|json_script:"kpi-chart-data" }}
+{% endblock %}
+
+{% block scripts %}
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script>
+<script src="{% static 'js/kpi-chart.js' %}"></script>
+{% endblock %}

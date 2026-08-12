@@ -1,0 +1,77 @@
+# Render Blueprint — staging deployment.
+#
+# Render reads this file when you create a Blueprint from the repo
+# (Dashboard → New → Blueprint) and provisions everything in it: the Postgres
+# database and the Docker web service, already wired to each other.
+#
+# What it does NOT provision: the Cloudflare R2 bucket. The four R2_* variables
+# below are marked `sync: false`, which means Render prompts for them on first
+# deploy and never stores them in git. Fill them in from the Cloudflare
+# dashboard — see .env.example for exactly where each value comes from.
+#
+# Free plans: the web service sleeps after ~15 minutes idle (first request then
+# takes ~30s to wake) and a free Postgres instance expires after 30 days. Both
+# are fine for staging; move to a paid plan before anyone depends on it.
+
+databases:
+  - name: vintazk360-db
+    databaseName: vintazk360
+    user: vintazk360
+    plan: free
+    region: singapore
+
+services:
+  - type: web
+    name: vintazk360
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    # Migrations + collectstatic run inside this script, because the Docker
+    # build has no DATABASE_URL to migrate against.
+    dockerCommand: ./render-start.sh
+    # No healthCheckPath on purpose: SECURE_SSL_REDIRECT sends a 301 to any
+    # plain-HTTP probe, which Render would read as an unhealthy service.
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.staging
+
+      # Injected by Render from the database above — never typed by hand.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vintazk360-db
+          property: connectionString
+
+      # Generated once by Render and kept out of the repo.
+      - key: SECRET_KEY
+        generateValue: true
+
+      # ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS are derived automatically from
+      # RENDER_EXTERNAL_HOSTNAME (see config/settings/prod.py), so neither is
+      # listed here. Add them in the Render dashboard once a custom domain is
+      # attached.
+
+      # Cloudflare R2 — prompted on first deploy, stored as Render secrets.
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: vintazk360-imports
+
+      # First-login bootstrap, read by render-start.sh. Free instance types have
+      # no Shell, so the first account has to be created at container start.
+      # Both steps are idempotent: an existing user and an existing KPI slug are
+      # skipped. Change this password from the app once you are in.
+      - key: DJANGO_SUPERUSER_USERNAME
+        sync: false
+      - key: DJANGO_SUPERUSER_EMAIL
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+
+      # gunicorn worker count — the free instance has little memory.
+      - key: WEB_CONCURRENCY
+        value: "2"

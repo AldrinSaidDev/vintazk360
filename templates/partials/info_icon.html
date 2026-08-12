@@ -1,0 +1,45 @@
+{% load icons %}
+{# Small info icon next to a heading or label. Two variants, same circle geometry. #}
+{# Usage:  {% include "partials/info_icon.html" with text="What this metric means." %}  → filled, interactive #}
+{#         {% include "partials/info_icon.html" with variant="outline" %}               → unfilled, static #}
+{# Params: text    = tooltip copy. Filled variant only; without it the filled icon is static too. #}
+{#         variant = "filled" (default) | "outline". Outline is decorative — never clickable. #}
+{#         align   = tooltip anchor: "center" (default) | "left" | "right". Use left/right near a page edge #}
+{#                   so the bubble doesn't run off screen. #}
+{#         label   = accessible name for the button, default "More information". #}
+{#         class   = extra classes on the outer element (spacing, alignment). #}
+{# The tooltip is CSS-only: it opens on hover and on focus, so keyboard and touch reach it too. #}
+{# Caveat: it's absolutely positioned — an ancestor with overflow-hidden will clip it. #}
+
+{% if variant == "outline" %}
+<span aria-hidden="true"
+      class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-brand/50 text-[10px] leading-none text-brand {{ class }}">
+    {% icon 'info' %}
+</span>
+
+{% elif text %}
+{% with pos="left-1/2 -translate-x-1/2" %}
+<span class="group relative inline-flex {{ class }}">
+    <button type="button" aria-label="{{ label|default:'More information' }}"
+            class="inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand
+                   text-[9px] leading-none text-white transition hover:bg-brand-dark
+                   focus:outline-none focus:ring-2 focus:ring-brand/40">
+        {% icon 'info' %}
+    </button>
+    <span role="tooltip"
+          class="pointer-events-none absolute top-full z-50 mt-2 hidden w-64 rounded-lg border border-brand/15 bg-white px-3.5 py-2.5
+                 text-left text-xs font-normal normal-case leading-relaxed text-slate-600 shadow-lg
+                 group-hover:block group-focus-within:block
+                 {% if align == 'left' %}left-0{% elif align == 'right' %}right-0{% else %}{{ pos }}{% endif %}">
+        {{ text }}
+    </span>
+</span>
+{% endwith %}
+
+{% else %}
+{# Filled but no copy to show — render it inert rather than a button that does nothing. #}
+<span aria-hidden="true"
+      class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand text-[9px] leading-none text-white {{ class }}">
+    {% icon 'info' %}
+</span>
+{% endif %}

@@ -1,12 +1,14 @@
-{% load static %}
+{% load static %}{% load icons %}
 <!DOCTYPE html>
 <html lang="en" class="h-full">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Vintazk 360{% endblock %}</title>
-    <link rel="icon" type="image/png" href="{% static 'img/logo_vintazk_360.png' %}">
-    <link rel="apple-touch-icon" href="{% static 'img/logo_vintazk_360.png' %}">
+    <title>VINTAZK 360</title>
+    {# .ico first for older browsers, PNG after so modern ones pick the sharper file. #}
+    <link rel="icon" href="{% static 'img/favicon.ico' %}" sizes="any">
+    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'img/favicon.png' %}">
     <link rel="stylesheet" href="{% static 'fontawesome/css/font-awesome.min.css' %}">
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
 </head>
@@ -15,18 +17,39 @@
 <div id="app-shell" class="flex h-full min-h-screen">
 
     {# ============ Sidebar ============ #}
+    {# Capped at viewport height and pinned, so opening several team dropdowns #}
+    {# scrolls the nav instead of pushing the list off the bottom of the screen. #}
+    {# Below md it is an off-canvas drawer opened by the header's menu button; the #}
+    {# show/hide is `.sidebar-drawer:target` in input.css, so it needs no JS and a #}
+    {# nav link closes it simply by navigating away from the fragment. #}
     <aside id="sidebar"
-           class="hidden w-64 shrink-0 flex-col bg-surface text-slate-300 transition-all duration-200 md:flex">
+           class="sidebar-drawer fixed bottom-0 left-0 top-0 z-50 w-[17.5rem] shrink-0 flex-col bg-surface text-slate-300 md:sticky md:bottom-auto md:left-auto md:top-0 md:z-auto md:flex md:h-screen">
 
-        {# Logo #}
-        <div class="flex items-center px-6 py-6">
+        {# Scrim — inside the aside on purpose: the aside is the only thing :target #}
+        {# shows, so the dimmed backdrop appears and disappears with it, no sibling #}
+        {# selector needed. Tapping it clears the fragment and closes the drawer. #}
+        <a href="#" aria-label="Close menu"
+           class="fixed inset-y-0 left-[17.5rem] right-0 bg-ink/50 backdrop-blur-sm md:hidden"></a>
+
+        {# Logo — outside the scroller, so it never scrolls away. #}
+        <div class="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-surface px-6 py-6">
             <a href="{% url 'dashboard:home' %}" class="block leading-none" title="Vintazk 360">
                 {% include "partials/logo.html" with class="h-8" %}
             </a>
+            {# North Star sparkle — the login screen's mark, carried into the shell. #}
+            <span class="twinkle-star shrink-0 leading-none text-blush" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M12 0c0 6.63-5.37 12-12 12 6.63 0 12 5.37 12 12 0-6.63 5.37-12 12-12-6.63 0-12-5.37-12-12z"/></svg>
+            </span>
+            {# Close, drawer only. At md the sidebar is a permanent column with nothing to close. #}
+            <a href="#" aria-label="Close menu"
+               class="relative z-10 ml-auto rounded-lg p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white md:hidden">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
         </div>
 
-        {# Nav #}
-        <nav class="flex-1 space-y-1 px-3">
+        {# Nav — the only scrolling region. min-h-0 lets this flex child shrink #}
+        {# below its content height, which is what makes overflow-y-auto engage. #}
+        <nav class="sidebar-scroll min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-2">
             {% url 'dashboard:home' as home_url %}
             <a href="{{ home_url }}" title="Dashboard"
                class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
@@ -39,10 +62,13 @@
 
             {# Per-user LOB nav — each team is a dropdown; single-page teams render as one link. #}
             {% for team in nav_teams %}
-                {% if team.links|length > 1 %}
+                {% if team.links|length > 1 or team.branches %}
                     {# Auto-open this dropdown when the current page belongs to the team. #}
-                    <details class="sidebar-dropdown group/team" {% for link in team.links %}{% if request.path == link.url %}open{% endif %}{% endfor %}>
-                        <summary class="nav-link flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white [&::-webkit-details-marker]:hidden">
+                    <details class="sidebar-dropdown group/team" {% if team.active %}open{% endif %}>
+                        {# The team header goes solid brand while you're anywhere inside it, #}
+                        {# so the sidebar always names the section you're in. #}
+                        <summary class="nav-link flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium [&::-webkit-details-marker]:hidden
+                                        {% if team.active %}bg-brand text-white{% else %}text-slate-300 hover:bg-white/5 hover:text-white{% endif %}">
                             <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z"/>
                             </svg>
@@ -51,13 +77,40 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
                             </svg>
                         </summary>
-                        <div class="sidebar-label mt-1 space-y-0.5 pl-6">
+                        {# The whole sub-menu sits on one 20%-brand panel, tying the group to the #}
+                        {# solid header above it — but only for the team you're actually in, so #}
+                        {# browsing another dropdown open doesn't light it up too. #}
+                        <div class="sidebar-label mt-1 space-y-0.5 rounded-lg py-1.5 pl-6 pr-2 {% if team.active %}bg-brand/20{% endif %}">
                             {% for link in team.links %}
+                            {# Current page is marked with weight alone — a pill here would fight #}
+                            {# the panel it sits on. #}
                             <a href="{{ link.url }}"
                                class="block rounded-lg px-3 py-2 text-sm
-                                      {% if request.path == link.url %}bg-brand text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+                                      {% if request.path == link.url %}font-bold text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
                                 {{ link.label }}
                             </a>
+                            {% endfor %}
+
+                            {# Sub-teams (e.g. Sales → SEO / Lead Gen / Transitions) nest one level deeper. #}
+                            {% for branch in team.branches %}
+                            <details class="sidebar-dropdown group/branch" {% if branch.active %}open{% endif %}>
+                                <summary class="flex cursor-pointer list-none items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/5 hover:text-white [&::-webkit-details-marker]:hidden
+                                                {% if branch.active %}font-semibold text-white{% else %}text-slate-400{% endif %}">
+                                    <span class="flex-1">{{ branch.name }}</span>
+                                    <svg class="h-3.5 w-3.5 shrink-0 transition-transform group-open/branch:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
+                                    </svg>
+                                </summary>
+                                <div class="mt-0.5 space-y-0.5 border-l border-white/10 pl-3">
+                                    {% for link in branch.links %}
+                                    <a href="{{ link.url }}"
+                                       class="block rounded-lg px-3 py-1.5 text-[13px]
+                                              {% if request.path == link.url %}font-bold text-white{% else %}text-slate-400 hover:bg-white/5 hover:text-white{% endif %}">
+                                        {{ link.label }}
+                                    </a>
+                                    {% endfor %}
+                                </div>
+                            </details>
                             {% endfor %}
                         </div>
                     </details>
@@ -75,8 +128,18 @@
                 {% endif %}
             {% endfor %}
 
-            <a href="#" title="Settings"
-               class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white">
+            {% url 'core:logs' as logs_url %}
+            <a href="{{ logs_url }}" title="Logs"
+               class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                      {% if request.path == logs_url %}bg-brand text-white{% else %}text-slate-300 hover:bg-white/5 hover:text-white{% endif %}">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center text-base">{% icon 'history' %}</span>
+                <span class="sidebar-label">Logs</span>
+            </a>
+
+            {% url 'core:settings' as settings_url %}
+            <a href="{{ settings_url }}" title="Settings"
+               class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                      {% if request.path == settings_url %}bg-brand text-white{% else %}text-slate-300 hover:bg-white/5 hover:text-white{% endif %}">
                 <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -85,8 +148,8 @@
             </a>
         </nav>
 
-        {# Log out #}
-        <div class="border-t border-white/10 px-3 py-4">
+        {# Log out — pinned below the scroller so it's always reachable. #}
+        <div class="shrink-0 border-t border-white/10 px-3 py-4">
             <form method="post" action="{% url 'logout' %}">
                 {% csrf_token %}
                 <button type="submit" title="Log Out"
@@ -104,23 +167,39 @@
     <div class="flex min-w-0 flex-1 flex-col">
 
         {# ---- Top bar ---- #}
-        <header class="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
-            <div class="flex items-center gap-3">
-                <h1 class="font-heading text-lg font-bold text-ink">{% block page_title %}Dashboard{% endblock %}</h1>
-                {% block dept_badge %}{% endblock %}
+        <header class="flex h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 sm:px-6">
+            {# min-w-0 so a long page title truncates instead of pushing the avatar off the screen. #}
+            <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+                {# Menu, below md only: the sidebar is off-canvas there and this is the only way to it. #}
+                <a href="#sidebar" aria-label="Open menu"
+                   class="-ml-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-brand md:hidden">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5"/></svg>
+                </a>
+                <h1 class="truncate font-heading text-base font-bold text-ink sm:text-lg">{% block page_title %}Dashboard{% endblock %}</h1>
+                {# The badge repeats the department the drawer already names, and it is the first thing to go when space is tight. #}
+                <span class="hidden shrink-0 sm:inline">{% block dept_badge %}{% endblock %}</span>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex shrink-0 items-center gap-2 sm:gap-3">
                 <div class="relative hidden sm:block">
                     <input type="search" placeholder="Search"
                            class="w-56 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm
                                   focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
                 </div>
-                <button type="button" title="Help"
-                        class="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-brand">
-                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/>
-                    </svg>
-                </button>
+                {# Help is the same filled info mark used beside every heading in the app, so one symbol means "explain this" everywhere. This one starts the guided tour instead of showing a single tooltip: the marks beside a heading explain one panel, this explains the app. Tooltip anchored right, since the button sits a few pixels from the viewport edge. #}
+                <span class="group relative flex h-8 w-8 items-center justify-center">
+                    <button type="button" data-tour-start aria-label="Take a tour"
+                            class="inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand
+                                   text-[9px] leading-none text-white transition hover:bg-brand-dark
+                                   focus:outline-none focus:ring-2 focus:ring-brand/40">
+                        {% icon 'info' %}
+                    </button>
+                    <span role="tooltip"
+                          class="pointer-events-none absolute right-0 top-full z-50 mt-2 hidden w-64 rounded-lg border border-brand/15 bg-white px-3.5 py-2.5
+                                 text-left text-xs font-normal normal-case leading-relaxed text-slate-600 shadow-lg
+                                 group-hover:block group-focus-within:block">
+                        Take the guided tour: the dashboard, the sidebar, and your department's screens. The small marks beside each heading explain one panel on the spot.
+                    </span>
+                </span>
                 {# Avatar menu — native <details>, no JS needed #}
                 <details class="group relative">
                     <summary class="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-brand hover:ring-2 hover:ring-brand/30 [&::-webkit-details-marker]:hidden">
@@ -150,16 +229,38 @@
         </main>
 
         {# ---- Footer ---- #}
-        <footer class="border-t border-slate-200 bg-white px-6 py-4">
+        <footer class="border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
             <div class="flex flex-col items-center gap-1 text-xs text-slate-400 sm:flex-row sm:justify-between">
+                {# The copyright is the only line that has to be there. The tagline and the #}
+                {# attribution are stacked padding on a phone, so they wait for the room. #}
                 <span>© {% now "Y" %} Vintazk 360. All rights reserved.</span>
-                <span class="italic">Elevating Excellence, Inspiring Innovation</span>
-                <span>A product of <span class="font-semibold text-brand">Nexzys Intelligence</span></span>
+                <span class="hidden italic sm:inline">Elevating Excellence, Inspiring Innovation</span>
+                <span class="hidden sm:inline">A product of <span class="font-semibold text-brand">Nexzys Intelligence</span></span>
             </div>
         </footer>
     </div>
 </div>
+
+{# Outside <main> on purpose: main is the scroll container, and a toast pinned to #}
+{# the viewport should not sit inside the thing the user is scrolling. #}
+{% include "partials/toasts.html" %}
 {% endblock %}
+
+{# Outside the layout block: the login page replaces that block entirely, and the #}
+{# right-click rule has to hold there too. #}
+{% include "partials/context_menu_guard.html" %}
+
+{# Outside the layout block for the same reason: the login form is the first #}
+{# navigation anyone makes, and signing in to the dashboard is the slowest. #}
+{% include "partials/loader.html" %}
+
+{# Outside the layout block too: the tour is only built for a signed-in user, so #}
+{# the partial renders nothing on the login screen. #}
+{% include "partials/tour.html" %}
+
+<script src="{% static 'js/page-loader.js' %}" defer></script>
+<script src="{% static 'js/async-content.js' %}" defer></script>
+<script src="{% static 'js/tour.js' %}" defer></script>
 
 {% block scripts %}{% endblock %}
 </body>

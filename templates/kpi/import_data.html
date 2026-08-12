@@ -1,0 +1,585 @@
+{# Parent is a variable so this one file serves both stages of the render: #}
+{# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
+{# fetch. See apps/core/async_content.py. #}
+{% extends base_template|default:"base.html" %}
+{% load icons static %}
+
+{% block page_title %}Import Data{% endblock %}
+{% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    {# The badge and page title already name the team, so this copy stays team-neutral rather than splicing the name in. #}
+    {% if workbook_url %}
+    {% include "partials/info_banner.html" with text="Import, create, and update KPI records. Add a single entry through the form, or fill in the team workbook and upload it. The workbook carries one sheet per KPI and is downloaded from KPI Management." %}
+    {% else %}
+    {% include "partials/info_banner.html" with text="Import, create, and update KPI records. Add a single entry through the form, or upload a filled-in CSV template for bulk import. Each KPI's template is downloaded from KPI Management and carries its own columns." %}
+    {% endif %}
+
+    {# Counted from kpi_record / kpi_import_batch — the view puts total_records, added_this_month, period and last_import in the context. #}
+    {% include "partials/kpi_import_stats.html" %}
+
+    {# KPI Records. The id is where a successful save redirects to, so the modal's own fragment cannot be inherited and re-open it. data-tour marks it as a step of the guided tour (apps/core/tour.py). #}
+    <section id="kpi-records" data-tour="kpi-records" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="font-heading text-base font-bold text-ink">KPI Records</h2>
+
+            {# One GET form drives search and filters together, so applying one never clears the other. Same pattern as KPI Management. #}
+            <form method="get" class="flex flex-wrap items-center gap-2">
+
+                <div class="relative">
+                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+                    </div>
+                    <input type="search" name="q" value="{{ search }}" placeholder="Search KPI or remarks"
+                           aria-label="Search records"
+                           class="w-52 rounded-lg border border-slate-300 bg-slate-50 py-2 pl-9 pr-3 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
+                </div>
+
+                {# Native <details> popover, same no-JS pattern as the avatar menu and the sidebar. #}
+                <details class="group relative">
+                    <summary class="flex cursor-pointer list-none items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition [&amp;::-webkit-details-marker]:hidden
+                                    {% if active_filter_count %}border-brand bg-brand/10 text-brand{% else %}border-slate-300 bg-white text-slate-600 hover:border-brand hover:text-brand{% endif %}">
+                        {% icon 'filter' %}
+                        Filter
+                        {% if active_filter_count %}
+                        <span class="rounded-full bg-brand px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">{{ active_filter_count }}</span>
+                        {% endif %}
+                        <svg class="h-3.5 w-3.5 transition group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                    </summary>
+
+                    {# Four facets as a 2x2 grid rather than four narrow columns: KPI names are long and would truncate to uselessness. Each list scrolls on its own, so a team with many KPIs cannot push Apply off the bottom of the screen. #}
+                    {# Below sm it is pinned to the viewport instead of anchored to the button: a 34rem panel hung off right-0 on a phone runs off the left edge, and the Filter button can sit anywhere in this wrapping form. Vertical placement is unchanged, since a fixed box with no top/bottom stays where it would have been. #}
+                    <div class="fixed inset-x-4 z-30 mt-2 flex max-h-[75vh] flex-col rounded-xl border border-slate-200 bg-white text-left shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:w-[34rem] sm:max-w-[calc(100vw-3rem)]">
+
+                        {# One column on a phone: two 150px columns of KPI names read as nothing at all. The panel scrolls as a whole so the taller stack cannot bury Apply. #}
+                        <div class="grid min-h-0 flex-1 grid-cols-1 gap-x-4 gap-y-4 overflow-y-auto p-4 sm:grid-cols-2">
+
+                            <fieldset class="min-w-0">
+                                <legend class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">KPI</legend>
+                                <div class="max-h-48 space-y-1 overflow-y-auto pr-1">
+                                    {% for option in kpi_options %}
+                                    <label class="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition hover:bg-slate-50 has-[:checked]:bg-brand/5 has-[:checked]:font-medium has-[:checked]:text-brand-dark">
+                                        <input type="checkbox" name="kpi" value="{{ option.value }}" {% if option.checked %}checked{% endif %}
+                                               class="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand focus:ring-brand">
+                                        <span class="truncate" title="{{ option.label }}">{{ option.label }}</span>
+                                    </label>
+                                    {% empty %}
+                                    <p class="px-2 py-1.5 text-xs italic text-slate-400">No KPIs yet.</p>
+                                    {% endfor %}
+                                </div>
+                            </fieldset>
+
+                            {# The divider follows the layout: a left rule between two columns, a top rule between two stacked rows. #}
+                            <fieldset class="min-w-0 border-t border-slate-100 pt-4 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
+                                <legend class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Category</legend>
+                                <div class="max-h-48 space-y-1 overflow-y-auto pr-1">
+                                    {% for option in category_options %}
+                                    <label class="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition hover:bg-slate-50 has-[:checked]:bg-brand/5 has-[:checked]:font-medium has-[:checked]:text-brand-dark">
+                                        <input type="checkbox" name="category" value="{{ option.value }}" {% if option.checked %}checked{% endif %}
+                                               class="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand focus:ring-brand">
+                                        <span class="truncate">{{ option.label }}</span>
+                                    </label>
+                                    {% empty %}
+                                    <p class="px-2 py-1.5 text-xs italic text-slate-400">No categories yet.</p>
+                                    {% endfor %}
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="min-w-0 border-t border-slate-100 pt-4">
+                                <legend class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</legend>
+                                <div class="max-h-48 space-y-1 overflow-y-auto pr-1">
+                                    {% for option in status_options %}
+                                    <label class="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition hover:bg-slate-50 has-[:checked]:bg-brand/5 has-[:checked]:font-medium has-[:checked]:text-brand-dark">
+                                        <input type="checkbox" name="status" value="{{ option.value }}" {% if option.checked %}checked{% endif %}
+                                               class="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand focus:ring-brand">
+                                        <span class="truncate">{{ option.label }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="min-w-0 border-t border-slate-100 pt-4 sm:border-l sm:pl-4">
+                                <legend class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Source</legend>
+                                <div class="max-h-48 space-y-1 overflow-y-auto pr-1">
+                                    {% for option in source_options %}
+                                    <label class="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition hover:bg-slate-50 has-[:checked]:bg-brand/5 has-[:checked]:font-medium has-[:checked]:text-brand-dark">
+                                        <input type="checkbox" name="source" value="{{ option.value }}" {% if option.checked %}checked{% endif %}
+                                               class="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand focus:ring-brand">
+                                        <span class="truncate">{{ option.label }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                            </fieldset>
+
+                        </div>
+
+                        <div class="flex shrink-0 items-center justify-between gap-3 rounded-b-xl border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+                            <a href="{{ clear_url }}" class="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Clear all</a>
+                            <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-dark">Apply filters</button>
+                        </div>
+
+                    </div>
+                </details>
+
+                {# Read-only roles (User, Viewer) read this table and enter nothing into it. The view refuses the POST too: a hidden button is not access control. #}
+                {% if can_edit %}
+                <span class="flex flex-wrap items-center gap-2">
+                    <a href="#importModal"
+                       class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-brand hover:text-brand">
+                        {% icon 'upload' %} Import {% if workbook_url %}workbook{% else %}CSV{% endif %}
+                    </a>
+
+                    <a href="#addRecordModal"
+                       class="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                        {% icon 'plus' %} Add Record
+                    </a>
+                </span>
+                {% endif %}
+            </form>
+        </div>
+
+        {# Ten rows fit without scrolling; the cap only bites when a row wraps. Header stays put. #}
+        <div class="max-h-[34rem] overflow-auto rounded-lg border border-slate-100">
+            <table class="w-full min-w-[860px] text-left text-sm text-slate-600">
+                <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                        <th class="px-4 py-3 font-semibold">KPI</th>
+                        <th class="px-4 py-3 font-semibold">Category</th>
+                        <th class="px-4 py-3 font-semibold">Actual</th>
+                        <th class="px-4 py-3 font-semibold">Target</th>
+                        <th class="px-4 py-3 font-semibold">Period</th>
+                        <th class="px-4 py-3 font-semibold">Status</th>
+                        <th class="px-4 py-3 font-semibold">Source</th>
+                        {% if can_edit %}<th class="px-4 py-3 text-right font-semibold">Actions</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for record in records %}
+                    <tr class="transition hover:bg-slate-50/60">
+                        <td class="px-4 py-3">
+                            <span class="font-medium text-ink">{{ record.kpi }}</span>
+                            {% if record.remarks %}
+                            <span class="mt-0.5 block max-w-md truncate text-xs text-slate-400">{{ record.remarks }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-medium text-slate-500">{{ record.category }}</span>
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 font-heading font-bold text-ink">{{ record.actual }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">{{ record.target }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">{{ record.period }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {% if record.status == 'on_track' %}
+                            <span class="rounded-full bg-status-good/10 px-2.5 py-1 text-[11px] font-semibold text-status-good">{{ record.status_label }}</span>
+                            {% elif record.status == 'at_risk' %}
+                            <span class="rounded-full bg-status-warn/15 px-2.5 py-1 text-[11px] font-semibold text-status-warn">{{ record.status_label }}</span>
+                            {% elif record.status == 'below' %}
+                            <span class="rounded-full bg-status-bad/10 px-2.5 py-1 text-[11px] font-semibold text-status-bad">{{ record.status_label }}</span>
+                            {% else %}
+                            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{{ record.status_label }}</span>
+                            {% endif %}
+                            {% if record.attainment %}<span class="ml-1 text-[11px] text-slate-400">{{ record.attainment }}%</span>{% endif %}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ record.source }}</td>
+                        {% if can_edit %}
+                        <td class="whitespace-nowrap px-4 py-3 text-right">
+                            <a href="#recordDelete-{{ record.pk }}"
+                               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-status-bad hover:text-status-bad">
+                                {% icon 'trash-o' %} Delete
+                            </a>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="{% if can_edit %}8{% else %}7{% endif %}" class="px-4 py-12 text-center">
+                            {% if has_any_filter %}
+                            {# "Nothing here" and "nothing matches" are different problems and need different ways out. #}
+                            <p class="font-heading text-sm font-bold text-ink">No records match these filters</p>
+                            <p class="mx-auto mt-1.5 max-w-sm text-xs leading-5 text-slate-500">
+                                {{ total_records }} record{{ total_records|pluralize }} in total. Widen the filters to see more.
+                            </p>
+                            <a href="{{ clear_url }}"
+                               class="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-brand hover:text-brand">
+                                Clear all filters
+                            </a>
+                            {% else %}
+                            <p class="font-heading text-sm font-bold text-ink">No records yet</p>
+                            {% if can_edit %}
+                            <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
+                                Add one by hand, or download the {% if workbook_url %}team workbook{% else %}CSV template{% endif %} from KPI Management, fill it in and upload it here.
+                            </p>
+                            <a href="#addRecordModal"
+                               class="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                                {% icon 'plus' %} Add Record
+                            </a>
+                            {% else %}
+                            {# A read-only role cannot fill this table, so it is told who can rather than offered a button that would 403. #}
+                            <p class="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-500">
+                                Nothing has been reported for this team yet. Your role is read only, so ask a manager or an administrator to enter or upload the figures.
+                            </p>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if record_count %}
+        <p class="mt-4 text-xs text-slate-400">
+            Showing {{ page_obj.start_index }}&ndash;{{ page_obj.end_index }} of {{ record_count }} record{{ record_count|pluralize }}{% if has_any_filter %} matching your filters, out of {{ total_records }}{% endif %}
+        </p>
+        {% endif %}
+        {# One page of records needs no pager, and a dead one reads as broken. #}
+        {% if page_obj.paginator.num_pages > 1 %}
+        {% include "partials/pagination.html" with id="kpi-records-pager" page_obj=page_obj page_numbers=page_numbers anchor="kpi-records" extra_query=extra_query extra_params=extra_params %}
+        {% endif %}
+    </section>
+
+    {# Recent Import History #}
+    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+        <h2 class="mb-4 font-heading text-base font-bold text-ink">Recent Import History</h2>
+
+        <div class="overflow-x-auto rounded-lg border border-slate-100">
+            <table class="w-full min-w-[720px] text-left text-sm text-slate-600">
+                <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                        <th class="px-4 py-3 font-semibold">File</th>
+                        <th class="px-4 py-3 font-semibold">KPI</th>
+                        <th class="px-4 py-3 font-semibold">Records</th>
+                        <th class="px-4 py-3 font-semibold">Status</th>
+                        <th class="px-4 py-3 font-semibold">Imported By</th>
+                        <th class="px-4 py-3 font-semibold">Date</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for batch in imports %}
+                    <tr class="transition hover:bg-slate-50/60">
+                        <td class="px-4 py-3 font-medium text-ink">{{ batch.file_name }}</td>
+                        <td class="px-4 py-3">{{ batch.kpi }}</td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {{ batch.records }}
+                            {% if batch.errors %}<span class="ml-1 text-xs font-medium text-status-bad">{{ batch.errors }} rejected</span>{% endif %}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3">
+                            {% if batch.status == 'applied' %}
+                            <span class="rounded-full bg-status-good/10 px-2.5 py-1 text-[11px] font-semibold text-status-good">{{ batch.status_label }}</span>
+                            {% elif batch.status == 'partial' %}
+                            <span class="rounded-full bg-status-warn/15 px-2.5 py-1 text-[11px] font-semibold text-status-warn">{{ batch.status_label }}</span>
+                            {% elif batch.status == 'failed' %}
+                            <span class="rounded-full bg-status-bad/10 px-2.5 py-1 text-[11px] font-semibold text-status-bad">{{ batch.status_label }}</span>
+                            {% else %}
+                            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{{ batch.status_label }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="whitespace-nowrap px-4 py-3">{{ batch.uploaded_by }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ batch.uploaded_at|date:"d M Y, H:i" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td class="px-4 py-8 text-center text-sm text-slate-400" colspan="6">No imports yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+{# Every modal below writes, so a read-only role renders none of them. Nothing links to them either, and the view refuses the POST regardless. #}
+{% if can_edit %}
+{# ============ Add Performance Record modal ============ #}
+{# open_add_modal forces it back open after a failed POST, when the :target fragment is gone. #}
+<div id="addRecordModal"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_add_modal %} !flex{% endif %}">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'plus' %}</span>
+                <div>
+                    <h3 class="font-heading text-lg font-bold leading-tight">Add Performance Record</h3>
+                    <p class="text-xs text-white/70">Enter the raw figures. The KPI's own formula turns them into a result.</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
+        </div>
+
+        <form method="post" class="flex min-h-0 flex-1 flex-col" data-record-form>
+            {% csrf_token %}
+            <input type="hidden" name="_action" value="add">
+
+            <div class="min-h-0 flex-1 overflow-y-auto p-6">
+
+                {% if add_form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ add_form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="space-y-5">
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">KPI <span class="text-status-bad" aria-hidden="true">*</span></label>
+                        {{ add_form.kpi }}
+                        {% include "partials/field_errors.html" with field=add_form.kpi %}
+                    </div>
+
+                    {# One field group per KPI. All are disabled until their KPI is chosen, so only the selected KPI's operands are ever submitted and two KPIs sharing an input key cannot collide. #}
+                    {% for kpi in record_kpis %}
+                    <div class="hidden space-y-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4" data-kpi-panel="{{ kpi.pk }}">
+
+                        <div class="rounded-lg border border-brand/15 bg-brand/5 px-3 py-2">
+                            <p class="text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
+                            <p class="mt-1 font-mono text-xs leading-relaxed text-brand-dark">{{ kpi.formula }}</p>
+                            <p class="mt-2 border-t border-dashed border-brand/15 pt-2 text-xs text-slate-500">
+                                Target <span class="font-semibold text-ink">{{ kpi.target_display }}</span>
+                                · Reported <span class="font-semibold text-ink">{{ kpi.frequency|lower }}</span>
+                            </p>
+                        </div>
+
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            {% for input in kpi.inputs %}
+                            <div>
+                                <label class="mb-1.5 block text-sm font-medium leading-snug text-slate-700" for="id_input__{{ kpi.pk }}_{{ input.key }}">
+                                    {{ input.label }}{% if input.is_required %} <span class="text-status-bad" aria-hidden="true">*</span>{% endif %}
+                                </label>
+                                <input {% if input.data_type == 'date' %}type="date"{% else %}type="text" inputmode="decimal"{% endif %}
+                                       id="id_input__{{ kpi.pk }}_{{ input.key }}"
+                                       name="input__{{ input.key }}"
+                                       placeholder="{{ input.placeholder }}"
+                                       disabled
+                                       class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20">
+                                {% if input.help_text %}<p class="mt-1 text-xs text-slate-400">{{ input.help_text }}</p>{% endif %}
+                            </div>
+                            {% empty %}
+                            <p class="text-xs italic text-status-bad">This KPI has no inputs, so it cannot take a record. Fix its formula on KPI Management.</p>
+                            {% endfor %}
+                        </div>
+
+                        <p class="text-xs text-slate-400" data-period-example="{{ kpi.period_example }}">Period format: {{ kpi.period_hint }} &middot; this period is {{ kpi.period_example }}</p>
+                    </div>
+                    {% endfor %}
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Reporting Period <span class="text-status-bad" aria-hidden="true">*</span></label>
+                        {{ add_form.period }}
+                        <p class="mt-1.5 text-xs text-slate-400">Matches the KPI's cadence. Pick a KPI above to see its format.</p>
+                        {% include "partials/field_errors.html" with field=add_form.period %}
+                    </div>
+
+                    <div>
+                        <div class="mb-1.5 flex items-baseline justify-between gap-2">
+                            <label class="block text-sm font-medium text-slate-700">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                            <span class="text-xs text-slate-400" data-char-count="id_remarks"></span>
+                        </div>
+                        {{ add_form.remarks }}
+                        {% include "partials/field_errors.html" with field=add_form.remarks %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'check' %} Save Record
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ============ Import modal: one team workbook, or a per-KPI CSV ============ #}
+<div id="importModal"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_import_modal %} !flex{% endif %}">
+    {# Capped and scrolling like the other modals: the explanatory paragraph runs to eight lines on a narrow screen, which outgrows a landscape phone. #}
+    <div class="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'upload' %}</span>
+                <div>
+                    <h3 class="font-heading text-lg font-bold leading-tight">Import KPI Records</h3>
+                    <p class="text-xs text-white/70">Upload the filled-in template.</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="flex min-h-0 flex-1 flex-col" data-import-form>
+            {% csrf_token %}
+            <input type="hidden" name="_action" value="import">
+
+            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
+                {% if workbook_url %}
+                <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-500">
+                    One workbook covers every KPI, a sheet each. Fill in only the sheets you have figures for; the rest are left alone.
+                    Each sheet names its own KPI, so there is nothing else to choose.
+                    Get the current workbook from <a href="{{ manage_url }}" class="font-semibold text-brand hover:underline">KPI Management</a>.
+                    A sheet filled in against an older formula is rejected rather than misread, and the other sheets still apply.
+                </p>
+                {% else %}
+                <p class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-500">
+                    The file identifies its own KPI from the header the template carries, so there is nothing else to choose.
+                    Templates are downloaded per KPI from <a href="{{ manage_url }}" class="font-semibold text-brand hover:underline">KPI Management</a>.
+                    A template filled in against an older formula is rejected rather than misread.
+                </p>
+                {% endif %}
+
+                <label class="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-8 text-center transition hover:border-brand hover:bg-brand/5">
+                    <span class="text-brand">{% icon 'file-text-o' %}</span>
+                    <span class="text-sm font-medium text-slate-600" data-file-label
+                          data-empty-label="Choose {% if workbook_url %}the .xlsx workbook{% else %}a .csv file{% endif %}">Choose {% if workbook_url %}the .xlsx workbook{% else %}a .csv file{% endif %}</span>
+                    <span class="text-xs text-slate-400">Up to 5 MB</span>
+                    {{ import_form.file }}
+                </label>
+
+                {% include "partials/field_errors.html" with field=import_form.file %}
+                {% if import_form.non_field_errors %}
+                <div class="rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ import_form.non_field_errors }}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'upload' %} Upload &amp; Import
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# ============ Delete-record confirms ============ #}
+{# Outside the table: a <div> is not valid inside <tbody>, so these live here and the row links to them by id, same as KPI Management's per-row modals. #}
+{% for record in records %}
+<div id="recordDelete-{{ record.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    {# Scrolls rather than clipping: on a landscape phone the copy plus the confirm row is taller than the viewport. #}
+    <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div class="px-6 pb-5 pt-6">
+            <div class="flex items-start gap-4">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>
+                <div class="min-w-0">
+                    <h3 class="font-heading text-base font-bold text-ink">Delete this record?</h3>
+                    <p class="mt-1.5 text-sm leading-6 text-slate-500">
+                        Nothing is destroyed. The figure and the numbers behind it are kept, and re-entering this period restores the record.
+                    </p>
+                </div>
+            </div>
+
+            {# What is actually being deleted. A period and a value are the two things worth checking before confirming. #}
+            <dl class="mt-4 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">KPI</dt>
+                    <dd class="min-w-0 truncate font-medium text-ink">{{ record.kpi }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Period</dt>
+                    <dd class="font-medium text-ink">{{ record.period }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Value</dt>
+                    <dd class="font-heading font-bold text-ink">{{ record.actual }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            {# The arming hint. The ring on the button, the count in its label and the disabled state are all driven by ONE clock in the page script, so the number can never read 0 while the button is still locked. #}
+            <div data-delete-timer class="mb-3 hidden" data-delete-seconds="5">
+                <p class="text-xs text-slate-500">Check the period and value above.</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-3">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="_action" value="delete-record">
+                    <input type="hidden" name="_record" value="{{ record.pk }}">
+                    {# The countdown IS the button's border: an SVG outline tracing the perimeter, erased by the same clock that unlocks the button. pathLength="100" normalises the perimeter to 100 units, so the dash values are straight percentages and the sweep runs at an even speed around the rounded corners instead of racing them. It starts as "0 100" (nothing drawn) because the ring only exists while the timer runs. Colour matches the disabled button fill, so the ring reads as part of the muted button rather than a red alarm. #}
+                    <span class="relative inline-flex text-slate-300">
+                        <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+                            <rect x="0" y="0" width="100%" height="100%" rx="8" ry="8"
+                                  fill="none" stroke="currentColor" stroke-width="2"
+                                  pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0"
+                                  data-delete-ring></rect>
+                        </svg>
+                        {# Rendered ENABLED: if the page script never runs, the guard is lost but the button still works. A dead button would be worse than an unguarded one. #}
+                        <button type="submit" data-delete-confirm
+                                class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
+                            {% icon 'trash-o' %} Delete record{# The count sits at the END of the label so it only ever changes the button's left edge. The button is right-aligned in this row, so the edge under the pointer stays put when the number goes. #}<span class="tabular-nums" data-delete-countdown></span>
+                        </button>
+                    </span>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{# Arms the delete confirm on a 5s timer. Shared with KPI Management, so both screens agree on how long the wait is and when the button goes live. #}
+<script src="{% static 'js/confirm-timer.js' %}" defer></script>
+{# Live character counter for the remarks field. #}
+<script src="{% static 'js/char-counter.js' %}" defer></script>
+<script>
+(function () {
+    "use strict";
+
+    // --- Add Record: show only the chosen KPI's operand fields --------------
+    // The panels are DISABLED, not just hidden: a disabled input is not
+    // submitted, so two KPIs that both use an input called "a" cannot collide.
+    var form = document.querySelector("[data-record-form]");
+    if (form) {
+        var select = form.querySelector("[data-record-kpi]");
+        var panels = Array.prototype.slice.call(form.querySelectorAll("[data-kpi-panel]"));
+        var period = form.querySelector("#id_period");
+
+        function show() {
+            var chosen = select.value;
+            panels.forEach(function (panel) {
+                var active = panel.dataset.kpiPanel === chosen;
+                panel.classList.toggle("hidden", !active);
+                panel.querySelectorAll("input").forEach(function (field) {
+                    field.disabled = !active;
+                });
+                if (active && period && !period.value) {
+                    // Default the period to the one we are currently inside,
+                    // written in this KPI's own cadence format.
+                    var hint = panel.querySelector("[data-period-example]");
+                    if (hint) period.value = hint.dataset.periodExample;
+                }
+            });
+        }
+
+        select.addEventListener("change", show);
+        show();
+    }
+
+    // --- Import: name the chosen file, since the input itself is visually hidden
+    var importForm = document.querySelector("[data-import-form]");
+    if (importForm) {
+        var file = importForm.querySelector("[data-import-file]");
+        var label = importForm.querySelector("[data-file-label]");
+        if (file && label) {
+            file.addEventListener("change", function () {
+                // Remember the prompt as rendered, so clearing the picker restores
+                // the right wording for this team's template format.
+                label.textContent = file.files.length ? file.files[0].name : label.dataset.emptyLabel;
+            });
+        }
+    }
+}());
+</script>
+{% endblock %}

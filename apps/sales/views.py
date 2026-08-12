@@ -1,11 +1,31 @@
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+"""Sales — the only branch team, on the same shared kit as every other LOB.
 
-from apps.core.access import team_required
+Sales splits into three branches (SEO & Google Ads / Lead Generation /
+Transitions), each with its own four screens, plus a team-level rollup at
+`/sales/`. `KpiScreens(branched=True)` takes the branch slug from the URL and
+scopes every query to `kpi_definition.branch`; the branch rows themselves live
+in `kpi_branch`, so a fourth branch is a row rather than a deploy.
 
+`branches.py` still holds the KPI data, but only as seed input for
+`manage.py seed_lob_kpis sales` — no screen reads it.
+"""
 
-@login_required
-@team_required('sales')
-def index(request):
-    """Sales line-of-business screen."""
-    return render(request, 'sales/index.html', {'lob_name': 'Sales'})
+from apps.kpi.screens import KpiScreens
+
+from .branches import SCOPE
+
+screens = KpiScreens(
+    team_slug='sales', namespace='sales', scope=SCOPE, branched=True,
+    workbook_template=True,
+)
+
+index = screens.overview                        # team rollup across all branches
+
+branch_index = screens.dashboard                # one branch's KPI scorecard
+branch_kpis = screens.definitions
+branch_import_data = screens.import_data
+branch_kpi_management = screens.management
+branch_kpi_template = screens.template
+# One workbook per BRANCH, not per team: a KPI belongs to a branch, and the
+# four screens are branch-scoped, so the download follows the screen it sits on.
+branch_kpi_workbook = screens.workbook

@@ -1,0 +1,72 @@
+{% load icons %}
+{# Reusable table pagination + "Go to page" jump box. Right-aligned; drop it under any table. #}
+{# Usage:  {% include "partials/pagination.html" with page_obj=page_obj id="records" %} #}
+{# Params: page_obj = Django Paginator Page (optional — omitted renders the placeholder state). #}
+{#         page_numbers = page list to render; defaults to every page. For long ranges pass an #}
+{#           elided list from the view: paginator.get_elided_page_range(page_obj.number). #}
+{#         param = query-string key, default "page". id = unique suffix when a page has 2+ pagers. #}
+{#         extra_query = the current query string minus `page`, so links keep search/filters. #}
+{#         extra_params = the same as {key, value} dicts, for the jump box's hidden inputs. #}
+{#         anchor = id of the table's section, WITHOUT the "#". Without it a pager link has no #}
+{#           fragment and the next page loads scrolled to the top, which reads as "nothing #}
+{#           happened" when the table sits below a banner and stat cards. #}
+{# The jump box is a plain GET form, so it already works once a view paginates — no JS. #}
+{# A GET form cannot carry a fragment, so the jump box lands at the top. Only the pills anchor. #}
+
+{% with pager_id=id|default:"pager" key=param|default:"page" hash=anchor|yesno:"#,," pill="flex h-8 min-w-[2.25rem] items-center justify-center border px-3" idle="border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-brand" off="border-slate-200 bg-slate-50 text-slate-300" on="border-brand bg-brand font-semibold text-white" %}
+<nav aria-label="Pagination" class="mt-4 flex flex-wrap items-center justify-end gap-3 text-sm">
+
+    <ul class="inline-flex -space-x-px">
+        {% if page_obj %}
+            {# ---- Live pagination, driven by the view's Page object ---- #}
+            <li>
+                {% if page_obj.has_previous %}
+                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ page_obj.previous_page_number }}{{ hash }}{{ anchor }}" aria-label="Previous page" class="{{ pill }} {{ idle }} rounded-l-lg">{% icon 'angle-left' %}</a>
+                {% else %}
+                <span aria-disabled="true" class="{{ pill }} {{ off }} rounded-l-lg">{% icon 'angle-left' %}</span>
+                {% endif %}
+            </li>
+
+            {% for num in page_numbers|default:page_obj.paginator.page_range %}
+            <li>
+                {% if num|stringformat:"s" == "…" %}
+                <span class="{{ pill }} border-slate-200 bg-white text-slate-400">…</span>
+                {% elif num == page_obj.number %}
+                <span aria-current="page" class="{{ pill }} {{ on }}">{{ num }}</span>
+                {% else %}
+                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ num }}{{ hash }}{{ anchor }}" class="{{ pill }} {{ idle }}">{{ num }}</a>
+                {% endif %}
+            </li>
+            {% endfor %}
+
+            <li>
+                {% if page_obj.has_next %}
+                <a href="?{% if extra_query %}{{ extra_query }}&amp;{% endif %}{{ key }}={{ page_obj.next_page_number }}{{ hash }}{{ anchor }}" aria-label="Next page" class="{{ pill }} {{ idle }} rounded-r-lg">{% icon 'angle-right' %}</a>
+                {% else %}
+                <span aria-disabled="true" class="{{ pill }} {{ off }} rounded-r-lg">{% icon 'angle-right' %}</span>
+                {% endif %}
+            </li>
+        {% else %}
+            {# ---- Placeholder state — no KPI data yet, so pages 1-3 are for layout review only ---- #}
+            <li><span aria-disabled="true" class="{{ pill }} {{ off }} rounded-l-lg">{% icon 'angle-left' %}</span></li>
+            <li><span aria-current="page" class="{{ pill }} {{ on }}">1</span></li>
+            <li><a href="#" class="{{ pill }} {{ idle }}">2</a></li>
+            <li><a href="#" class="{{ pill }} {{ idle }}">3</a></li>
+            <li><a href="#" aria-label="Next page" class="{{ pill }} {{ idle }} rounded-r-lg">{% icon 'angle-right' %}</a></li>
+        {% endif %}
+    </ul>
+
+    {# Thin divider between the page pills and the jump box. #}
+    <span aria-hidden="true" class="h-6 w-px bg-slate-200"></span>
+
+    <form method="get" class="flex items-center gap-2">
+        {# Jumping to a page must not silently clear the active search or filters. #}
+        {% for param in extra_params %}<input type="hidden" name="{{ param.key }}" value="{{ param.value }}">{% endfor %}
+        <label for="{{ pager_id }}-goto" class="whitespace-nowrap text-slate-500">Go to page</label>
+        <input type="number" name="{{ key }}" id="{{ pager_id }}-goto"
+               min="1" {% if page_obj %}max="{{ page_obj.paginator.num_pages }}"{% endif %}
+               inputmode="numeric" placeholder="{{ page_obj.number|default:1 }}"
+               class="h-8 w-14 rounded-lg border border-slate-300 bg-white px-2 text-center text-slate-700 placeholder:text-slate-400 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none">
+    </form>
+</nav>
+{% endwith %}

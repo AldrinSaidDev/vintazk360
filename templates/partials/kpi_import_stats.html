@@ -1,0 +1,31 @@
+{# Stat cards for every Import Data screen. #}
+{# Usage:  {% include "partials/kpi_import_stats.html" %} #}
+{#         {% include "partials/kpi_import_stats.html" with total_records="500" added_this_month="500" last_import="July 2026" %} #}
+{# Params (all optional): total_records, added_this_month, period, last_import. #}
+{# All four tiles share one tint — accent mauve — to match the KPI Management cards. #}
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9.75h16.5m-16.5 4.5h16.5M4.5 4.5h15A1.5 1.5 0 0121 6v12a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18V6a1.5 1.5 0 011.5-1.5z"/></svg>
+        </span>
+        <div><p class="font-heading text-2xl font-bold text-ink">{{ total_records|default:"0" }}</p><p class="text-xs text-slate-500">Total Records</p></div>
+    </div>
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        </span>
+        <div><p class="font-heading text-2xl font-bold text-ink">{{ added_this_month|default:"0" }}</p><p class="text-xs text-slate-500">Added This Month</p></div>
+    </div>
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0V11.25A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/></svg>
+        </span>
+        <div><p class="font-heading text-lg font-bold text-ink">{{ period|default:"July 2026" }}</p><p class="text-xs text-slate-500">Reporting Period</p></div>
+    </div>
+    <div class="flex items-center gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.7"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </span>
+        <div><p class="font-heading text-lg font-bold text-ink">{{ last_import|default:"—" }}</p><p class="text-xs text-slate-500">Last Import</p></div>
+    </div>
+</div>

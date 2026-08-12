@@ -1,0 +1,131 @@
+{% load icons %}
+{# Right-click guard. Suppresses the browser context menu and warns instead, so a #}
+{# blocked right click reads as a deliberate rule rather than a broken page. #}
+{# Included once from base.html, OUTSIDE the layout block, so it also covers the #}
+{# login screen (which replaces that block wholesale). #}
+{# Text fields are exempt on purpose: copy and paste into an Employee ID or a KPI #}
+{# figure is real work, and taking it away would cost more than it protects. #}
+<div id="context-guard"
+     class="context-guard fixed inset-0 z-[10000] items-center justify-center bg-ink/70 p-4 backdrop-blur-sm"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="context-guard-title"
+     aria-describedby="context-guard-body">
+
+    <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl shadow-ink/20 ring-1 ring-slate-200">
+
+        {# Dark header, the one surface the logo is allowed on. #}
+        <div class="flex items-center gap-3 bg-surface px-6 py-4">
+            {% include "partials/logo.html" with class="h-6" %}
+        </div>
+
+        <div class="px-6 py-6">
+            <div class="flex flex-col items-center gap-4 text-center">
+                {# The alert mark pulses twice on open, then rests. It is tied to the #}
+                {# modal appearing rather than looping, per the animation guideline. #}
+                <span class="context-guard-alert flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-status-bad/10 text-2xl text-status-bad"
+                      aria-hidden="true">
+                    {% icon 'exclamation-triangle' %}
+                </span>
+                <div class="min-w-0">
+                    <h2 id="context-guard-title" class="font-heading text-xl font-bold text-status-bad">
+                        Security Warning
+                    </h2>
+                    <p class="mt-1 text-sm font-semibold text-ink">Developer tools access detected</p>
+                    <p id="context-guard-body" class="mt-2 text-sm leading-6 text-slate-600">
+                        This is a browser feature intended for developers.
+                        If someone told you to copy and paste something here, it is a scam and will give them access to your Vintazk 360 account.
+                    </p>
+                </div>
+            </div>
+
+            {# Same accent language as a warning toast: one tinted strip, one left border. #}
+            <p class="mt-5 border-l-4 border-status-warn bg-status-warn/10 px-4 py-3 text-sm font-medium text-ink">
+                <span class="mr-1 text-status-warn" aria-hidden="true">{% icon 'lock' %}</span>
+                Your activity is being monitored for security purposes.
+            </p>
+
+            <div class="mt-6 flex">
+                <button type="button"
+                        data-context-guard-close
+                        class="rounded-lg  px-5 py-2.5 bg-brand w-full text-sm font-semibold text-white transition hover:bg-brand/90 focus:outline-none focus:ring-2 focus:ring-brand/40">
+                    I understand
+                </button>
+            </div>
+
+            <p class="mt-5 text-center text-xs text-slate-400">Vintazk 360 Security System</p>
+        </div>
+
+        {# Five-second countdown, same one-clock rule as the toasts: the modal closes #}
+        {# when THIS animation ends, so pausing it on hover holds the modal open long #}
+        {# enough to finish reading rather than drifting out of step with a setTimeout. #}
+        <div class="h-1 bg-slate-100">
+            <div class="context-guard-timer h-full w-full origin-left" aria-hidden="true"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    var guard = document.getElementById("context-guard");
+    if (!guard) return;
+
+    var closeButton = guard.querySelector("[data-context-guard-close]");
+    var timer = guard.querySelector(".context-guard-timer");
+    var lastFocused = null;
+
+    // Fields where the native menu earns its place: paste, spellcheck, undo.
+    function isEditable(target) {
+        if (!target || typeof target.closest !== "function") return false;
+        var field = target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']");
+        if (!field) return false;
+        // A disabled or read-only input has nothing useful in its menu either.
+        return !(field.disabled || field.readOnly);
+    }
+
+    function open() {
+        var reopening = guard.classList.contains("is-open");
+        if (!reopening) lastFocused = document.activeElement;
+        guard.classList.add("is-open");
+        closeButton.focus();
+        // Restart the countdown from full on every right click, including one made
+        // while the modal is already up. Removing the class alone is not enough:
+        // the browser coalesces both style changes, so the animation never restarts
+        // without a reflow read in between.
+        if (timer) {
+            timer.classList.remove("is-running");
+            void timer.offsetWidth;
+            timer.classList.add("is-running");
+        }
+    }
+
+    function close() {
+        if (!guard.classList.contains("is-open")) return;
+        guard.classList.remove("is-open");
+        if (timer) timer.classList.remove("is-running");
+        if (lastFocused && typeof lastFocused.focus === "function") lastFocused.focus();
+    }
+
+    document.addEventListener("contextmenu", function (event) {
+        if (isEditable(event.target)) return;
+        event.preventDefault();
+        open();
+    });
+
+    // The countdown finishing IS the auto-close. No second clock to drift.
+    if (timer) timer.addEventListener("animationend", close);
+
+    closeButton.addEventListener("click", close);
+
+    // Clicking the backdrop closes; clicking the card does not.
+    guard.addEventListener("click", function (event) {
+        if (event.target === guard) close();
+    });
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") close();
+    });
+}());
+</script>

@@ -1,0 +1,164 @@
+{% load icons %}
+{# open_create_modal forces the modal open after a failed POST — the :target fragment is gone by then, so it would otherwise re-render closed with the errors hidden. #}
+<div id="createKpiModal"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_create_modal %} !flex{% endif %}">
+
+    <div class="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div>
+                <h3 class="font-heading text-lg font-bold">
+                    Create New KPI
+                </h3>
+                <p class="mt-1 max-w-md text-xs leading-5 text-white/75">
+                    Define how this KPI is measured, reported, and evaluated against its targets.
+                </p>
+            </div>
+
+            <a href="#"
+               class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white">
+                <svg class="h-5 w-5"
+                     fill="none"
+                     viewBox="0 0 24 24"
+                     stroke="currentColor"
+                     stroke-width="2">
+                    <path stroke-linecap="round"
+                          stroke-linejoin="round"
+                          d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </a>
+        </div>
+
+        <form method="post" class="flex min-h-0 flex-1 flex-col">
+
+            {% csrf_token %}
+            {# Comes back to the page the manager was on, the same as edit and delete. #}
+            <input type="hidden" name="_page" value="{{ page_obj.number }}">
+
+            <div class="min-h-0 flex-1 overflow-y-auto p-6">
+
+                {% if form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            KPI Name <span class="text-status-bad" aria-hidden="true">*</span>
+                        </label>
+                        {{ form.name }}
+                        {% include "partials/field_errors.html" with field=form.name %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <div class="mb-1.5 flex items-center justify-between">
+                            <label class="text-sm font-medium text-slate-700">
+                                Description
+                            </label>
+                            <span
+                                class="text-xs text-slate-400"
+                                data-char-count="{{ form.description.id_for_label }}"
+                            ></span>
+                            </div>
+
+                            {{ form.description }}
+
+                            {% include "partials/field_errors.html" with field=form.description %}
+                        </div>
+                    <div>
+                        {% include "partials/category_picker.html" with form=form %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Frequency <span class="text-status-bad" aria-hidden="true">*</span>
+                        </label>
+                        {{ form.frequency }}
+                        {% include "partials/field_errors.html" with field=form.frequency %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Direction <span class="text-status-bad" aria-hidden="true">*</span>
+                        </label>
+                        {{ form.direction }}
+                        {% include "partials/field_errors.html" with field=form.direction %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Display Format <span class="text-status-bad" aria-hidden="true">*</span>
+                        </label>
+                        {{ form.display_format }}
+                        {% include "partials/field_errors.html" with field=form.display_format %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Unit Suffix
+                        </label>
+                        {{ form.unit }}
+                        <p class="mt-1.5 text-xs text-slate-400">Printed after the value. Only needed for Days, Ratio or Currency formats.</p>
+                        {% include "partials/field_errors.html" with field=form.unit %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Minimum Target
+                        </label>
+                        {{ form.target_min }}
+                        {% include "partials/field_errors.html" with field=form.target_min %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Maximum Target
+                        </label>
+                        {{ form.target_max }}
+                        {% include "partials/field_errors.html" with field=form.target_max %}
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <p class="-mt-1 text-xs text-slate-400">Leave both empty to track this KPI without scoring it. Fill one for a single target, or both for a range.</p>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700">
+                            Target Display
+                        </label>
+                        {{ form.target_display }}
+                        {% include "partials/field_errors.html" with field=form.target_display %}
+                    </div>
+
+                    {% include "partials/formula_builder.html" with form=form uid="create" %}
+
+                </div>
+
+            </div>
+
+            <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+
+                <a href="#"
+                   class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100">
+                    Cancel
+                </a>
+
+                <button type="submit"
+                        class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+
+                    {% icon 'plus' %}
+                    Create KPI
+
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
