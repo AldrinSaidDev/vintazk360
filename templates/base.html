@@ -128,6 +128,17 @@
                 {% endif %}
             {% endfor %}
 
+            {# Account administration. Super Admins and Admins only; the view refuses everyone else, so hiding the link is presentation, not access control. #}
+            {% if is_admin %}
+            {% url 'core:users' as users_url %}
+            <a href="{{ users_url }}" title="User Profiles"
+               class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
+                      {% if request.path == users_url %}bg-brand text-white{% else %}text-slate-300 hover:bg-white/5 hover:text-white{% endif %}">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center text-base">{% icon 'users' %}</span>
+                <span class="sidebar-label">User Profiles</span>
+            </a>
+            {% endif %}
+
             {% url 'core:logs' as logs_url %}
             <a href="{{ logs_url }}" title="Logs"
                class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium

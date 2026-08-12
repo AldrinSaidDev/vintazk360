@@ -1,0 +1,13 @@
+{# Team assignment for one user form. Usage: {% include "partials/team_checkboxes.html" with field=form.teams %} #}
+{# A checkbox grid rather than a multi-select: picking three teams out of ten from a native multi-select means knowing to hold Ctrl, and getting it wrong silently replaces the lot. #}
+<div class="grid grid-cols-1 gap-1 rounded-lg border border-slate-200 bg-slate-50/60 p-2 sm:grid-cols-2">
+    {% for choice in field %}
+    <label class="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition hover:bg-white has-[:checked]:bg-brand/5 has-[:checked]:font-medium has-[:checked]:text-brand-dark">
+        {{ choice.tag }}
+        <span class="truncate">{{ choice.choice_label }}</span>
+    </label>
+    {% empty %}
+    <p class="px-2 py-1.5 text-xs italic text-slate-400">You have no teams to assign. Ask a Super Admin to give you one first.</p>
+    {% endfor %}
+</div>
+<p class="mt-1.5 text-xs text-slate-400">Super Admin and Viewer reach every team, so this is ignored for those two roles. Every other role reaches only what is ticked here.</p>
