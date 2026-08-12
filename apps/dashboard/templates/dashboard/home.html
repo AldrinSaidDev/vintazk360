@@ -18,13 +18,13 @@
     {# the sidebar, leadership sees ten, and the same sentence has to be true for both. #}
     {% include "partials/info_banner.html" with text="Vintazk 360 brings company performance into a single view. The Overall Goal below is the rollup for the current reporting period, drawn from the KPI scorecards of every department you have access to. Open a department in the sidebar for its own scorecard — definitions, targets, actuals, and the records behind each number." %}
 
-    {# Overall Goal — the mean of every reporting department's own attainment. #}
+    {# Overall Goal — progress toward every department being at target, so it is the mean over EVERY department that can be scored and an unreported one counts as 0. #}
     {# data-tour marks a panel the guided tour points at. See apps/core/tour.py: #}
     {# these are the tour's own handles, so restyling a panel cannot break it. #}
     <section data-tour="overall-goal" class="rounded-xl bg-white p-6 shadow-sm">
         <div class="flex items-center gap-2">
             <h2 class="text-xl font-bold text-ink">Overall Goal</h2>
-            {% include "partials/info_icon.html" with text="The average attainment of every department that has reported, each counted once regardless of how many KPIs it tracks. 100% means every department is at target. Departments with nothing scored yet are left out rather than counted as zero." align="left" %}
+            {% include "partials/info_icon.html" with text="Progress toward every department hitting its targets, each counted once regardless of how many KPIs it tracks. 100% means every department is at target. A target with no figure reported against it counts as zero, so this rises as departments report. KPIs with no target set are left out, since there is nothing to hit." align="left" %}
         </div>
 
         {# Movement against the previous reporting period. Points, not percent: #}
@@ -99,20 +99,21 @@
                 </span>
 
                 <span class="flex items-center gap-2.5">
-                    <span class="text-xs text-slate-500">KPIs scored</span>
+                    {# Against the TARGETED KPIs, which is the figure's own denominator. Measuring against all 79 while scoring against 64 would cap this meter for a reason nobody could explain. #}
+                    <span class="text-xs text-slate-500">Targets reported</span>
                     <span class="h-1.5 w-20 overflow-hidden rounded-full bg-white ring-1 ring-inset ring-slate-200">
                         <span class="block h-full rounded-full {% if org.complete %}bg-status-good{% else %}bg-status-warn{% endif %}"
                               style="width: {{ org.kpis_scored_pct }}%"></span>
                     </span>
-                    <span class="text-xs font-bold text-ink">{{ org.kpis_scored }}<span class="font-normal text-slate-400"> of {{ org.kpis_total }}</span></span>
+                    <span class="text-xs font-bold text-ink">{{ org.kpis_scored }}<span class="font-normal text-slate-400"> of {{ org.kpis_targeted }}</span></span>
                 </span>
 
-                {# The caveat only matters while something is missing. #}
+                {# The caveat only matters while something is missing, and it now explains what is DRAGGING the figure rather than what is missing from it. #}
                 {% if not org.complete %}
-                <span class="text-xs text-slate-500">Departments with no figures yet are left out of the average, not counted as zero.</span>
+                <span class="text-xs text-slate-500">{{ org.kpis_missing }} target{{ org.kpis_missing|pluralize }} with no figure yet count as zero. Reporting them raises this.</span>
                 {% endif %}
             {% else %}
-                <span class="text-xs text-slate-500">No department has reported figures yet, so there is nothing to average.</span>
+                <span class="text-xs text-slate-500">No figures reported yet, so every one of the {{ org.kpis_targeted }} targets counts as zero. This rises as departments report.</span>
             {% endif %}
         </div>
 
@@ -206,7 +207,7 @@
     <section id="departments" class="rounded-xl bg-white p-6 shadow-sm">
         <div class="mb-1 flex items-center gap-2">
             <h2 class="text-xl font-bold text-ink">Departments</h2>
-            {% include "partials/info_icon.html" with text="One card per department you can open. The percentage is the average attainment of that team's scored KPIs for their latest reported period. KPIs with no target and KPIs with no figures yet are counted separately and left out of the average." align="left" %}
+            {% include "partials/info_icon.html" with text="One card per department you can open. The percentage is measured over every KPI the team has set a target for, using their latest reported period. A target with no figure reported against it counts as zero, so the number rises as the team reports. KPIs with no target set are left out, since there is nothing to hit." align="left" %}
         </div>
         <p class="mb-5 text-xs text-slate-500">
             {{ departments|length }} department{{ departments|length|pluralize }}
@@ -219,7 +220,10 @@
 
                 <div class="min-w-0">
                     <h3 class="truncate font-heading text-sm font-bold text-ink">{{ dept.name }}</h3>
-                    <p class="mt-0.5 text-xs text-slate-500">{{ dept.kpi_count }} KPI{{ dept.kpi_count|pluralize }} tracked</p>
+                    {# Says what the percentage is OVER, not just how many KPIs exist: the gap between the two is the whole reason the figure is low. #}
+                    <p class="mt-0.5 text-xs text-slate-500">
+                        {{ dept.scored_count }} of {{ dept.scorable_count }} target{{ dept.scorable_count|pluralize }} reported{% if dept.monitored %} <span class="text-slate-400">&middot; {{ dept.monitored }} untargeted</span>{% endif %}
+                    </p>
                 </div>
 
                 {# Gauge. The arc is every KPI the team owns, split by state; the #}
@@ -249,8 +253,9 @@
                             <p class="font-heading text-2xl font-black leading-none text-ink">{{ dept.avg }}%</p>
                             <p class="mt-0.5 text-[11px] text-slate-400">avg attainment</p>
                         {% else %}
-                            <p class="font-heading text-base font-bold leading-none text-slate-400">No Data</p>
-                            <p class="mt-0.5 text-[11px] text-slate-400">nothing scored</p>
+                            {# Only reachable when the team has set no targets at all. Nothing to hit means nothing to miss, so it is not a 0%. #}
+                            <p class="font-heading text-base font-bold leading-none text-slate-400">No Target</p>
+                            <p class="mt-0.5 text-[11px] text-slate-400">nothing to score</p>
                         {% endif %}
                     </div>
                 </div>
@@ -306,8 +311,9 @@
                     </p>
                     {% endif %}
 
-                    {% if not dept.scored_count %}
-                    <p class="italic text-slate-400">Nothing scored yet for this department.</p>
+                    {% if not dept.scored_count and dept.scorable_count %}
+                    {# Says why the card reads 0% rather than leaving it to look like failure. #}
+                    <p class="italic text-slate-400">No figures reported yet, so every target counts as zero.</p>
                     {% endif %}
                 </div>
 
@@ -345,7 +351,7 @@
         <section class="rounded-xl bg-white p-6 shadow-sm lg:col-span-3">
             <div class="mb-1 flex items-center gap-2">
                 <h2 class="text-base font-bold text-ink">Against the company average</h2>
-                {% include "partials/info_icon.html" with text="Every department's attainment measured against the average of them all. Departments with nothing scored are not listed, since they would read as 0% rather than as unknown." align="left" %}
+                {% include "partials/info_icon.html" with text="Every department's attainment measured against the average of them all. A department that has reported nothing reads as 0%, since its targets have not been met. Only a department with no targets at all is left out, because there is nothing to score it on." align="left" %}
             </div>
             <p class="mb-4 text-xs text-slate-500">Company average {{ org.attainment }}%</p>
 
@@ -494,7 +500,8 @@
                     <dl class="mt-4 space-y-2 text-sm">
                         <div class="flex items-center justify-between">
                             <dt class="text-slate-500">Departments at target</dt>
-                            <dd class="font-semibold text-ink">{{ org.at_target }} of {{ org.reporting }}</dd>
+                            {# Out of the departments the figure DIVIDES BY, not the ones that have reported: those are what the goal is measured over. #}
+                            <dd class="font-semibold text-ink">{{ org.at_target }} of {{ org.counted }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
                             <dt class="text-slate-500">Departments below target</dt>
@@ -523,17 +530,26 @@
                             <dd class="font-semibold text-ink">{{ org.reporting }} of {{ org.department_count }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
-                            <dt class="text-slate-500">KPIs scored</dt>
-                            <dd class="font-semibold text-ink">{{ org.kpis_scored }} of {{ org.kpis_total }}</dd>
+                            <dt class="text-slate-500">Targets reported</dt>
+                            <dd class="font-semibold text-ink">{{ org.kpis_scored }} of {{ org.kpis_targeted }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            {# The gap between the two rows above. Stated outright, because it is the single biggest thing holding the company figure down. #}
+                            <dt class="text-slate-500">Targets counting as zero</dt>
+                            <dd class="font-semibold {% if org.kpis_missing %}text-status-warn{% else %}text-ink{% endif %}">{{ org.kpis_missing }}</dd>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <dt class="text-slate-500">KPIs with no target</dt>
+                            <dd class="font-semibold text-ink">{{ org.kpis_untargeted }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
                             <dt class="text-slate-500">Compared to last period</dt>
                             <dd class="font-semibold text-ink">{{ org.delta_departments }} department{{ org.delta_departments|pluralize }}</dd>
                         </div>
                     </dl>
-                    {% if org.reporting < org.department_count %}
+                    {% if org.kpis_missing %}
                     <p class="mt-3 text-xs text-status-warn">
-                        Departments with no figures yet are left out of the average, not counted as zero.
+                        A target with no figure reported against it has not been met, so it counts as zero. Reporting it raises the company figure.
                     </p>
                     {% endif %}
                 </section>

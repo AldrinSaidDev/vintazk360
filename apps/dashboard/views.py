@@ -6,6 +6,7 @@ from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 
 from apps.core import async_content
+from apps.core import kpi as scoring
 from apps.core.access import accessible_teams
 from apps.kpi import records as kpi_records
 from apps.kpi.models import KpiDefinition, KpiRecord
@@ -106,15 +107,26 @@ def _gauge_segments(counts, total):
 
 
 def _department_rows(user):
-    """One summary row per accessible department, plus the org-wide average.
+    """One summary row per accessible department.
 
     Attainment is RECOMPUTED through `records.score()` rather than read from
     `kpi_record.attainment`, for the same reason every LOB dashboard does it:
     the stored score is a snapshot of the target in force when the row was
     written, so a moved target would leave the old verdict on screen.
+
+    A department's figure is the mean over every KPI it is POSSIBLE to score,
+    and a targeted KPI with no figure counts as **0**, not as absent. A target
+    nobody has reported against has not been met, and averaging only the KPIs
+    that happen to have data let one reported KPI out of seventeen read as a
+    department at 100%.
+
+    The denominator is the TARGETED KPIs, not all of them. A KPI with no target
+    has a figure but nothing to judge it against, so it can be neither attained
+    nor missed — the same rule the `monitored` status already encodes. Counting
+    those as losses would also put 100% permanently out of reach for any
+    department that owns one.
     """
     rows = []
-    org_scores = []
 
     for team in accessible_teams(user):
         kpis = list(KpiDefinition.objects.filter(team=team, is_active=True))
@@ -124,6 +136,12 @@ def _department_rows(user):
 
         counts = {'on_track': 0, 'at_risk': 0, 'below': 0,
                   'monitored': 0, 'no_data': 0}
+        # `(has_target, attainment)` per KPI, handed to `scoring.goal_attainment`
+        # so this page and the branch overview apply one rule.
+        entries = []
+        # The subset that has a real figure. Drives the coverage line and the
+        # focus/best picks, which are about performance and would be meaningless
+        # if a KPI nobody has reported could win or lose them.
         scores = []
         # The KPIs worth naming on the card: the worst and the best scorer.
         scored = []
@@ -133,14 +151,21 @@ def _department_rows(user):
         now_paired, then_paired = [], []
 
         for kpi in kpis:
+            # `is_scored` is the KPI's own "does this have a target" property.
             recent = history.get(kpi.pk)
             if not recent:
                 counts['no_data'] += 1
+                # `is_scored` is the KPI's own "does this have a target". A
+                # target with nothing reported against it has not been met, so
+                # it enters the roll-up as a miss rather than as an absence.
+                entries.append((kpi.is_scored, None))
                 continue
 
             attainment, status = kpi_records.score(kpi, _graded(recent[0]))
             counts[status] += 1
+            entries.append((attainment is not None, attainment))
             if attainment is None:
+                # No target: a figure that cannot be attained or missed.
                 continue
 
             scores.append(attainment)
@@ -153,8 +178,11 @@ def _department_rows(user):
                     now_paired.append(attainment)
                     then_paired.append(previous)
 
-        avg = round(sum(scores) / len(scores), 1) if scores else None
-        org_scores.extend(scores)
+        # None only when the department owns no targeted KPI at all. That is
+        # "cannot be scored", not "scored zero", and it is what keeps such a
+        # department out of the company denominator instead of capping the
+        # company figure below 100 forever.
+        avg, scorable_count = scoring.goal_attainment(entries)
 
         # "Needs attention" is the lowest scorer that is not already on track.
         scored.sort(key=lambda k: k['attainment'])
@@ -196,6 +224,11 @@ def _department_rows(user):
             'bar_pct': 0 if avg is None else min(round(avg), 100),
             'kpi_count': len(kpis),
             'scored_count': len(scores),
+            # The figure's denominator, and the gap between the two is what the
+            # card's coverage line reports.
+            'scorable_count': scorable_count,
+            'missing_count': scorable_count - len(scores),
+            'has_data': bool(scores),
             'focus': focus,
             'best': best,
             'trend': trend,
@@ -217,21 +250,30 @@ def _pct(part, whole):
 def _org_summary(departments):
     """The Overall Goal figure and the counts behind it.
 
-    The headline is the mean of each department's OWN attainment, so every
-    department counts once. Pooling all KPI scores instead would let Sales'
-    seventeen KPIs outvote Social Media Management's three, which would make
-    the company figure a measure of who tracks the most KPIs.
+    This tile is GOAL PROGRESS, not average performance, which is what decides
+    the denominator. The goal is every department at target, so the figure is
+    the mean over EVERY department that can be scored, and one that has
+    reported nothing counts as 0. It used to average only the departments that
+    had reported, which let a single KPI in one department out of ten light the
+    trophy at 100%.
 
-    A department with nothing scored is EXCLUDED rather than counted as 0%.
-    Counting it would report an unentered department as a failing one. That
-    makes coverage part of the reading, so `reporting` is published alongside
-    the figure and the template states it under the track.
+    Each department still counts ONCE. Pooling all KPI scores instead would let
+    Sales' seventeen KPIs outvote Social Media Management's three, making the
+    company figure a measure of who tracks the most KPIs.
+
+    The only department left out is one with no targeted KPI at all (`avg` is
+    None): it cannot be scored, so counting it as 0 would put 100% permanently
+    out of reach rather than describing anything.
     """
-    reporting = [d for d in departments if d['avg'] is not None]
+    counted = [d for d in departments if d['avg'] is not None]
     attainment = (
-        round(sum(d['avg'] for d in reporting) / len(reporting), 1)
-        if reporting else None
+        round(sum(d['avg'] for d in counted) / len(counted), 1)
+        if counted else None
     )
+    # Kept separate from the denominator: this is the coverage story ("who has
+    # actually entered figures"), which is now a caveat on a real number rather
+    # than the thing the number is made of.
+    reporting = [d for d in departments if d['has_data']]
 
     # Movement is the mean of the department movements, over the departments
     # that have a comparable previous period. Same one-vote-each rule.
@@ -245,20 +287,32 @@ def _org_summary(departments):
         'bar_pct': 0 if attainment is None else min(round(attainment), 100),
         'reached': attainment is not None and attainment >= 100,
         'reporting': len(reporting),
+        # How many departments the figure is divided by. Only differs from
+        # `department_count` when one owns no targeted KPI.
+        'counted': len(counted),
         'department_count': len(departments),
         # Coverage as a proportion, so the panel can draw it rather than
         # leaving the reader to divide two numbers in their head.
         'reporting_pct': _pct(len(reporting), len(departments)),
+        # Against the TARGETED KPIs, which is the figure's real denominator.
+        # Measuring coverage against all 79 while scoring against 64 would put
+        # a ceiling on the meter that nobody could explain.
         'kpis_scored_pct': _pct(
             sum(d['scored_count'] for d in departments),
-            sum(d['kpi_count'] for d in departments),
+            sum(d['scorable_count'] for d in departments),
         ),
         'complete': bool(reporting) and len(reporting) == len(departments),
-        'at_target': sum(1 for d in reporting if d['avg'] >= 100),
-        'below_target': sum(1 for d in reporting if d['avg'] < 100),
+        'at_target': sum(1 for d in counted if d['avg'] >= 100),
+        'below_target': sum(1 for d in counted if d['avg'] < 100),
         'kpis_on_track': sum(d['on_track'] for d in departments),
         'kpis_scored': sum(d['scored_count'] for d in departments),
+        'kpis_targeted': sum(d['scorable_count'] for d in departments),
+        'kpis_missing': sum(d['missing_count'] for d in departments),
         'kpis_total': sum(d['kpi_count'] for d in departments),
+        # The ones sitting out entirely: a figure, but no target to judge it by.
+        'kpis_untargeted': sum(
+            d['kpi_count'] - d['scorable_count'] for d in departments
+        ),
         'delta': delta,
         'delta_departments': len(moved),
     }
@@ -294,8 +348,10 @@ def home(request):
     # cannot show two different company numbers.
     org = _org_summary(departments)
     # Contribution is each department's share of the summed attainment, which is
-    # what the donut divides up. Departments with nothing scored sit it out.
-    contributing = [d for d in departments if d['avg'] is not None]
+    # what the donut divides up. A department at 0 contributes nothing, so it
+    # sits the chart out: it counts against the Overall Goal figure above, but
+    # drawing ten zero-width slices would just be a legend of empty names.
+    contributing = [d for d in departments if d['avg']]
     total = sum(d['avg'] for d in contributing)
     chart_data = [
         {

@@ -85,3 +85,36 @@ def shown(value):
     if value < 100 <= rounded:
         return 99.9
     return rounded
+
+
+def goal_attainment(entries):
+    """Roll a set of KPIs up into one figure: progress toward hitting them all.
+
+    `entries` is `(has_target, attainment)` pairs, one per KPI, where
+    `attainment` is None when nothing has been reported. Returns
+    `(average, counted)`; `average` is None only when NOTHING is targeted.
+
+    Two rules, and they are the whole point of this function existing rather
+    than each caller averaging its own list:
+
+    * **A target with no figure reported against it counts as 0.** It has not
+      been met. Averaging only the KPIs that happen to have data let one
+      reported KPI out of seventeen read as a team at 100%.
+    * **A KPI with NO TARGET is left out entirely, which is not the same as
+      zero.** It has a figure but nothing to judge it by (the `monitored`
+      status), so it can be neither attained nor missed. Counting those as
+      losses would also put 100% permanently out of reach for anyone who owns
+      one.
+
+    Used by the Overall Dashboard's department rollup and by the branch
+    overview, so a team cannot read one figure on its own page and another on
+    the company one.
+    """
+    scores = [
+        0.0 if value is None else value
+        for targeted, value in entries
+        if targeted
+    ]
+    if not scores:
+        return None, 0
+    return round(sum(scores) / len(scores), 1), len(scores)

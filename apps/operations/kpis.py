@@ -64,7 +64,7 @@ MODAL_SPECS = [
      'b_label': 'Scheduled reviews', 'b_placeholder': '8'},
     {'name': 'Seat Expansion', 'kind': 'percent',
      'a_label': 'Actual billable headcount', 'a_placeholder': '390',
-     'b_label': 'Target headcount (500)', 'b_placeholder': '500'},
+     'b_label': 'Target headcount', 'b_placeholder': '500'},
 ]
 
 

@@ -65,6 +65,11 @@ from .models import (
 # Rows per page: KPI Management's table, and Import Data's records table.
 PAGE_SIZE = 10
 RECORDS_PAGE_SIZE = 10
+IMPORTS_PAGE_SIZE = 10
+
+# The history pager's own query key. NOT `page`: both tables live on one screen
+# now, and sharing a key would move them together.
+IMPORTS_PAGE_PARAM = 'ipage'
 
 # How each KPI's direction reads on the definitions and management screens.
 DIRECTION_LABEL = {'up': 'Higher is better', 'down': 'Lower is better'}
@@ -78,20 +83,75 @@ DIRECTION_LABEL = {'up': 'Higher is better', 'down': 'Lower is better'}
 TABLE_ANCHOR = 'kpi-definitions'
 RECORDS_ANCHOR = 'kpi-records'
 
+# Import Data's two panels share one card and one anchor. Records is the
+# default, so `?tab=` only ever appears when the other one is showing.
+RECORDS_TAB = 'records'
+IMPORTS_TAB = 'imports'
 
-def _query_without_page(request):
-    """The current query string minus `page`, for pagination links."""
+
+def _link_params(request):
+    """`request.GET` as the basis for a link the USER is going to click.
+
+    Stage 2's `partial=1` must never survive into one. These screens render in
+    two stages (`apps/core/async_content.py`), so on the fetch that builds the
+    content `request.GET` carries that flag, and a pager pill or a tab link
+    built from it would hand the visitor the FRAGMENT: no sidebar, no header,
+    no page frame at all. Every link and redirect below starts here.
+    """
     params = request.GET.copy()
-    params.pop('page', None)
+    params.pop(async_content.PARTIAL_PARAM, None)
+    return params
+
+
+def _query_without_page(request, key='page'):
+    """The current query string minus one pager's own key, for its links.
+
+    `key` because Import Data now has TWO pagers on one page, and each has to
+    drop only its own parameter: a records link that stripped `ipage` would
+    quietly send the history back to page 1.
+    """
+    params = _link_params(request)
+    params.pop(key, None)
     return params.urlencode()
 
 
-def _params_without_page(request):
+def _tab_url(request, tab):
+    """The current URL with one of Import Data's two tabs selected.
+
+    A real link, not a JS-only control: with the script the panels swap
+    instantly, without it the tab still works as a page load. It also means the
+    choice lives in the query string, so a form posting to the current URL
+    carries it and a redirect can land back on the tab it was submitted from.
+    Records is the default, so it drops the parameter rather than spelling it
+    out.
+    """
+    params = _link_params(request)
+    if tab == RECORDS_TAB:
+        params.pop('tab', None)
+    else:
+        params['tab'] = tab
+    query = params.urlencode()
+    return f'{request.path}{"?" + query if query else ""}#{RECORDS_ANCHOR}'
+
+
+def _posted_pk(request, field):
+    """The row id a modal's hidden field posted, or 0 for anything that isn't one.
+
+    A hand-made POST can carry '' or 'abc', and a non-numeric value reaching a
+    pk lookup raises ValueError rather than turning into a not-found — a 500
+    where a 404 belongs. 0 never matches, so the caller's `get_object_or_404`
+    gives the right answer.
+    """
+    value = request.POST.get(field, '')
+    return int(value) if value.isdigit() else 0
+
+
+def _params_without_page(request, key='page'):
     """The same, as key/value pairs, for the pagination form's hidden inputs."""
     return [
-        {'key': key, 'value': value}
-        for key, values in request.GET.lists()
-        if key != 'page'
+        {'key': name, 'value': value}
+        for name, values in _link_params(request).lists()
+        if name != key
         for value in values
         if value
     ]
@@ -400,7 +460,9 @@ class KpiScreens:
         )
         today = timezone.localdate()
         last_batch = (
-            KpiImportBatch.objects.filter(team=team, branch=branch)
+            # A deleted import is not the last import: it is one that never
+            # happened as far as this team's data is concerned.
+            KpiImportBatch.objects.filter(team=team, branch=branch, is_active=True)
             .order_by('-uploaded_at')
             .first()
         )
@@ -424,7 +486,13 @@ class KpiScreens:
         }
 
     def record_rows(self, records_qs):
-        """KPI Records table rows, from `kpi_record`."""
+        """KPI Records table rows, from `kpi_record`.
+
+        Carries the detail the View modal shows as well as the columns of the
+        table. Both come off rows already fetched, so opening a record costs no
+        query: the alternative is a per-record endpoint for data the page is
+        holding anyway.
+        """
         return [
             {
                 # The delete form posts this. Records have no slug of their own,
@@ -441,14 +509,53 @@ class KpiScreens:
                 'attainment': record.attainment,
                 'source': record.get_source_display(),
                 'remarks': record.remarks,
+                # --- View modal only ---
+                'frequency': record.kpi.get_frequency_display(),
+                'period_start': record.period_start,
+                'period_end': record.period_end,
+                # The formula plus the operands below is the whole answer to
+                # "why is this number what it is?".
+                'formula': record.kpi.formula_text or record.kpi.expression,
+                'inputs': [
+                    {
+                        'label': value.input.label,
+                        'key': value.input.key,
+                        'value': (
+                            value.value_date if value.value_number is None
+                            else value.value_number
+                        ),
+                    }
+                    # In CSV column order, so the modal reads like the template
+                    # the figures were typed into.
+                    for value in sorted(
+                        record.input_values.all(), key=lambda v: v.input.position
+                    )
+                ],
+                'entered_by': (
+                    record.entered_by.get_full_name() or record.entered_by.get_username()
+                    if record.entered_by_id
+                    else 'System'
+                ),
+                'created_at': record.created_at,
+                'updated_at': record.updated_at,
+                'batch_file': (
+                    record.import_batch.file_name if record.import_batch_id else ''
+                ),
             }
             for record in records_qs
         ]
 
     def import_rows(self, batches):
-        """Recent Import History rows, from `kpi_import_batch`."""
+        """Recent Import History rows, from `kpi_import_batch`.
+
+        Like `record_rows`, this carries the View modal's detail too, including
+        every `kpi_import_issue` the upload raised. A partial import's whole
+        point is that some rows were refused, and the count in the table is
+        useless without being able to read which ones and why.
+        """
         return [
             {
+                'pk': batch.pk,
                 'file_name': batch.file_name,
                 'kpi': batch.kpi.name if batch.kpi_id else 'Multiple',
                 'records': batch.created_count + batch.updated_count,
@@ -461,6 +568,30 @@ class KpiScreens:
                     else 'System'
                 ),
                 'uploaded_at': batch.uploaded_at,
+                # --- View modal only ---
+                'rows_read': batch.row_count,
+                'created_count': batch.created_count,
+                'updated_count': batch.updated_count,
+                'template_version': batch.template_version,
+                'file_size': batch.file_size,
+                'completed_at': batch.completed_at,
+                # How many of this upload's records are still live. A batch
+                # whose rows were later deleted one by one should not claim to
+                # be holding them.
+                'live_records': sum(
+                    1 for record in batch.records.all() if record.is_active
+                ),
+                'issues': [
+                    {
+                        'row_number': issue.row_number,
+                        'column_key': issue.column_key,
+                        'raw_value': issue.raw_value,
+                        'severity': issue.severity,
+                        'severity_label': issue.get_severity_display(),
+                        'message': issue.message,
+                    }
+                    for issue in batch.issues.all()
+                ],
             }
             for batch in batches
         ]
@@ -506,7 +637,7 @@ class KpiScreens:
         to a Location that has none (RFC 7231 §7.1.2), which would reopen the
         modal that was just submitted.
         """
-        query = request.GET.urlencode()
+        query = _link_params(request).urlencode()
         return (
             f'{request.path}{"?" + query if query else ""}#{RECORDS_ANCHOR}'
         )
@@ -534,7 +665,7 @@ class KpiScreens:
                 # delete.
                 record = get_object_or_404(
                     KpiRecord,
-                    pk=request.POST.get('_record', ''),
+                    pk=_posted_pk(request, '_record'),
                     kpi__team=team,
                     kpi__branch=branch,
                     is_active=True,
@@ -563,6 +694,56 @@ class KpiScreens:
                     request,
                     f'{record.kpi.name} for {period} has been deleted. '
                     'Re-entering that period restores it.',
+                )
+                return redirect(self._back_to_records(request))
+
+            if request.POST.get('_action') == 'delete-import':
+                # Deleting an upload deletes what it wrote. An import is one
+                # act, so undoing it row by row would leave the batch claiming
+                # records that are gone and the tiles counting figures nobody
+                # meant to enter.
+                #
+                # Both sides are SOFT (design principle 7): the batch keeps its
+                # counts and its rejected rows, the records keep their operands,
+                # and the stored file is untouched. Scoped to this team and
+                # branch, so a guessed id from another LOB is a 404.
+                batch = get_object_or_404(
+                    KpiImportBatch,
+                    pk=_posted_pk(request, '_batch'),
+                    team=team,
+                    branch=branch,
+                    is_active=True,
+                )
+
+                # Only the records this batch is still the source of. A period
+                # that was re-uploaded later belongs to that later batch, whose
+                # `import_batch` now points there, so it is correctly left alone.
+                removed = KpiRecord.objects.filter(
+                    import_batch=batch, is_active=True
+                ).update(is_active=False)
+
+                batch.is_active = False
+                batch.save(update_fields=['is_active'])
+
+                log_action(
+                    request,
+                    action=AuditLog.Action.DELETED,
+                    entity=batch,
+                    entity_type='kpi_import_batch',
+                    team=team,
+                    old_values={'is_active': True},
+                    new_values={
+                        'is_active': False,
+                        'file_name': batch.file_name,
+                        'records_removed': removed,
+                    },
+                )
+
+                messages.success(
+                    request,
+                    f'{batch.file_name} has been deleted, along with '
+                    f'{removed} record{"" if removed == 1 else "s"} it entered. '
+                    'Nothing is destroyed. Uploading the file again enters them once more.',
                 )
                 return redirect(self._back_to_records(request))
 
@@ -673,7 +854,10 @@ class KpiScreens:
             KpiRecord.objects.filter(
                 kpi__team=team, kpi__branch=branch, is_active=True
             )
-            .select_related('kpi', 'kpi__category')
+            .select_related('kpi', 'kpi__category', 'entered_by', 'import_batch')
+            # The View modal shows the raw operands behind the figure. Prefetched
+            # here so opening one costs no query.
+            .prefetch_related('input_values__input')
             .order_by('-period_start', 'kpi__sort_order')
         )
         if search:
@@ -707,10 +891,25 @@ class KpiScreens:
             paginator.get_elided_page_range(page.number, on_each_side=1, on_ends=1)
         )
 
-        batches = (
-            KpiImportBatch.objects.filter(team=team, branch=branch)
+        # Paginated rather than capped at the ten most recent: an import is the
+        # receipt for a figure someone is querying, and "which upload put this
+        # number here?" is unanswerable once the file scrolls off a fixed list.
+        batches_qs = (
+            KpiImportBatch.objects.filter(team=team, branch=branch, is_active=True)
             .select_related('kpi', 'uploaded_by')
-            .order_by('-uploaded_at')[:10]
+            # Both feed the View modal: which rows were refused and why, and how
+            # many of the records this upload wrote are still live.
+            .prefetch_related('issues', 'records')
+            .order_by('-uploaded_at')
+        )
+        imports_paginator = Paginator(batches_qs, IMPORTS_PAGE_SIZE)
+        imports_page = imports_paginator.get_page(
+            request.GET.get(IMPORTS_PAGE_PARAM)
+        )
+        imports_page_numbers = list(
+            imports_paginator.get_elided_page_range(
+                imports_page.number, on_each_side=1, on_ends=1
+            )
         )
 
         return async_content.render_content(request, 'kpi/import_data.html', {
@@ -761,7 +960,25 @@ class KpiScreens:
                 or chosen_statuses or chosen_sources
             ),
             'clear_url': self.url('import_data', branch=branch),
-            'imports': self.import_rows(batches),
+            'imports': self.import_rows(imports_page.object_list),
+            # The tab badge counts every upload, not the page.
+            'import_count': imports_paginator.count,
+            'imports_page_obj': imports_page,
+            'imports_page_numbers': imports_page_numbers,
+            'imports_page_param': IMPORTS_PAGE_PARAM,
+            # Each pager drops only its OWN key, so paging one table cannot
+            # reset the other, and both keep the tab and the record filters.
+            'imports_query': _query_without_page(request, IMPORTS_PAGE_PARAM),
+            'imports_params': _params_without_page(request, IMPORTS_PAGE_PARAM),
+            # Which of the two panels is showing. Anything but the imports tab
+            # falls back to records, so a typo'd `?tab=` shows the figures
+            # rather than an empty card.
+            'active_tab': (
+                IMPORTS_TAB if request.GET.get('tab') == IMPORTS_TAB
+                else RECORDS_TAB
+            ),
+            'records_tab_url': _tab_url(request, RECORDS_TAB),
+            'imports_tab_url': _tab_url(request, IMPORTS_TAB),
             # The Add-Record modal renders one field group per KPI; only the
             # selected one is enabled, so only its operands are submitted.
             'record_kpis': [
@@ -818,7 +1035,7 @@ class KpiScreens:
         Carrying them back is the difference between saving a KPI and having
         the filtered list you were working through reset itself underneath you.
         """
-        params = request.GET.copy()
+        params = _link_params(request)
         page = request.POST.get('_page')
         if page and page.isdigit():
             params['page'] = page
@@ -1048,12 +1265,25 @@ class KpiScreens:
             rows = self.scorecard_rows(team, branch)
             everything += rows
 
-            # A branch's headline number is the mean attainment of its SCORED
-            # KPIs. 'No Target' and 'No Data' KPIs have nothing to average, so
-            # they are left out rather than dragged in as zero, which would
-            # report an unmeasured branch as a failing one.
+            # A branch's headline number is progress toward hitting every
+            # target it has set, the same rule the Overall Dashboard's
+            # department cards use — and the same function, so a branch cannot
+            # read one figure here and another on the company page.
+            #
+            # A TARGET WITH NO FIGURE COUNTS AS 0. This used to average only the
+            # KPIs that had data, which let SEO's one reported KPI out of five
+            # read as a branch at 100%.
+            #
+            # A KPI with no target is still left out, which is not the same as
+            # zero: it has nothing to hit, so it can be neither attained nor
+            # missed. `average` is therefore None only for a branch that has set
+            # no targets at all.
             scored = [r['attainment'] for r in rows if r['attainment'] is not None]
-            average = round(sum(scored) / len(scored), 1) if scored else None
+            average, scorable = scoring.goal_attainment(
+                (r['target_min'] is not None or r['target_max'] is not None,
+                 r['attainment'])
+                for r in rows
+            )
             status = 'monitored' if average is None else scoring.status(average)
 
             cards.append({
@@ -1062,6 +1292,9 @@ class KpiScreens:
                 'url': self.url('index', branch=branch),
                 'kpi_count': len(rows),
                 'scored_count': len(scored),
+                # The figure's denominator, and the gap the card reports.
+                'scorable_count': scorable,
+                'missing_count': scorable - len(scored),
                 'on_track_count': sum(1 for r in rows if r['status'] == 'on_track'),
                 'at_risk_count': sum(1 for r in rows if r['status'] == 'at_risk'),
                 'below_count': sum(1 for r in rows if r['status'] == 'below'),
@@ -1071,7 +1304,10 @@ class KpiScreens:
                 'bar_pct': 0 if average is None else min(int(average), 100),
                 'status': status,
                 'status_label': (
-                    'No Data' if average is None
+                    # 'No Target' rather than 'No Data': the only branch with
+                    # no figure now is one that has set nothing to hit. A branch
+                    # that simply has not reported reads 0%, like any other miss.
+                    'No Target' if average is None
                     else KpiRecord.Status(status).label
                 ),
             })
@@ -1100,12 +1336,15 @@ class KpiScreens:
                     'attainment': card['attainment'],
                     'status': card['status'],
                     'actual_display': (
-                        f'{card["on_track_count"]} of {card["scored_count"]} KPIs on target'
+                        f'{card["on_track_count"]} of {card["scorable_count"]} '
+                        'targets met'
                     ),
                     'target_display': '100%',
                     'period': '',
                 }
                 for card in cards
+                # A branch at 0% is charted: that is a real reading now, not an
+                # absence. Only a branch with nothing targeted sits out.
                 if card['attainment'] is not None
             ],
         })

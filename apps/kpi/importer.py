@@ -342,7 +342,11 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
         )
 
     result.duplicate_of = (
-        KpiImportBatch.objects.filter(kpi=kpi, file_hash=hashlib.sha256(raw).hexdigest())
+        # Live batches only: after an import is deleted, uploading the same file
+        # again is how you undo that, not an accidental repeat.
+        KpiImportBatch.objects.filter(
+            kpi=kpi, file_hash=hashlib.sha256(raw).hexdigest(), is_active=True
+        )
         .order_by('-uploaded_at')
         .first()
     )
@@ -690,7 +694,8 @@ def parse_and_apply_workbook(raw, *, team, user, file_name, content_type='', bra
 
     result.duplicate_of = (
         KpiImportBatch.objects.filter(
-            team=team, kpi__isnull=True, file_hash=hashlib.sha256(raw).hexdigest()
+            team=team, kpi__isnull=True, file_hash=hashlib.sha256(raw).hexdigest(),
+            is_active=True,
         )
         .order_by('-uploaded_at')
         .first()
