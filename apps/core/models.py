@@ -101,6 +101,28 @@ class UserProfile(models.Model):
             "opens the dashboard. Cleared once they finish or skip it."
         ),
     )
+    # Set when an administrator creates the account from the Users screen, where
+    # only the Employee ID and a generated password are typed. The dashboard
+    # then asks the person for their own name, email and password the first time
+    # they sign in, and clears this once they have given them.
+    #
+    # NOT the same question as `is_new_user`, which is about the guided tour.
+    # An account can need the tour and not the setup (a superuser created on the
+    # command line), and the two are cleared by different actions. They are
+    # ordered rather than combined: the setup card gates the tour, so somebody
+    # is never walked around the app through a form they still have to fill in.
+    #
+    # Defaults to False so an account created any other way (the Django admin,
+    # `createsuperuser`) is not asked to set itself up. `CreateUserForm` turns
+    # it on, because that is the one path where the details were never entered.
+    needs_setup = models.BooleanField(
+        default=False,
+        verbose_name='needs account setup',
+        help_text=(
+            "Asks this user for their name, email and a password of their own "
+            "the next time they open the dashboard. Cleared once they finish."
+        ),
+    )
 
     def __str__(self):
         return f"{self.user.get_username()} ({self.get_role_display()})"

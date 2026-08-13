@@ -164,7 +164,15 @@ def tour(request):
         return empty
 
     profile = getattr(user, 'profile', None)
-    first_run = profile is not None and profile.is_new_user
+    # `needs_setup` holds the tour back rather than cancelling it. An account an
+    # administrator has just created lands on the dashboard behind the setup
+    # card, and starting a walk around the app underneath a form the person has
+    # to fill in first would be two things talking at once. The flag clears on
+    # save, the page redirects, and the tour plays on the render after that, off
+    # the same `is_new_user` it always did.
+    first_run = (
+        profile is not None and profile.is_new_user and not profile.needs_setup
+    )
 
     return {
         'tour_steps': steps,

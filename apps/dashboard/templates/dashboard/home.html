@@ -619,9 +619,90 @@
         </div>
     </div>
 </div>
+
+{# ============ First sign-in: finish setting up this account ============ #}
+{# Rendered only for an account an administrator created from the Users screen, which is an Employee ID and a generated password and nothing else. It is not a :target modal and it has no close button: the three things it asks for are the three things nobody else can supply, and the account holder is the only person who will ever be standing here. #}
+{# #}
+{# z-[90] puts it above the guided tour's own layers (80/81/82 in input.css). The tour also waits for this to be done before it plays by itself, so in practice the two are never on screen together, but the stacking says which one is in charge if they ever are. #}
+{% if setup_form %}
+<div class="modal-overlay fixed inset-0 z-[90] !flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
+    <div class="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div class="bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <h3 class="font-heading text-lg font-bold leading-tight">Welcome to Vintazk 360</h3>
+            <p class="mt-1 text-xs leading-5 text-white/70">
+                Your account was set up for you as {{ user.get_username }}. Tell us who you are and pick a password only you know, and the dashboard is yours.
+            </p>
+        </div>
+
+        <form method="post" action="{% url 'dashboard:home' %}" class="flex min-h-0 flex-1 flex-col">
+            {% csrf_token %}
+            <input type="hidden" name="_action" value="account-setup">
+
+            <div class="min-h-0 flex-1 overflow-y-auto p-6">
+                {% if setup_form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ setup_form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+                    <div>
+                        <label for="{{ setup_form.first_name.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">First name{% include "partials/required_mark.html" %}</label>
+                        {{ setup_form.first_name }}
+                        {% include "partials/field_errors.html" with field=setup_form.first_name %}
+                    </div>
+                    <div>
+                        <label for="{{ setup_form.last_name.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Last name{% include "partials/required_mark.html" %}</label>
+                        {{ setup_form.last_name }}
+                        {% include "partials/field_errors.html" with field=setup_form.last_name %}
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="{{ setup_form.email.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Email{% include "partials/required_mark.html" %}</label>
+                        {{ setup_form.email }}
+                        <p class="mt-1.5 text-xs text-slate-400">Your work email. It is how the team reaches you about the figures you enter.</p>
+                        {% include "partials/field_errors.html" with field=setup_form.email %}
+                    </div>
+
+                    {# Optional, and the copy says so plainly. Somebody who has already saved the generated password should not be made to invent a second one; somebody who was read theirs down a phone should change it here. #}
+                    <div data-password-checklist class="sm:col-span-2 grid grid-cols-1 gap-x-6 gap-y-5 border-t border-slate-100 pt-5 sm:grid-cols-2">
+                        <div class="sm:col-span-2">
+                            <p class="text-sm font-semibold text-ink">Change your password</p>
+                            <p class="mt-1 text-xs leading-5 text-slate-500">
+                                Optional. Leave both boxes empty to keep the password you signed in with. Change it if anyone else has seen it.
+                            </p>
+                        </div>
+                        <div>
+                            <label for="{{ setup_form.password1.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">New password</label>
+                            {{ setup_form.password1 }}
+                            {% include "partials/field_errors.html" with field=setup_form.password1 %}
+                        </div>
+                        <div>
+                            <label for="{{ setup_form.password2.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Confirm new password</label>
+                            {{ setup_form.password2 }}
+                            {% include "partials/field_errors.html" with field=setup_form.password2 %}
+                        </div>
+                        <div class="sm:col-span-2 -mt-2">
+                            {% include "partials/password_checklist.html" %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <p class="text-xs text-slate-400">You can change any of this later in Settings.</p>
+                <button type="submit" class="inline-flex shrink-0 items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'check' %} Finish setup
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{# Ticks the password rules as they are typed, in the first-sign-in setup card. #}
+<script src="{% static 'js/password-checklist.js' %}"></script>
 <script src="{% static 'js/date-range-picker.js' %}"></script>
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
 <script>

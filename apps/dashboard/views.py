@@ -2,14 +2,19 @@ from datetime import date, datetime
 from functools import partial
 from zoneinfo import ZoneInfo
 
+from django.contrib import messages
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import NoReverseMatch, reverse
 
 from apps.core import async_content
+from apps.core import audit
 from apps.core import cache
 from apps.core import kpi as scoring
 from apps.core.access import accessible_teams
+from apps.core.forms import AccountSetupForm
+from apps.core.models import AuditLog
 from apps.kpi import records as kpi_records
 from apps.kpi.models import KpiDefinition, KpiRecord
 
@@ -658,9 +663,82 @@ def _insights(departments):
     return found
 
 
+# --- First sign-in setup -----------------------------------------------------
+#
+# An account created from the Users screen is an Employee ID and a generated
+# password, and deliberately nothing else: an administrator adding a dozen
+# colleagues should not have to know a dozen email addresses. The rest is asked
+# for here, once, the first time the person opens the dashboard.
+#
+# It is handled by this view rather than a `core` one for the reason KPI
+# Management handles its own three modals: a form that fails validation has to
+# re-render the page it is standing on, with its errors and its card still open.
+# A separate view would have nowhere to put the errors on the way back.
+SETUP_ACTION = 'account-setup'
+
+
+def _needs_setup(user):
+    """True while this account has never given its own name, email or password."""
+    profile = getattr(user, 'profile', None)
+    return profile is not None and profile.needs_setup
+
+
+def _handle_setup(request):
+    """The setup card's POST. Returns a response to send, or the failed form.
+
+    Returning either is what lets `home` treat "done, go away" and "try again,
+    here is what is wrong" as the two outcomes they are.
+    """
+    if not _needs_setup(request.user):
+        # Already finished: a refreshed submit, or a second tab that was sitting
+        # on the card. Nothing to do and nothing to complain about.
+        return redirect('dashboard:home')
+
+    form = AccountSetupForm(request.POST, user=request.user)
+    if not form.is_valid():
+        return form
+
+    form.save()
+    if form.password_changed:
+        # Setting a password rotates the session hash. Without this the person
+        # is signed straight out by the first thing they did after signing in.
+        update_session_auth_hash(request, request.user)
+    audit.log_action(
+        request,
+        action=AuditLog.Action.UPDATED,
+        entity_type='user',
+        entity_id=request.user.pk,
+        entity_name=request.user.get_username(),
+        # What was set, never what it was set TO where the password is
+        # concerned. The log is permanent; the password is not for reading.
+        new_values={
+            'name': request.user.get_full_name(),
+            'email': request.user.email,
+            'password': (
+                'set by the account holder' if form.password_changed
+                else 'kept the one the account was created with'
+            ),
+        },
+    )
+    messages.success(request, 'Your account is set up. Welcome to Vintazk 360.')
+    # Redirected rather than rendered, so a refresh cannot re-post the form and
+    # so the guided tour gets a page load with `needs_setup` already cleared.
+    return redirect('dashboard:home')
+
+
 @login_required
 def home(request):
     """Landing page for the dashboard (requires authentication)."""
+    # The setup card, before anything else: it is the only POST this screen
+    # takes, and a failure has to fall through to the full render below rather
+    # than to the skeleton, which would throw the errors away.
+    setup_form = None
+    if request.method == 'POST' and request.POST.get('_action') == SETUP_ACTION:
+        outcome = _handle_setup(request)
+        if not isinstance(outcome, AccountSetupForm):
+            return outcome
+        setup_form = outcome
+
     # Two-stage render (apps/core/async_content.py). This page is the landing
     # screen after sign-in and the heaviest one in the app: it walks every
     # department the user can see and scores two periods of every KPI in each.
@@ -741,4 +819,10 @@ def home(request):
         'insights': _insights(departments),
         'chart_data': chart_data,
         'movers': movers,
+        # The first-sign-in card. None for everybody else, which is what the
+        # template branches on, so the markup costs nothing on the other 99% of
+        # dashboard loads.
+        'setup_form': setup_form or (
+            AccountSetupForm(user=user) if _needs_setup(user) else None
+        ),
     })

@@ -301,6 +301,18 @@ _USERS_ANCHOR = 'user-accounts'
 
 _STATUS_OPTIONS = [('active', 'Active'), ('inactive', 'Deactivated')]
 
+# Where a freshly created account's sign-in details wait between the POST that
+# made them and the page that shows them.
+#
+# A password is only readable once. It is hashed the moment it is saved, so the
+# Employee ID and the password have to be handed over on the page that comes
+# straight after the create form or they are gone for good, and a redirect sits
+# between the two (without one, refreshing the page would re-post the form).
+# The session is the one place that survives a redirect without putting a
+# password in a URL, where it would land in the browser history and every
+# access log. It is popped by the very next render, so it lives for one page.
+NEW_CREDENTIALS_KEY = 'vintazk:new_account'
+
 
 def _posted_pk(value):
     """A pk posted by a modal, or 0 for anything that is not one.
@@ -402,9 +414,18 @@ def users(request):
                 created = form.save()
                 _log_user(request, AuditLog.Action.CREATED, created,
                           new_values=_snapshot(created))
+                # The password itself, not a note that one was set: this is the
+                # only moment it is still readable, and the next page hands it
+                # over. The audit entry above deliberately carries no such
+                # thing, since the log is permanent and this is not.
+                request.session[NEW_CREDENTIALS_KEY] = {
+                    'username': created.get_username(),
+                    'password': form.cleaned_data['password2'],
+                }
                 messages.success(
                     request,
-                    f'Account {created.get_username()} created. ',
+                    f'Account {created.get_username()} created. '
+                    'Copy the sign-in details before you close them.',
                 )
                 return redirect(_back_to_users(request))
             create_form, open_create = form, True
@@ -454,7 +475,7 @@ def users(request):
                         messages.success(
                             request,
                             f"Password set for {target.get_username()}. "
-                            'They are signed out of any open sessions the next time they load a page.',
+                            'User are signed out of any open sessions the next time they load a page.',
                         )
                     return redirect(_back_to_users(request))
                 bound_password[target.pk], open_password_pk = form, target.pk
@@ -544,6 +565,11 @@ def users(request):
             ),
         })
 
+    # Popped, not read: the details are shown once and then gone. The shell
+    # stage returned long before this line, so the credentials are still there
+    # when the fetch that actually draws the modal arrives.
+    new_credentials = request.session.pop(NEW_CREDENTIALS_KEY, None)
+
     total = people.count()
     active = people.filter(is_active=True).count()
     admins = people.filter(
@@ -583,6 +609,9 @@ def users(request):
         },
         'create_form': create_form or CreateUserForm(actor=request.user),
         'open_create': open_create,
+        # Present for exactly one render, straight after a create. The modal it
+        # opens is the only place the password is ever readable.
+        'new_credentials': new_credentials,
         'open_edit_pk': open_edit_pk,
         'open_password_pk': open_password_pk,
         'assignable_role_labels': [label for _, label in assignable_roles(request.user)],
