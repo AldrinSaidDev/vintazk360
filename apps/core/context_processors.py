@@ -54,8 +54,13 @@ def _links(namespace, subpages, args=()):
     return links
 
 
-def _team_nav(team, path):
-    """Build a team's dropdown: its own links plus any branch sub-dropdowns."""
+def team_nav(team, path):
+    """Build a team's dropdown: its own links plus any branch sub-dropdowns.
+
+    Public because `apps/core/search.py` builds the search palette's page list
+    from it: the sidebar and the search results must offer the same screens, or
+    a page becomes reachable one way and not the other.
+    """
     links = _links(team.slug, _TEAM_SUBPAGES)
 
     branches = []
@@ -97,7 +102,7 @@ def navigation(request):
     if user is None or not user.is_authenticated:
         return {'nav_teams': []}
     path = request.path
-    return {'nav_teams': [_team_nav(t, path) for t in accessible_teams(user)]}
+    return {'nav_teams': [team_nav(t, path) for t in accessible_teams(user)]}
 
 
 def permissions(request):

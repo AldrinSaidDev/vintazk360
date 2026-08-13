@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from . import activity, async_content, audit
+from . import search as site_search
 from .access import (
     accessible_teams,
     assignable_roles,
@@ -256,6 +257,23 @@ def tour_seen(request):
         profile.is_new_user = False
         profile.save(update_fields=['is_new_user'])
     return JsonResponse({'ok': True})
+
+
+@login_required
+def search(request):
+    """Results for the header search palette (`static/js/search.js`).
+
+    JSON rather than a rendered page: the palette is an overlay on whatever
+    screen the user is already on, and every result is a link they follow, so
+    there is no search results page to build. What may be found is decided in
+    `apps/core/search.py`, which asks `access.py` the same questions the
+    sidebar and every LOB view do.
+
+    The query is truncated because it reaches a LIKE: nobody searches in
+    paragraphs, and an unbounded string is an unbounded query.
+    """
+    query = request.GET.get('q', '')[:120]
+    return JsonResponse({'groups': site_search.search(request.user, query)})
 
 
 # --- Users ------------------------------------------------------------------

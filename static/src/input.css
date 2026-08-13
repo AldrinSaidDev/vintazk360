@@ -317,6 +317,21 @@
     }
 }
 
+/* Search palette rows (static/js/search.js). The highlighted row follows BOTH
+   the arrow keys and the pointer, so it is one class the script toggles rather
+   than a hover utility plus a parallel set of "keyboard active" ones that would
+   then have to be kept in step. Plain CSS, not Tailwind utilities: the script
+   is the only thing that ever applies it. */
+.search-item {
+    background-color: transparent;
+}
+.search-item.is-active {
+    background-color: rgba(79, 61, 103, 0.08);  /* brand at 8% */
+}
+.search-item.is-active .search-item-title {
+    color: #4F3D67;  /* brand */
+}
+
 /* Space Grotesk — vendored locally (see static/fonts/), used for headings. */
 /* 300 is the lightest face upstream ships; font-extralight/font-thin fall back to it. */
 @font-face {
