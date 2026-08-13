@@ -20,10 +20,33 @@
     {# Counted from kpi_record / kpi_import_batch — the view puts total_records, added_this_month, period and last_import in the context. #}
     {% include "partials/kpi_import_stats.html" %}
 
-    {# KPI Records. The id is where a successful save redirects to, so the modal's own fragment cannot be inherited and re-open it. data-tour marks it as a step of the guided tour (apps/core/tour.py). #}
-    <section id="kpi-records" data-tour="kpi-records" class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 class="font-heading text-base font-bold text-ink">KPI Records</h2>
+    {# KPI Records and Import History share one card: they are two views of the same data, and two stacked panels made the history look like a separate feature rather than the receipt for what is in the table above it. #}
+    {# The id is where a successful save redirects to, so the modal's own fragment cannot be inherited and re-open it. data-tour marks it as a step of the guided tour (apps/core/tour.py), which still points at the whole card. #}
+    <section id="kpi-records" data-tour="kpi-records" class="rounded-xl border border-slate-100 bg-white shadow-sm">
+
+        {# Tabs are REAL LINKS carrying ?tab=, not JS-only buttons. Three things follow from that: they work with the script blocked, the choice survives a form post (the forms carry no action, so they post to the current URL with its query string), and a redirect can land back on the panel the change was made from. #}
+        {# -mb-px pulls the underline onto the card's own border so the active tab sits in the line rather than under it. Active styling hangs off aria-selected, which is the accessible state anyway, so the JS toggles one attribute and no class name is ever built in a string (Tailwind would purge it). #}
+        <div class="border-b border-slate-100 px-6">
+            {# Wraps rather than scrolls. `overflow-x-auto` would clip the -1px the tabs sit on (an auto overflow-x forces overflow-y to auto too), and the underline is the whole point of the control. #}
+            <nav class="-mb-px flex flex-wrap gap-x-6" role="tablist" aria-label="KPI data">
+                <a href="{{ records_tab_url }}" role="tab" data-tab-link="records"
+                   aria-selected="{% if active_tab == 'records' %}true{% else %}false{% endif %}"
+                   class="flex shrink-0 items-center gap-2 border-b-2 border-transparent px-1 pb-3 pt-4 font-heading text-sm font-bold text-slate-400 transition hover:text-brand aria-selected:border-brand aria-selected:text-ink">
+                    KPI Records
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">{{ total_records }}</span>
+                </a>
+                <a href="{{ imports_tab_url }}" role="tab" data-tab-link="imports"
+                   aria-selected="{% if active_tab == 'imports' %}true{% else %}false{% endif %}"
+                   class="flex shrink-0 items-center gap-2 border-b-2 border-transparent px-1 pb-3 pt-4 font-heading text-sm font-bold text-slate-400 transition hover:text-brand aria-selected:border-brand aria-selected:text-ink">
+                    Import History
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">{{ import_count }}</span>
+                </a>
+            </nav>
+        </div>
+
+        {# A plain block, so `hidden` is safe here: it and `flex`/`grid` both set display and must never share an element. #}
+        <div class="p-6{% if active_tab != 'records' %} hidden{% endif %}" data-tab-panel="records" role="tabpanel">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
 
             {# One GET form drives search and filters together, so applying one never clears the other. Same pattern as KPI Management. #}
             <form method="get" class="flex flex-wrap items-center gap-2">
@@ -152,7 +175,8 @@
                         <th class="px-4 py-3 font-semibold">Period</th>
                         <th class="px-4 py-3 font-semibold">Status</th>
                         <th class="px-4 py-3 font-semibold">Source</th>
-                        {% if can_edit %}<th class="px-4 py-3 text-right font-semibold">Actions</th>{% endif %}
+                        {# Always present: View is a read action, so a read-only role gets the column too. Only Delete is behind can_edit. #}
+                        <th class="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -183,18 +207,25 @@
                             {% if record.attainment %}<span class="ml-1 text-[11px] text-slate-400">{{ record.attainment }}%</span>{% endif %}
                         </td>
                         <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ record.source }}</td>
-                        {% if can_edit %}
+                        {# Icon-only, no border: a row of outlined buttons competes with the figures, which are what this table is for. The tooltip and the aria-label carry the name. #}
                         <td class="whitespace-nowrap px-4 py-3 text-right">
-                            <a href="#recordDelete-{{ record.pk }}"
-                               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-status-bad hover:text-status-bad">
-                                {% icon 'trash-o' %} Delete
-                            </a>
+                            <span class="inline-flex items-center gap-0.5">
+                                <a href="#recordView-{{ record.pk }}" title="View record" aria-label="View record"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
+                                    {% icon 'eye' %}
+                                </a>
+                                {% if can_edit %}
+                                <a href="#recordDelete-{{ record.pk }}" title="Delete record" aria-label="Delete record"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
+                                    {% icon 'trash-o' %}
+                                </a>
+                                {% endif %}
+                            </span>
                         </td>
-                        {% endif %}
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="{% if can_edit %}8{% else %}7{% endif %}" class="px-4 py-12 text-center">
+                        <td colspan="8" class="px-4 py-12 text-center">
                             {% if has_any_filter %}
                             {# "Nothing here" and "nothing matches" are different problems and need different ways out. #}
                             <p class="font-heading text-sm font-bold text-ink">No records match these filters</p>
@@ -238,12 +269,10 @@
         {% if page_obj.paginator.num_pages > 1 %}
         {% include "partials/pagination.html" with id="kpi-records-pager" page_obj=page_obj page_numbers=page_numbers anchor="kpi-records" extra_query=extra_query extra_params=extra_params %}
         {% endif %}
-    </section>
+        </div>
 
-    {# Recent Import History #}
-    <section class="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <h2 class="mb-4 font-heading text-base font-bold text-ink">Recent Import History</h2>
-
+        {# Import History. Both panels are always rendered: the data is one query either way, and rendering both is what lets the tab swap without a page load. #}
+        <div class="p-6{% if active_tab != 'imports' %} hidden{% endif %}" data-tab-panel="imports" role="tabpanel">
         <div class="overflow-x-auto rounded-lg border border-slate-100">
             <table class="w-full min-w-[720px] text-left text-sm text-slate-600">
                 <thead class="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -254,6 +283,7 @@
                         <th class="px-4 py-3 font-semibold">Status</th>
                         <th class="px-4 py-3 font-semibold">Imported By</th>
                         <th class="px-4 py-3 font-semibold">Date</th>
+                        <th class="px-4 py-3 text-right font-semibold">Actions</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
@@ -278,15 +308,299 @@
                         </td>
                         <td class="whitespace-nowrap px-4 py-3">{{ batch.uploaded_by }}</td>
                         <td class="whitespace-nowrap px-4 py-3 text-xs text-slate-400">{{ batch.uploaded_at|date:"d M Y, H:i" }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right">
+                            <span class="inline-flex items-center gap-0.5">
+                                <a href="#importView-{{ batch.pk }}" title="View import" aria-label="View import"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
+                                    {% icon 'eye' %}
+                                </a>
+                                {% if can_edit %}
+                                <a href="#importDelete-{{ batch.pk }}" title="Delete import" aria-label="Delete import"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
+                                    {% icon 'trash-o' %}
+                                </a>
+                                {% endif %}
+                            </span>
+                        </td>
                     </tr>
                     {% empty %}
-                    <tr><td class="px-4 py-8 text-center text-sm text-slate-400" colspan="6">No imports yet.</td></tr>
+                    <tr><td class="px-4 py-8 text-center text-sm text-slate-400" colspan="7">No imports yet.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+
+        {% if import_count %}
+        <p class="mt-4 text-xs text-slate-400">
+            Showing {{ imports_page_obj.start_index }}&ndash;{{ imports_page_obj.end_index }} of {{ import_count }} upload{{ import_count|pluralize }}, newest first
+        </p>
+        {% endif %}
+        {# Its own query key, so paging the history does not move the records table underneath the other tab. One page needs no pager, and a dead one reads as broken. #}
+        {% if imports_page_obj.paginator.num_pages > 1 %}
+        {% include "partials/pagination.html" with id="import-history-pager" param=imports_page_param page_obj=imports_page_obj page_numbers=imports_page_numbers anchor="kpi-records" extra_query=imports_query extra_params=imports_params %}
+        {% endif %}
+        </div>
     </section>
 </div>
+
+{# ============ View modals ============ #}
+{# These only READ, so they render for every role, unlike the write modals below. #}
+{# Outside the tables: a <div> is not valid inside <tbody>, so each row links to its own by id. #}
+
+{% for record in records %}
+<div id="recordView-{{ record.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex min-w-0 items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'eye' %}</span>
+                <div class="min-w-0">
+                    <h3 class="truncate font-heading text-lg font-bold leading-tight">{{ record.kpi }}</h3>
+                    <p class="text-xs text-white/70">{{ record.frequency }} &middot; {{ record.period }}</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
+        </div>
+
+        <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+
+            {# The result, its target and its verdict: the three things the table row shows, in full. #}
+            <div class="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+                <div>
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recorded value</p>
+                    <p class="mt-0.5 font-heading text-2xl font-bold text-ink">{{ record.actual }}</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Target</p>
+                    <p class="mt-0.5 font-medium text-ink">{{ record.target }}</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Status</p>
+                    <p class="mt-1">
+                        {% if record.status == 'on_track' %}
+                        <span class="rounded-full bg-status-good/10 px-2.5 py-1 text-[11px] font-semibold text-status-good">{{ record.status_label }}</span>
+                        {% elif record.status == 'at_risk' %}
+                        <span class="rounded-full bg-status-warn/15 px-2.5 py-1 text-[11px] font-semibold text-status-warn">{{ record.status_label }}</span>
+                        {% elif record.status == 'below' %}
+                        <span class="rounded-full bg-status-bad/10 px-2.5 py-1 text-[11px] font-semibold text-status-bad">{{ record.status_label }}</span>
+                        {% else %}
+                        <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{{ record.status_label }}</span>
+                        {% endif %}
+                        {% if record.attainment %}<span class="ml-1 text-[11px] text-slate-400">{{ record.attainment }}% of target</span>{% endif %}
+                    </p>
+                </div>
+            </div>
+
+            {# The formula and the raw operands. Together they are the whole answer to "why is this figure what it is?" — the record stores the result, kpi_record_input stores the numbers it came from. #}
+            <div>
+                <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">How it was calculated</h4>
+                <p class="rounded-lg border border-brand/15 bg-brand/5 px-3 py-2 font-mono text-xs leading-relaxed text-brand-dark">{{ record.formula }}</p>
+
+                {% if record.inputs %}
+                <dl class="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-100">
+                    {% for input in record.inputs %}
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="min-w-0 text-sm text-slate-500">{{ input.label }}</dt>
+                        <dd class="whitespace-nowrap font-heading text-sm font-bold text-ink">{{ input.value }}</dd>
+                    </div>
+                    {% endfor %}
+                </dl>
+                {% else %}
+                {# A record written before an input was removed, or one whose operands were never stored. #}
+                <p class="mt-3 text-xs italic text-slate-400">The raw figures behind this record were not stored.</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Record detail</h4>
+                <dl class="divide-y divide-slate-100 rounded-lg border border-slate-100 text-sm">
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Category</dt>
+                        <dd class="min-w-0 truncate text-ink">{{ record.category }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Period covered</dt>
+                        <dd class="text-ink">{{ record.period_start|date:"d M Y" }} &ndash; {{ record.period_end|date:"d M Y" }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Entered by</dt>
+                        <dd class="min-w-0 truncate text-ink">{{ record.entered_by }} <span class="text-slate-400">({{ record.source }})</span></dd>
+                    </div>
+                    {% if record.batch_file %}
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">From file</dt>
+                        <dd class="min-w-0 truncate text-ink">{{ record.batch_file }}</dd>
+                    </div>
+                    {% endif %}
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">First recorded</dt>
+                        <dd class="text-ink">{{ record.created_at|date:"d M Y, H:i" }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Last updated</dt>
+                        <dd class="text-ink">{{ record.updated_at|date:"d M Y, H:i" }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            {% if record.remarks %}
+            <div>
+                <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Remarks</h4>
+                <p class="rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm leading-6 text-slate-600">{{ record.remarks }}</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            {% if can_edit %}
+            {# Straight from reading a record to removing it, without hunting for its row again. #}
+            <a href="#recordDelete-{{ record.pk }}" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-status-bad/10 hover:text-status-bad">
+                {% icon 'trash-o' %} Delete
+            </a>
+            {% endif %}
+            <a href="#" class="rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">Close</a>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+{% for batch in imports %}
+<div id="importView-{{ batch.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex min-w-0 items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'file-text-o' %}</span>
+                <div class="min-w-0">
+                    <h3 class="truncate font-heading text-lg font-bold leading-tight">{{ batch.file_name }}</h3>
+                    <p class="text-xs text-white/70">Uploaded {{ batch.uploaded_at|date:"d M Y, H:i" }} by {{ batch.uploaded_by }}</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
+        </div>
+
+        <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+
+            {# What the file did, in the four numbers that describe an import. Rejected is coloured only when there is something to colour. #}
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div class="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Rows read</p>
+                    <p class="mt-0.5 font-heading text-xl font-bold text-ink">{{ batch.rows_read }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Created</p>
+                    <p class="mt-0.5 font-heading text-xl font-bold text-ink">{{ batch.created_count }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Updated</p>
+                    <p class="mt-0.5 font-heading text-xl font-bold text-ink">{{ batch.updated_count }}</p>
+                </div>
+                <div class="rounded-xl border px-3 py-2.5 {% if batch.errors %}border-status-bad/30 bg-status-bad/5{% else %}border-slate-200 bg-slate-50/60{% endif %}">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Rejected</p>
+                    <p class="mt-0.5 font-heading text-xl font-bold {% if batch.errors %}text-status-bad{% else %}text-ink{% endif %}">{{ batch.errors }}</p>
+                </div>
+            </div>
+
+            <div>
+                <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Import detail</h4>
+                <dl class="divide-y divide-slate-100 rounded-lg border border-slate-100 text-sm">
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Status</dt>
+                        <dd>
+                            {% if batch.status == 'applied' %}
+                            <span class="rounded-full bg-status-good/10 px-2.5 py-1 text-[11px] font-semibold text-status-good">{{ batch.status_label }}</span>
+                            {% elif batch.status == 'partial' %}
+                            <span class="rounded-full bg-status-warn/15 px-2.5 py-1 text-[11px] font-semibold text-status-warn">{{ batch.status_label }}</span>
+                            {% elif batch.status == 'failed' %}
+                            <span class="rounded-full bg-status-bad/10 px-2.5 py-1 text-[11px] font-semibold text-status-bad">{{ batch.status_label }}</span>
+                            {% else %}
+                            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">{{ batch.status_label }}</span>
+                            {% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">KPI</dt>
+                        {# "Multiple" is a workbook: one file, a sheet per KPI. #}
+                        <dd class="min-w-0 truncate text-ink">{{ batch.kpi }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Records still live</dt>
+                        {# Records this upload wrote that have not since been deleted. #}
+                        <dd class="text-ink">{{ batch.live_records }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Template version</dt>
+                        <dd class="text-ink">v{{ batch.template_version }}</dd>
+                    </div>
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">File size</dt>
+                        <dd class="text-ink">{{ batch.file_size|filesizeformat }}</dd>
+                    </div>
+                    {% if batch.completed_at %}
+                    <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
+                        <dt class="text-slate-500">Finished</dt>
+                        <dd class="text-ink">{{ batch.completed_at|date:"d M Y, H:i" }}</dd>
+                    </div>
+                    {% endif %}
+                </dl>
+            </div>
+
+            <div>
+                <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Rejected and flagged rows</h4>
+                {% if batch.issues %}
+                {# The point of the count in the table: which rows, and why. Row numbers are the spreadsheet's own, so they can be found and fixed in the file. #}
+                <div class="max-h-64 overflow-auto rounded-lg border border-slate-100">
+                    <table class="w-full min-w-[520px] text-left text-sm text-slate-600">
+                        <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                            <tr>
+                                <th class="px-3 py-2 font-semibold">Row</th>
+                                <th class="px-3 py-2 font-semibold">Column</th>
+                                <th class="px-3 py-2 font-semibold">Value</th>
+                                <th class="px-3 py-2 font-semibold">Why</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for issue in batch.issues %}
+                            <tr>
+                                <td class="whitespace-nowrap px-3 py-2 font-medium text-ink">{{ issue.row_number }}</td>
+                                <td class="px-3 py-2 font-mono text-xs">{{ issue.column_key|default:"—" }}</td>
+                                <td class="px-3 py-2 font-mono text-xs">{{ issue.raw_value|default:"—" }}</td>
+                                <td class="px-3 py-2 text-xs leading-5">
+                                    {% if issue.severity == 'warning' %}
+                                    <span class="mr-1.5 rounded-full bg-status-warn/15 px-2 py-0.5 text-[10px] font-semibold text-status-warn">Applied</span>
+                                    {% else %}
+                                    <span class="mr-1.5 rounded-full bg-status-bad/10 px-2 py-0.5 text-[10px] font-semibold text-status-bad">Skipped</span>
+                                    {% endif %}
+                                    {{ issue.message }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm text-slate-500">Every row in this file was accepted.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            {% if can_edit %}
+            <a href="#importDelete-{{ batch.pk }}" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-status-bad/10 hover:text-status-bad">
+                {% icon 'trash-o' %} Delete
+            </a>
+            {% endif %}
+            <a href="#" class="rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">Close</a>
+        </div>
+    </div>
+</div>
+{% endfor %}
 
 {# Every modal below writes, so a read-only role renders none of them. Nothing links to them either, and the view refuses the POST regardless. #}
 {% if can_edit %}
@@ -525,6 +839,70 @@
     </div>
 </div>
 {% endfor %}
+
+{# ============ Delete-import confirms ============ #}
+{# Same 5s-armed confirm as a record, because this deletes MORE than a record: the upload and every figure it entered. #}
+{% for batch in imports %}
+<div id="importDelete-{{ batch.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div class="px-6 pb-5 pt-6">
+            <div class="flex items-start gap-4">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>
+                <div class="min-w-0">
+                    <h3 class="font-heading text-base font-bold text-ink">Delete this import?</h3>
+                    <p class="mt-1.5 text-sm leading-6 text-slate-500">
+                        The upload and the records it entered are both removed from this screen. Nothing is destroyed. Uploading the file again enters them once more.
+                    </p>
+                </div>
+            </div>
+
+            {# The file and how many live records go with it: the two things worth checking before confirming. #}
+            <dl class="mt-4 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">File</dt>
+                    <dd class="min-w-0 truncate font-medium text-ink">{{ batch.file_name }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Uploaded</dt>
+                    <dd class="font-medium text-ink">{{ batch.uploaded_at|date:"d M Y, H:i" }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Records removed</dt>
+                    <dd class="font-heading font-bold text-ink">{{ batch.live_records }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            <div data-delete-timer class="mb-3 hidden" data-delete-seconds="5">
+                <p class="text-xs text-slate-500">Check the file and the record count above.</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-3">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="_action" value="delete-import">
+                    <input type="hidden" name="_batch" value="{{ batch.pk }}">
+                    <span class="relative inline-flex text-slate-300">
+                        <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+                            <rect x="0" y="0" width="100%" height="100%" rx="8" ry="8"
+                                  fill="none" stroke="currentColor" stroke-width="2"
+                                  pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0"
+                                  data-delete-ring></rect>
+                        </svg>
+                        <button type="submit" data-delete-confirm
+                                class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
+                            {% icon 'trash-o' %} Delete import<span class="tabular-nums" data-delete-countdown></span>
+                        </button>
+                    </span>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
 {% endif %}
 {% endblock %}
 
@@ -536,6 +914,46 @@
 <script>
 (function () {
     "use strict";
+
+    // --- Tabs: swap the two panels without a page load ---------------------
+    // The links already work on their own (they carry ?tab= and the server
+    // renders the right panel). This only spares the reload, so anything it
+    // cannot do is left to the link: no href, no handling.
+    //
+    // The URL is rewritten with replaceState rather than left alone, because
+    // the forms on this page carry no `action` and post to the current URL.
+    // Keeping the query string in step is what makes a delete from the history
+    // tab redirect back to the history tab.
+    var tabLinks = Array.prototype.slice.call(
+        document.querySelectorAll("[data-tab-link]")
+    );
+    if (tabLinks.length) {
+        tabLinks.forEach(function (link) {
+            link.addEventListener("click", function (event) {
+                var name = link.dataset.tabLink;
+                var panel = document.querySelector('[data-tab-panel="' + name + '"]');
+                if (!panel) return;   // fall through to the link
+
+                event.preventDefault();
+
+                tabLinks.forEach(function (other) {
+                    var active = other === link;
+                    // One ATTRIBUTE, not a class: the styling is
+                    // aria-selected:* utilities already in the markup, so
+                    // nothing here builds a class name Tailwind would purge.
+                    other.setAttribute("aria-selected", active ? "true" : "false");
+                    var target = document.querySelector(
+                        '[data-tab-panel="' + other.dataset.tabLink + '"]'
+                    );
+                    if (target) target.classList.toggle("hidden", !active);
+                });
+
+                if (window.history && window.history.replaceState) {
+                    window.history.replaceState(null, "", link.href);
+                }
+            });
+        });
+    }
 
     // --- Add Record: show only the chosen KPI's operand fields --------------
     // The panels are DISABLED, not just hidden: a disabled input is not

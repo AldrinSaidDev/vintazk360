@@ -69,7 +69,7 @@
         <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
             <div class="flex items-center gap-1.5">
                 <h2 class="font-heading text-base font-bold text-ink">Branch Attainment</h2>
-                {% include "partials/info_icon.html" with text="Each branch's average % of target across its scored KPIs. 100% = the branch is hitting target on average. KPIs with no target aren't included." align="left" %}
+                {% include "partials/info_icon.html" with text="Each branch measured over every KPI it has set a target for. 100% means the branch is hitting all of them. A target with no figure reported against it counts as zero, so the number rises as the branch reports. KPIs with no target set are left out, since there is nothing to hit." align="left" %}
             </div>
             <div class="flex items-center gap-4 text-xs font-medium text-slate-500">
                 <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-status-good"></span>On track</span>
@@ -101,15 +101,16 @@
                         <span class="h-1.5 w-1.5 rounded-full {% if branch.status == 'on_track' %}bg-status-good{% elif branch.status == 'at_risk' %}bg-status-warn{% elif branch.status == 'below' %}bg-status-bad{% else %}bg-slate-300{% endif %}"></span>{{ branch.status_label }}
                     </span>
                 </div>
+                {# Says what the percentage is OVER, not just how many KPIs exist: the gap between the two is what is holding the figure down. #}
                 <p class="mt-2 flex-1 text-sm leading-relaxed text-slate-500">
-                    {{ branch.kpi_count }} KPI{{ branch.kpi_count|pluralize }},
-                    {% if branch.scored_count %}{{ branch.scored_count }} scored this period.{% else %}none recorded yet.{% endif %}
+                    {{ branch.scored_count }} of {{ branch.scorable_count }} target{{ branch.scorable_count|pluralize }} reported this period.
+                    {% if branch.missing_count %}<span class="text-slate-400">The other {{ branch.missing_count }} count as zero.</span>{% endif %}
                 </p>
 
                 {% if branch.attainment is not None %}
                 <div class="mt-4 flex items-end justify-between">
                     <p class="font-heading text-3xl font-black {% if branch.status == 'on_track' %}text-status-good{% elif branch.status == 'at_risk' %}text-status-warn{% else %}text-status-bad{% endif %}">{{ branch.attainment }}%</p>
-                    <p class="pb-1 text-xs text-slate-400">avg of target</p>
+                    <p class="pb-1 text-xs text-slate-400">of targets met</p>
                 </div>
                 <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                     <div class="h-full rounded-full {% if branch.status == 'on_track' %}bg-status-good{% elif branch.status == 'at_risk' %}bg-status-warn{% else %}bg-status-bad{% endif %}" style="width: {{ branch.bar_pct }}%"></div>

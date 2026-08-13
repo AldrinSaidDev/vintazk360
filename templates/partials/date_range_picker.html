@@ -3,10 +3,12 @@
 {# card; everything else lives in the panel — pick a day range (click start, #}
 {# click end), a whole month, or a whole year. All three write the same #}
 {# start/end pair, so downstream only ever deals with a range. #}
-{# Params: label (field label) · name (hidden input prefix → <name>_from / <name>_to). #}
-{# Include it with: with label="Custom Range" name="period" #}
+{# Params: label (field label) · name (hidden input prefix → <name>_from / <name>_to) #}
+{# · from_value / to_value (optional ISO dates, to re-open on an applied range). #}
+{# Include it with: with label="Reporting Period" name="period" #}
 {# Behaviour lives in static/js/date-range-picker.js, keyed off the data-dr-* #}
-{# attributes below. Front-end only — nothing is submitted anywhere yet. #}
+{# attributes below. The two hidden inputs are the whole interface: drop this #}
+{# inside a form and it submits <name>_from / <name>_to like any other field. #}
 <div class="relative" data-date-range>
     <span class="mb-1 block text-xs font-medium text-slate-500">{{ label|default:"Date Range" }}</span>
 
@@ -16,9 +18,12 @@
         <span class="shrink-0 text-slate-400">{% icon 'calendar' %}</span>
     </button>
 
-    {# The value, as a plain range — whichever mode produced it. #}
-    <input type="hidden" name="{{ name|default:'date' }}_from" data-dr-from>
-    <input type="hidden" name="{{ name|default:'date' }}_to" data-dr-to>
+    {# The value, as a plain range — whichever mode produced it. Pre-filled when #}
+    {# the page was loaded with a range already applied, so re-submitting the form #}
+    {# for a different field does not silently drop the window. The script reads #}
+    {# these on start-up and writes the trigger label from them. #}
+    <input type="hidden" name="{{ name|default:'date' }}_from" data-dr-from value="{{ from_value|default:'' }}">
+    <input type="hidden" name="{{ name|default:'date' }}_to" data-dr-to value="{{ to_value|default:'' }}">
 
     <div data-dr-panel hidden role="dialog" aria-label="Choose a date range"
          class="absolute left-0 top-full z-20 mt-2 w-[19.5rem] max-w-[calc(100vw-3rem)] rounded-xl border border-slate-200 bg-white p-3 shadow-lg">

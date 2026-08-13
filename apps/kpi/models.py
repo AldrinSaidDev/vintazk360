@@ -667,6 +667,15 @@ class KpiImportBatch(models.Model):
         blank=True,
         related_name='kpi_imports',
     )
+    # SOFT delete, same as kpi_record and kpi_definition (design principle 7).
+    # An upload made by mistake has to leave Recent Import History, but what it
+    # did — its counts, its rejected rows, the object it points at — is the
+    # audit trail of that mistake and is exactly what nobody should destroy.
+    # The records it wrote are soft-deleted with it; see KpiScreens._import_data.
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Cleared when the import is deleted. The row and its issues survive.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(
         null=True, blank=True, help_text='Kept separate from uploaded_at so a stuck import shows.'

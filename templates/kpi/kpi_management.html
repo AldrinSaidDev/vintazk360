@@ -165,15 +165,18 @@
                         </td>
                         {% endif %}
                         {% if can_edit %}
+                        {# Icon-only, no border: a row of outlined buttons competes with the KPI names and targets, which are what this table is for. The tooltip and the aria-label carry the name. #}
                         <td class="whitespace-nowrap px-4 py-3 text-right">
-                            <a href="#kpiEdit-{{ kpi.slug }}"
-                               class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-brand hover:text-brand">
-                                {% icon 'pencil' %} Edit
-                            </a>
-                            <a href="#kpiDelete-{{ kpi.slug }}"
-                               class="ml-1.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-status-bad hover:text-status-bad">
-                                {% icon 'trash-o' %} Delete
-                            </a>
+                            <span class="inline-flex items-center gap-0.5">
+                                <a href="#kpiEdit-{{ kpi.slug }}" title="Edit KPI" aria-label="Edit KPI"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
+                                    {% icon 'pencil' %}
+                                </a>
+                                <a href="#kpiDelete-{{ kpi.slug }}" title="Delete KPI" aria-label="Delete KPI"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
+                                    {% icon 'trash-o' %}
+                                </a>
+                            </span>
                         </td>
                         {% endif %}
                     </tr>

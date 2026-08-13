@@ -24,9 +24,11 @@ Everyone (any authenticated user) always has the shared Dashboard.
 """
 from functools import wraps
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
+from django.db.models import Q
 
-from .models import Team
+from .models import Team, UserProfile
 
 
 def accessible_teams(user):
@@ -106,6 +108,82 @@ def is_admin(user):
         return True
     profile = getattr(user, 'profile', None)
     return profile is not None and profile.is_admin
+
+
+def is_superadmin(user):
+    """True for the one role that administers the whole organisation.
+
+    Separate from ``is_admin`` because the two differ exactly where user
+    management is concerned: an Admin runs their own teams' accounts, a Super
+    Admin runs everybody's. A Django superuser counts as one.
+    """
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    profile = getattr(user, 'profile', None)
+    return profile is not None and profile.role == UserProfile.Role.SUPERADMIN
+
+
+def manageable_users(actor):
+    """The accounts ``actor`` may see and administer on the Users screen.
+
+    Same two-axis rule the rest of the app follows, applied to people instead
+    of KPIs. A Super Admin reaches every account. An Admin reaches only the
+    accounts inside their own teams, which is the same reach they have over
+    those teams' data, and an Admin with no teams therefore reaches nobody but
+    themselves. Anyone else reaches none: this screen is administration, not
+    data entry, so ``is_admin`` gates it rather than ``can_edit_data``.
+
+    Two accounts an Admin never reaches: a Super Admin and a Viewer. Both are
+    org-wide roles whose reach already exceeds the Admin's, so letting a
+    team-scoped Admin edit one would hand out access they do not themselves
+    have. Their own row is always included, so the screen never hides its
+    reader from them.
+    """
+    User = get_user_model()
+    users = User.objects.select_related('profile').prefetch_related('profile__teams')
+
+    if not is_admin(actor):
+        return users.none()
+    if is_superadmin(actor):
+        return users
+
+    org_wide = Q(is_superuser=True) | Q(profile__role__in=list(UserProfile.ALL_TEAM_ROLES))
+    within_teams = Q(profile__teams__in=accessible_teams(actor)) & ~org_wide
+    return users.filter(within_teams | Q(pk=actor.pk)).distinct()
+
+
+def can_manage_user(actor, target):
+    """True if ``actor`` may administer ``target``'s account."""
+    return manageable_users(actor).filter(pk=target.pk).exists()
+
+
+def assignable_roles(actor):
+    """The roles ``actor`` may hand out, as ``(value, label)`` pairs.
+
+    Super Admin and Viewer both reach every team, so only a Super Admin may
+    grant them. Without that rule a team-scoped Admin could create an account
+    with more reach than their own, which is the plainest form of privilege
+    escalation this screen could allow.
+    """
+    if is_superadmin(actor):
+        return list(UserProfile.Role.choices)
+    allowed = {UserProfile.Role.ADMIN, UserProfile.Role.MANAGER, UserProfile.Role.USER}
+    return [choice for choice in UserProfile.Role.choices if choice[0] in allowed]
+
+
+def assignable_teams(actor):
+    """The teams ``actor`` may assign, which are the teams they can reach."""
+    return accessible_teams(actor)
+
+
+def require_user_admin(user):
+    """Raise ``PermissionDenied`` unless ``user`` may administer accounts."""
+    if not is_admin(user):
+        raise PermissionDenied(
+            'Only administrators can manage user accounts.'
+        )
 
 
 def team_required(slug):

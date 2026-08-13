@@ -117,8 +117,11 @@ class KpiImportBatchAdmin(admin.ModelAdmin):
     list_display = (
         'file_name', 'team', 'kpi', 'status', 'row_count',
         'created_count', 'updated_count', 'error_count', 'uploaded_at',
+        'is_active',
     )
-    list_filter = ('status', 'team', 'storage_provider')
+    # is_active is here because this is the only place a deleted import can be
+    # brought back, same as a deleted record.
+    list_filter = ('status', 'is_active', 'team', 'storage_provider')
     search_fields = ('file_name', 'storage_path', 'file_hash')
     date_hierarchy = 'uploaded_at'
     inlines = (KpiImportIssueInline,)

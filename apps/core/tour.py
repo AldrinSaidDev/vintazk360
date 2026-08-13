@@ -116,10 +116,11 @@ def steps_for(user):
         {
             'page': home,
             'target': '[data-tour="global-filters"]',
-            'title': 'Pick a period',
+            'title': 'Narrow the view',
             'body': (
-                "Choose the period and the status you want to see. Everything "
-                "on this page follows what you set here."
+                "Set a date range, a department or a status, then press Apply "
+                "Filters. The score above and the cards and charts below all "
+                "follow it, and Reset puts everything back."
             ),
         },
         # The department cards, the two charts and the period comparison are the
