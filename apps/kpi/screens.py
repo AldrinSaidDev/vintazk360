@@ -773,8 +773,7 @@ class KpiScreens:
                 messages.success(
                     request,
                     f'{batch.file_name} has been deleted, along with '
-                    f'{removed} record{"" if removed == 1 else "s"} it entered. '
-                    'Nothing is destroyed. Uploading the file again enters them once more.',
+                    f'{removed} record{"" if removed == 1 else "s"} it entered. ',
                 )
                 return redirect(self._back_to_records(request))
 
