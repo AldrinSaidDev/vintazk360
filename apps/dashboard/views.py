@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.decorators import login_required
@@ -17,32 +17,129 @@ from apps.kpi.models import KpiDefinition, KpiRecord
 SITE_TZ = ZoneInfo('Asia/Manila')
 
 
-# Global filter picklists. FRONT-END ONLY for now — nothing is wired to a
-# queryset, so these are the shape of the controls rather than live options.
-# They live here so there's one source to swap when filtering becomes real.
+# Global filters. LIVE — every figure below the filter card is built from the
+# window and the two picklists here.
 #
-# Periods are named rather than dates because KPIs are scored per reporting
-# period (monthly / quarterly), not per calendar day — a single date can't
-# address a monthly KPI.
+# There is no separate "Reporting Period" preset list: the range picker already
+# expresses every window a preset could, including the ones presets can't (daily
+# call-log data, an arbitrary week). Two controls over one window would have to
+# agree, and the second one only exists to be overridden. There is no "Compare
+# To" either — a comparison is not a filter, and "This period vs last" already
+# answers it against each department's own previous period.
 #
-# 'Custom range' pairs with the From/To inputs beside it: presets cover the
-# routine questions, the range covers the ones they don't — daily data (the
-# outbound call logs) and arbitrary windows like "the week of the escalation".
-FILTER_PERIODS = [
-    'This Month', 'Last Month', 'This Quarter', 'Last Quarter', 'Year to Date',
-    'Custom range',
+# The value is the STATUS KEY `apps.core.kpi` produces, not the label, so a
+# filtered URL can be bookmarked and shared without depending on wording. The
+# fifth entry has no target-band meaning: `no_data` is what a KPI nobody has
+# reported against scores as, and it is a state the cards show, so leaving it
+# out would make it the one state on the page you cannot ask to see.
+FILTER_STATUSES = [
+    ('on_track', 'On Track'),
+    ('at_risk', 'At Risk'),
+    ('below', 'Below Target'),
+    ('monitored', 'No Target'),
+    ('no_data', 'Awaiting Figures'),
 ]
-FILTER_STATUSES = ['On Track', 'At Risk', 'Below Target', 'No Target']
-FILTER_COMPARISONS = ['Previous period', 'Same period last year']
+_STATUS_KEYS = {key for key, _ in FILTER_STATUSES}
+_STATUS_LABELS = dict(FILTER_STATUSES)
 
 
-def _recent_records(team):
-    """The two most recent active records per KPI, keyed by KPI id, newest first.
+def _date(raw):
+    """An ISO date from a query parameter, or None if it isn't one.
+
+    Anything unparseable is dropped rather than raised. These values arrive off
+    a URL somebody may have edited or half-copied, and an unreadable date is a
+    filter that cannot be applied, not a broken page.
+    """
+    try:
+        return date.fromisoformat((raw or '').strip())
+    except ValueError:
+        return None
+
+
+def _filters(request, teams):
+    """The applied filters, cleaned against what this user can actually see.
+
+    `teams` is the user's accessible list, so a department slug from outside it
+    is dropped exactly as an unknown one is: the filter card cannot offer a team
+    the sidebar doesn't, and neither can a hand-typed URL.
+    """
+    start = _date(request.GET.get('period_from'))
+    end = _date(request.GET.get('period_to'))
+    # A range typed backwards is a slip, not an empty window. Reading it in the
+    # order given would return nothing and look like "no data".
+    if start and end and start > end:
+        start, end = end, start
+
+    slug = request.GET.get('team', '').strip()
+    chosen = next((team for team in teams if team.slug == slug), None)
+    slug = chosen.slug if chosen else ''
+
+    status = request.GET.get('status', '').strip()
+    if status not in _STATUS_KEYS:
+        status = ''
+
+    return {
+        'period_from': start,
+        'period_to': end,
+        'team': slug,
+        # The name, so the summary line can say "Operations" without depending
+        # on a department card having survived the status filter to read it off.
+        'team_label': chosen.name if chosen else '',
+        'status': status,
+        'status_label': _STATUS_LABELS.get(status, ''),
+        'applied': bool(start or end or slug or status),
+    }
+
+
+def _period_label(filters, today):
+    """What window the figures on the page describe, in words.
+
+    An open-ended range is stated as open ("Up to 31 Aug 2026"), not silently
+    closed at today: "since records began" and "this month" are different reads
+    and the header has to be honest about which one it is.
+    """
+    start, end = filters['period_from'], filters['period_to']
+    if start and end:
+        if start == end:
+            return f'{start:%d %b %Y}'
+        return f'{start:%d %b %Y} to {end:%d %b %Y}'
+    if start:
+        return f'From {start:%d %b %Y}'
+    if end:
+        return f'Up to {end:%d %b %Y}'
+    return f'{today:%B %Y}'
+
+
+def _in_window(record, start, end):
+    """True when a record's reporting period meets the filter window.
+
+    Overlap, not containment, and that is the whole point. A KPI's period is a
+    span rather than a day, and the ten LOBs report on four different cadences,
+    so a week in August has to reach the August monthly record AND the Q3
+    quarterly one. Requiring the period to sit inside the window would mean only
+    a range at least a quarter long could ever see a quarterly KPI.
+    """
+    return (
+        (end is None or record.period_start <= end)
+        and (start is None or record.period_end >= start)
+    )
+
+
+def _recent_records(team, start=None, end=None):
+    """The current record per KPI and the one before it, keyed by KPI id.
 
     One query across every branch the team has, since this page is the org-wide
-    rollup and a branch team's KPIs are still that team's KPIs. Two rather than
-    one because the comparison section reads this period against the last, and
-    a second query per KPI to fetch the previous period would be one per row.
+    rollup and a branch team's KPIs are still that team's KPIs. Two records
+    rather than one because the comparison section reads this period against the
+    last, and a second query per KPI to fetch the previous period would be one
+    per row.
+
+    The window applies to the FIRST of the two only. The current record is the
+    newest one whose period meets the filter, and its partner is simply the
+    record before it, in or out of the window. Filtering both would break
+    "This period vs last" for exactly the window that makes it most useful: ask
+    for one month and there is only ever one record in it, so every department
+    would report no comparison.
     """
     history = {}
     for record in (
@@ -50,12 +147,19 @@ def _recent_records(team):
             kpi__team=team, kpi__is_active=True, is_active=True,
         )
         .order_by('kpi_id', '-period_start')
-        .only('kpi_id', 'period_start', 'value', 'score')
+        .only('kpi_id', 'period_start', 'period_end', 'value', 'score')
     ):
         seen = history.setdefault(record.kpi_id, [])
-        if len(seen) < 2:
+        if len(seen) >= 2:
+            continue
+        # Nothing chosen yet: keep skipping back until a period meets the
+        # window. Once one has, the very next record is the previous period.
+        if seen or _in_window(record, start, end):
             seen.append(record)
-    return history
+    # A KPI whose every record fell outside the window has an empty list, which
+    # is not the same as a KPI with no records. Both read as "no figures for
+    # this window", which is what the empty list already means downstream.
+    return {kpi_id: seen for kpi_id, seen in history.items() if seen}
 
 
 def _graded(record):
@@ -106,8 +210,14 @@ def _gauge_segments(counts, total):
     return segments
 
 
-def _department_rows(user):
+def _department_rows(teams, filters):
     """One summary row per accessible department.
+
+    `teams` has already been narrowed by the department filter, and `filters`
+    carries the window and the status. Both are applied HERE rather than to the
+    finished rows, because every figure on the page is derived from these tallies
+    and filtering afterwards would leave the percentages describing a set the
+    reader can no longer see.
 
     Attainment is RECOMPUTED through `records.score()` rather than read from
     `kpi_record.attainment`, for the same reason every LOB dashboard does it:
@@ -127,12 +237,15 @@ def _department_rows(user):
     department that owns one.
     """
     rows = []
+    status_filter = filters['status']
 
-    for team in accessible_teams(user):
+    for team in teams:
         kpis = list(KpiDefinition.objects.filter(team=team, is_active=True))
         if not kpis:
             continue
-        history = _recent_records(team)
+        history = _recent_records(
+            team, filters['period_from'], filters['period_to'],
+        )
 
         counts = {'on_track': 0, 'at_risk': 0, 'below': 0,
                   'monitored': 0, 'no_data': 0}
@@ -150,19 +263,32 @@ def _department_rows(user):
         # arrival of new data as a change in performance.
         now_paired, then_paired = [], []
 
+        # The KPIs that survived the status filter. This is the gauge's total
+        # and the card's "N KPIs", so an unfiltered page counts every KPI the
+        # team owns and a filtered one counts only what it is showing.
+        kept = 0
+
         for kpi in kpis:
-            # `is_scored` is the KPI's own "does this have a target" property.
             recent = history.get(kpi.pk)
+            if recent:
+                attainment, status = kpi_records.score(kpi, _graded(recent[0]))
+            else:
+                attainment, status = None, 'no_data'
+
+            # Scored FIRST, then filtered. A KPI's status is what the filter
+            # selects on, so it has to exist before the decision can be made.
+            if status_filter and status != status_filter:
+                continue
+            kept += 1
+            counts[status] += 1
+
             if not recent:
-                counts['no_data'] += 1
                 # `is_scored` is the KPI's own "does this have a target". A
                 # target with nothing reported against it has not been met, so
                 # it enters the roll-up as a miss rather than as an absence.
                 entries.append((kpi.is_scored, None))
                 continue
 
-            attainment, status = kpi_records.score(kpi, _graded(recent[0]))
-            counts[status] += 1
             entries.append((attainment is not None, attainment))
             if attainment is None:
                 # No target: a figure that cannot be attained or missed.
@@ -177,6 +303,12 @@ def _department_rows(user):
                 if previous is not None:
                     now_paired.append(attainment)
                     then_paired.append(previous)
+
+        # A status filter no KPI in this team matches drops the card entirely.
+        # Rendering it at 0% would read as a department failing rather than as
+        # one with nothing in the state being asked about.
+        if not kept:
+            continue
 
         # None only when the department owns no targeted KPI at all. That is
         # "cannot be scored", not "scored zero", and it is what keeps such a
@@ -222,7 +354,7 @@ def _department_rows(user):
             # Capped so an overachiever fills the track; the figure beside it
             # still reads the true number.
             'bar_pct': 0 if avg is None else min(round(avg), 100),
-            'kpi_count': len(kpis),
+            'kpi_count': kept,
             'scored_count': len(scores),
             # The figure's denominator, and the gap between the two is what the
             # card's coverage line reports.
@@ -232,7 +364,7 @@ def _department_rows(user):
             'focus': focus,
             'best': best,
             'trend': trend,
-            'segments': _gauge_segments({**counts, 'unscored': unscored}, len(kpis)),
+            'segments': _gauge_segments({**counts, 'unscored': unscored}, kept),
             **counts,
         })
 
@@ -318,6 +450,177 @@ def _org_summary(departments):
     }
 
 
+# How many departments an insight names before it stops listing and counts.
+# Past four the sentence stops being readable and starts being the list the
+# Departments section already is.
+_INSIGHT_NAMES = 4
+
+
+def _names(rows):
+    """A readable list of department names, truncated past `_INSIGHT_NAMES`."""
+    names = [row['name'] for row in rows]
+    if len(names) > _INSIGHT_NAMES:
+        return f'{", ".join(names[:_INSIGHT_NAMES])} and {len(names) - _INSIGHT_NAMES} more'
+    if len(names) > 1:
+        return f'{", ".join(names[:-1])} and {names[-1]}'
+    return names[0] if names else ''
+
+
+def _insights(departments):
+    """Findings about the departments, ranked by what to act on first.
+
+    This replaced a "By department" list, which was the Departments section on
+    the page behind it printed a second time in a smaller font. A modal opened
+    from the Overall Goal figure should explain that figure, so each finding
+    names the departments involved and says what it means for the number, which
+    is the one thing the cards outside cannot say.
+
+    Grouped rather than one row per department, on purpose: ten rows saying
+    "reporting" is a list, and the point of opening this is to find the two or
+    three that need something done.
+
+    `tone` is a key, not a class. Tailwind scans templates and JS but never
+    Python, so a colour built here would be purged out of output.css.
+    """
+    if not departments:
+        return []
+
+    # A department with targets and not one figure against them. First, because
+    # it is the largest and cheapest correction available to the company figure.
+    silent = [d for d in departments if d['scorable_count'] and not d['scored_count']]
+    partial = [d for d in departments if d['scored_count'] and d['missing_count']]
+    at_target = [d for d in departments if d['avg'] is not None and d['avg'] >= 100]
+    behind = sorted(
+        (d for d in departments
+         if d['avg'] is not None and d['avg'] < 100 and d['has_data']),
+        key=lambda d: d['avg'],
+    )
+    rising = sorted(
+        (d for d in departments if d['trend'] and d['trend']['delta'] > 0),
+        key=lambda d: -d['trend']['delta'],
+    )
+    falling = sorted(
+        (d for d in departments if d['trend'] and d['trend']['delta'] < 0),
+        key=lambda d: d['trend']['delta'],
+    )
+    untargeted = [d for d in departments if d['kpi_count'] - d['scorable_count']]
+
+    found = []
+
+    if silent:
+        zeros = sum(d['scorable_count'] for d in silent)
+        found.append({
+            'tone': 'bad',
+            'icon': 'exclamation-triangle',
+            'title': 'Nothing reported yet',
+            'body': (
+                f'{_names(silent)} '
+                f'{"has" if len(silent) == 1 else "have"} entered no figures. '
+                f'{zeros} target{"" if zeros == 1 else "s"} '
+                f'count{"s" if zeros == 1 else ""} as zero because of it, '
+                f'which is the biggest single thing holding the company figure down.'
+            ),
+        })
+
+    if behind:
+        worst = behind[0]
+        drag = ''
+        if worst['focus']:
+            drag = (
+                f' Its weakest KPI is {worst["focus"]["name"]} '
+                f'at {worst["focus"]["attainment"]}%.'
+            )
+        # With one department there is no ranking to report, and "N is lowest"
+        # over a field of one reads as a template that forgot to branch.
+        lead = (
+            f'{worst["name"]} is short of target at {worst["avg"]}%.'
+            if len(behind) == 1 else
+            f'{len(behind)} departments are short of 100%. '
+            f'{worst["name"]} is lowest at {worst["avg"]}%.'
+        )
+        found.append({
+            'tone': 'warn',
+            'icon': 'line-chart',
+            'title': 'Below target',
+            'body': f'{lead}{drag}',
+        })
+
+    if falling:
+        steepest = falling[0]
+        others = len(falling) - 1
+        also = f' {others} other{"" if others == 1 else "s"} also slipped.' if others else ''
+        found.append({
+            'tone': 'bad',
+            'icon': 'long-arrow-down',
+            'title': 'Losing ground',
+            'body': (
+                f'{steepest["name"]} is down {abs(steepest["trend"]["delta"])} points '
+                f'against its previous period.{also}'
+            ),
+        })
+
+    if partial:
+        gaps = sum(d['missing_count'] for d in partial)
+        found.append({
+            'tone': 'warn',
+            'icon': 'clock-o',
+            'title': 'Reporting part way',
+            'body': (
+                f'{_names(partial)} '
+                f'{"has" if len(partial) == 1 else "have"} reported some targets but not all. '
+                f'{gaps} target{"" if gaps == 1 else "s"} '
+                f'{"is" if gaps == 1 else "are"} still counting as zero, so entering '
+                f'{"that figure" if gaps == 1 else "those figures"} raises the score '
+                f'with no change to how anyone works.'
+            ),
+        })
+
+    if at_target:
+        found.append({
+            'tone': 'good',
+            'icon': 'check-circle',
+            'title': 'At target',
+            # No "across every target it owns" clause: under a status filter the
+            # average covers only the KPIs in that state, and the sentence would
+            # be claiming more than the number behind it.
+            'body': (
+                f'{_names(at_target)} '
+                f'{"is" if len(at_target) == 1 else "are"} at or above 100%.'
+            ),
+        })
+
+    if rising:
+        best = rising[0]
+        others = len(rising) - 1
+        also = f' {others} other{"" if others == 1 else "s"} improved too.' if others else ''
+        found.append({
+            'tone': 'good',
+            'icon': 'long-arrow-up',
+            'title': 'Improving',
+            'body': (
+                f'{best["name"]} is up {best["trend"]["delta"]} points '
+                f'against its previous period.{also}'
+            ),
+        })
+
+    if untargeted:
+        loose = sum(d['kpi_count'] - d['scorable_count'] for d in untargeted)
+        found.append({
+            'tone': 'muted',
+            'icon': 'info-circle',
+            'title': 'Tracked but not scored',
+            'body': (
+                f'{loose} KPI{"" if loose == 1 else "s"} across {len(untargeted)} '
+                f'department{"" if len(untargeted) == 1 else "s"} '
+                f'{"has" if loose == 1 else "have"} no target set, so '
+                f'{"it is" if loose == 1 else "they are"} left out of every figure here. '
+                f'Setting a target starts scoring {"it" if loose == 1 else "them"}.'
+            ),
+        })
+
+    return found
+
+
 @login_required
 def home(request):
     """Landing page for the dashboard (requires authentication)."""
@@ -342,7 +645,16 @@ def home(request):
     user = request.user
     display_name = user.first_name or user.get_username()
 
-    departments = _department_rows(user)
+    # The filter card's own options come from here, so it can only ever offer a
+    # department this user could already open in the sidebar.
+    all_teams = list(accessible_teams(user))
+    filters = _filters(request, all_teams)
+    teams = (
+        [team for team in all_teams if team.slug == filters['team']]
+        if filters['team'] else all_teams
+    )
+
+    departments = _department_rows(teams, filters)
     # One org figure, computed once. The Overall Goal track, the modal behind
     # it and the "against the company average" list all read this, so the page
     # cannot show two different company numbers.
@@ -376,12 +688,20 @@ def home(request):
         'title': 'Dashboard',
         'display_name': display_name,
         'today': today,
-        'period_label': f'{today:%B %Y}',
-        'filter_periods': FILTER_PERIODS,
+        # What window the figures actually describe. It names the filter when
+        # one is set, since the modal header would otherwise say "August 2026"
+        # over a chart built from July.
+        'period_label': _period_label(filters, today),
+        'filters': filters,
         'filter_statuses': FILTER_STATUSES,
-        'filter_comparisons': FILTER_COMPARISONS,
+        # Every accessible team, NOT the filtered list: narrowing the dropdown
+        # to the current selection would leave no way back to the others.
+        'filter_teams': all_teams,
         'departments': departments,
         'org': org,
+        # Findings for the Overall Goal modal. Built from the same rows the page
+        # is, so an insight cannot describe a department the cards contradict.
+        'insights': _insights(departments),
         'chart_data': chart_data,
         'movers': movers,
     })

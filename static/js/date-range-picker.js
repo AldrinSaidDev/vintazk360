@@ -281,11 +281,19 @@
             render();
         });
 
+        // The trigger's own text, from whatever is currently committed. Shared by
+        // Apply, Clear and the start-up restore so the three cannot word the same
+        // range differently.
+        function showTrigger() {
+            const text = label();
+            display.textContent = text || 'Select date range';
+            display.className = text ? 'truncate text-slate-700' : 'truncate text-slate-400';
+        }
+
         root.querySelector('[data-dr-clear]').addEventListener('click', function () {
             start = end = hover = null;
             fromInput.value = toInput.value = '';
-            display.textContent = 'Select date range';
-            display.className = 'truncate text-slate-400';
+            showTrigger();
             render();
         });
 
@@ -296,10 +304,45 @@
             fromInput.value = iso(start);
             toInput.value = iso(finish);
             end = finish;
-            display.textContent = label();
-            display.className = 'truncate text-slate-700';
+            showTrigger();
             close();
         });
+
+        /* ---------- restore ---------- */
+
+        // A server-rendered range (the page was loaded with a filter applied)
+        // arrives in the hidden inputs. Parsed here so the trigger reads the
+        // applied window rather than "Select date range", which would say the
+        // filter had been dropped while the form was still carrying it.
+        //
+        // Split by hand rather than `new Date(iso)`: that parses a bare
+        // YYYY-MM-DD as UTC midnight, so anywhere west of Greenwich the picker
+        // would open on the day before the one that is applied.
+        function restore(value) {
+            const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value || '').trim());
+            if (!parts) return null;
+            const d = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+            return isNaN(d) ? null : d;
+        }
+
+        // The picker only ever produces a closed range, so a one-sided value
+        // (a hand-typed URL asking for everything up to a date) is squared off
+        // to a single day. Both inputs are rewritten to match, or the control
+        // would display one window and submit another.
+        const savedFrom = restore(fromInput.value);
+        const savedTo = restore(toInput.value);
+        if (savedFrom || savedTo) {
+            start = savedFrom || savedTo;
+            end = savedTo || savedFrom;
+            if (ymd(end) < ymd(start)) { const swap = start; start = end; end = swap; }
+            fromInput.value = iso(start);
+            toInput.value = iso(end);
+            // Open on the applied range rather than on today.
+            cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+            if (isFullYear()) mode = 'year';
+            else if (isFullMonth()) mode = 'month';
+            showTrigger();
+        }
 
         render();
     }
