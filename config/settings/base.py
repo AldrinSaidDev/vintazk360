@@ -269,7 +269,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# The org runs out of the Philippines, and every timestamp on screen (the
+# activity log, an import's "uploaded at", a record's "last updated") is read by
+# somebody sitting in that office. Left at UTC they read eight hours early,
+# which looks like a bug rather than a timezone. `USE_TZ` stays on, so the
+# database still stores UTC and only the rendering moves.
+TIME_ZONE = 'Asia/Manila'
 
 USE_I18N = True
 

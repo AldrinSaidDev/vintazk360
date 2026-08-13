@@ -206,7 +206,8 @@
             {% if my_entries %}
             <p class="mt-4 text-xs text-slate-400">
                 Your {{ my_entries|length }} most recent action{{ my_entries|length|pluralize }}, newest first.
-                <a href="{{ logs_url }}" class="font-semibold text-brand hover:underline">See the full log</a>.
+                {# The full log is administrators only, so everyone else is left with their own history rather than a link that 403s. #}
+                {% if is_admin %}<a href="{{ logs_url }}" class="font-semibold text-brand hover:underline">See the full log</a>.{% endif %}
             </p>
             {% endif %}
         </div>

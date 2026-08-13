@@ -10,4 +10,5 @@
     <p class="px-2 py-1.5 text-xs italic text-slate-400">You have no teams to assign. Ask a Super Admin to give you one first.</p>
     {% endfor %}
 </div>
-<p class="mt-1.5 text-xs text-slate-400">Super Admin and Viewer reach every team, so this is ignored for those two roles. Every other role reaches only what is ticked here.</p>
+{# The Super Admin / Viewer case is not mentioned here any more: role-teams.js hides this whole block for those two roles and shows the note beside it instead, so a reader of this text is always looking at a role the ticks apply to. #}
+<p class="mt-1.5 text-xs text-slate-400">This role reaches only the teams ticked here.</p>

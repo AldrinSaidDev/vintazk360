@@ -215,6 +215,10 @@
                                     {% icon 'eye' %}
                                 </a>
                                 {% if can_edit %}
+                                <a href="#recordEdit-{{ record.pk }}" title="Edit record" aria-label="Edit record"
+                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
+                                    {% icon 'pencil' %}
+                                </a>
                                 <a href="#recordDelete-{{ record.pk }}" title="Delete record" aria-label="Delete record"
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
                                     {% icon 'trash-o' %}
@@ -456,9 +460,12 @@
 
         <div class="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
             {% if can_edit %}
-            {# Straight from reading a record to removing it, without hunting for its row again. #}
+            {# Straight from reading a record to correcting or removing it, without hunting for its row again. #}
             <a href="#recordDelete-{{ record.pk }}" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-status-bad/10 hover:text-status-bad">
                 {% icon 'trash-o' %} Delete
+            </a>
+            <a href="#recordEdit-{{ record.pk }}" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-brand/10 hover:text-brand">
+                {% icon 'pencil' %} Edit
             </a>
             {% endif %}
             <a href="#" class="rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">Close</a>
@@ -771,6 +778,93 @@
         </form>
     </div>
 </div>
+
+{# ============ Edit-record modals ============ #}
+{# One per row on this page, keyed by pk like the delete confirms and for the same reason: a <div> is not valid inside <tbody>. #}
+{# The KPI and the period are not editable: (kpi, period_start) is the record's identity and the key every upsert turns on. Correcting a figure filed against the wrong period is still delete plus re-enter. #}
+{% for record in records %}
+{% if record.edit_form %}
+<div id="recordEdit-{{ record.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_edit_record_pk == record.pk %} !flex{% endif %}">
+    <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+        <div class="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
+            <div class="flex min-w-0 items-center gap-3">
+                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'pencil' %}</span>
+                <div class="min-w-0">
+                    <h3 class="truncate font-heading text-lg font-bold leading-tight">Edit {{ record.kpi }}</h3>
+                    <p class="text-xs text-white/70">{{ record.frequency }} &middot; {{ record.period }}</p>
+                </div>
+            </div>
+            <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </a>
+        </div>
+
+        <form method="post" class="flex min-h-0 flex-1 flex-col">
+            {% csrf_token %}
+            <input type="hidden" name="_action" value="edit-record">
+            <input type="hidden" name="_record" value="{{ record.pk }}">
+
+            <div class="min-h-0 flex-1 overflow-y-auto p-6">
+
+                {% if record.edit_form.non_field_errors %}
+                <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
+                    {{ record.edit_form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="space-y-5">
+
+                    {# The figures are raw operands, so this says what they add up to and what they are judged against. Saving recomputes both. #}
+                    <div class="rounded-lg border border-brand/15 bg-brand/5 px-3 py-2">
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
+                        <p class="mt-1 font-mono text-xs leading-relaxed text-brand-dark">{{ record.formula }}</p>
+                        <p class="mt-2 border-t border-dashed border-brand/15 pt-2 text-xs text-slate-500">
+                            Target <span class="font-semibold text-ink">{{ record.target }}</span>
+                            · Currently <span class="font-semibold text-ink">{{ record.actual }}</span> ({{ record.status_label }})
+                        </p>
+                    </div>
+
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        {% for field in record.edit_form.operand_fields %}
+                        <div>
+                            <label class="mb-1.5 block text-sm font-medium leading-snug text-slate-700" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<p class="mt-1 text-xs text-slate-400">{{ field.help_text }}</p>{% endif %}
+                            {% include "partials/field_errors.html" with field=field %}
+                        </div>
+                        {% empty %}
+                        <p class="text-xs italic text-status-bad">This KPI has no inputs, so its figures cannot be edited here. Fix its formula on KPI Management.</p>
+                        {% endfor %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ record.edit_form.remarks.id_for_label }}">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                        {{ record.edit_form.remarks }}
+                        {% include "partials/field_errors.html" with field=record.edit_form.remarks %}
+                    </div>
+
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ record.edit_form.change_reason.id_for_label }}">Reason for the change <span class="font-normal text-slate-400">(Optional)</span></label>
+                        {{ record.edit_form.change_reason }}
+                        <p class="mt-1.5 text-xs text-slate-400">{{ record.edit_form.change_reason.help_text }}</p>
+                        {% include "partials/field_errors.html" with field=record.edit_form.change_reason %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
+                    {% icon 'check' %} Save changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
 
 {# ============ Delete-record confirms ============ #}
 {# Outside the table: a <div> is not valid inside <tbody>, so these live here and the row links to them by id, same as KPI Management's per-row modals. #}

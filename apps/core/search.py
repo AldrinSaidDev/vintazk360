@@ -27,7 +27,7 @@ from django.urls import NoReverseMatch, reverse
 
 from apps.kpi.models import KpiDefinition
 
-from .access import accessible_teams, is_admin
+from .access import accessible_teams, can_edit_data, is_admin
 from .context_processors import team_nav
 
 # How many of each kind a query returns. The palette scrolls, but a list long
@@ -64,10 +64,14 @@ def _pages(user):
         'dashboard',
     )]
 
+    writer = can_edit_data(user)
     for team in accessible_teams(user):
         # The path is only used to mark the current page, which a search result
-        # has no use for, so it is passed empty.
-        nav = team_nav(team, '')
+        # has no use for, so it is passed empty. `writer` drops Import Data and
+        # KPI Management for a read-only role, exactly as it does in the
+        # sidebar: those two views refuse the role outright, so offering one
+        # here would be a result that 403s on arrival.
+        nav = team_nav(team, '', writer)
         for link in nav['links']:
             pages.append(_entry(
                 link['label'],
@@ -84,6 +88,8 @@ def _pages(user):
                     _PAGE_ICONS.get(link['label'], _DEFAULT_PAGE_ICON),
                 ))
 
+    # Both are administration, and the log is administration even though it
+    # reads like team data: it carries sign-ins and role changes as well.
     if is_admin(user):
         pages.append(_entry(
             'User Profiles',
@@ -91,13 +97,13 @@ def _pages(user):
             reverse('core:users'),
             'users',
         ))
+        pages.append(_entry(
+            'Logs',
+            'Activity across the organisation',
+            reverse('core:logs'),
+            'history',
+        ))
 
-    pages.append(_entry(
-        'Logs',
-        'Activity across the teams you can see',
-        reverse('core:logs'),
-        'history',
-    ))
     pages.append(_entry(
         'Settings',
         'Your account, password and recent activity',

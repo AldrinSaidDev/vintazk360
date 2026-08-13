@@ -21,11 +21,15 @@ from django.db.models import Q
 from .access import accessible_teams, is_admin as access_is_admin
 from .models import AuditLog
 
-# An action that rewrites how existing data reads is worth a second look, so it
-# is not shown in the same colour as an ordinary create. Nothing writes a
-# `failed` row except a failed sign-in.
+# An action that rewrites how existing data ALREADY READ is worth a second
+# look, so it is not shown in the same colour as an ordinary create: move a
+# target or a formula and every historical figure is scored differently.
+#
+# A delete is NOT one of them. The Status column reports how the action itself
+# went, not how alarming it sounds, and a delete that was asked for and carried
+# out succeeded. It is also soft here, so nothing is even lost. The Action
+# column already says "Deleted".
 _WARNING_ACTIONS = {
-    AuditLog.Action.DELETED,
     AuditLog.Action.TARGET_CHANGED,
     AuditLog.Action.FORMULA_CHANGED,
 }

@@ -77,6 +77,14 @@ class BaseUserForm(forms.Form):
         else:
             self.fields['role'].choices = assignable_roles(actor)
             self.fields['teams'].queryset = assignable_teams(actor)
+            # `static/js/role-teams.js` hides the Teams block while one of these
+            # roles is selected, since their reach is every team and whatever is
+            # ticked would be ignored. The list is emitted from the model rather
+            # than written out in the script, so the two cannot drift apart.
+            self.fields['role'].widget.attrs.update({
+                'data-role-select': '',
+                'data-all-team-roles': ','.join(sorted(UserProfile.ALL_TEAM_ROLES)),
+            })
 
         for name, field in self.fields.items():
             if name != 'teams':
@@ -85,7 +93,7 @@ class BaseUserForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         role = cleaned.get('role')
-        # Super Admin and Viewer reach every team, so their `teams` M2M is
+        # Super Admin, Admin and Viewer reach every team, so their `teams` M2M is
         # ignored. Every other role reaches ONLY what is assigned here, and
         # saving one with no teams creates an account that can open nothing.
         if 'teams' in self.errors:
@@ -190,21 +198,46 @@ class EditUserForm(BaseUserForm):
 
 
 class AdminPasswordForm(forms.Form):
-    """Set another account's password, without knowing the old one.
+    """Set an account's password from the Users screen.
 
     Django's ``SetPasswordForm`` is the same shape, but it is written for the
     account holder changing their own; the copy here says an administrator is
     setting someone else's, which is a different thing to confirm.
+
+    It covers BOTH cases, because the difference between them is one field and
+    one flash message rather than a different screen. When the target is the
+    actor the form asks for the current password first, exactly as Settings
+    does: an administrator setting somebody else's password cannot be expected
+    to know the old one, but a session left open on your own account must not
+    be enough to re-key it. ``is_self`` is what the view reads to know it has
+    to rotate the session hash after saving.
     """
 
     password1 = _password_field('New password')
     password2 = _password_field('Confirm new password', role='confirm')
 
-    def __init__(self, *args, target, **kwargs):
+    def __init__(self, *args, target, actor=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.target = target
+        self.actor = actor
+        self.is_self = actor is not None and actor.pk == target.pk
+        if self.is_self:
+            self.fields['current_password'] = forms.CharField(
+                label='Current password',
+                strip=False,
+                widget=forms.PasswordInput(attrs={'autocomplete': 'current-password'}),
+            )
+            # Declared fields come first otherwise, and being asked to confirm
+            # the old password below the new one reads as an afterthought.
+            self.order_fields(['current_password', 'password1', 'password2'])
         for field in self.fields.values():
             field.widget.attrs.setdefault('class', INPUT_CLASSES)
+
+    def clean_current_password(self):
+        current = self.cleaned_data.get('current_password')
+        if current and not self.target.check_password(current):
+            raise forms.ValidationError('That is not your current password.')
+        return current
 
     def clean_password2(self):
         password1 = self.cleaned_data.get('password1')
