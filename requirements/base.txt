@@ -12,6 +12,10 @@ openpyxl==3.1.5
 psycopg==3.3.4
 psycopg-binary==3.3.4
 python-dotenv==1.2.2
+# Client for Django's built-in RedisCache backend. The cache is a Valkey
+# container in development and Render Key Value in staging; both speak the
+# Redis protocol, so this one client covers them.
+redis==8.1.0
 sqlparse==0.5.5
 typing_extensions==4.16.0
 tzdata==2026.3

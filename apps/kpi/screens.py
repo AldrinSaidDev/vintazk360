@@ -39,6 +39,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.core import async_content
+from apps.core import cache
 from apps.core import kpi as scoring
 from apps.core.access import require_edit, team_required
 from apps.core.audit import log_action
@@ -350,6 +351,18 @@ class KpiScreens:
         return latest
 
     def scorecard_rows(self, team, branch=None):
+        """One dashboard card per live KPI, cached per team and branch.
+
+        Cheap to key because nothing here varies by user or by request: this
+        screen is the same for everyone who can reach it, and who can reach it
+        is decided by `@team_required` before any of this runs.
+        """
+        return cache.fetch(
+            cache.team_key('scorecard', team.pk, branch.slug if branch else ''),
+            lambda: self._scorecard_rows(team, branch),
+        )
+
+    def _scorecard_rows(self, team, branch=None):
         """One dashboard card per live KPI, from its latest recorded period.
 
         Two states exist beyond the three scored ones, and they are not the
@@ -443,7 +456,10 @@ class KpiScreens:
         """KPI definitions reference: targets, cadence, formulas, inputs."""
         team = self.team()
         branch = self.branch_or_404(team, branch) if branch else None
-        rows = [self.row(kpi) for kpi in self.queryset(team, branch)]
+        rows = cache.fetch(
+            cache.team_key('definitions', team.pk, branch.slug if branch else ''),
+            lambda: [self.row(kpi) for kpi in self.queryset(team, branch)],
+        )
 
         return async_content.render_content(request, 'kpi/kpi_definitions.html', {
             **self._urls(branch),
@@ -454,6 +470,21 @@ class KpiScreens:
     # --- import data -------------------------------------------------------
 
     def import_stats(self, team, branch=None):
+        """The four Import Data stat cards, cached per team and branch.
+
+        Today's date is part of the key. Two of these tiles are worded against
+        the current month, so an entry made yesterday must not still be served
+        after midnight saying "August" while the page header says September.
+        """
+        return cache.fetch(
+            cache.team_key(
+                'import-stats', team.pk,
+                branch.slug if branch else '', timezone.localdate(),
+            ),
+            lambda: self._import_stats(team, branch),
+        )
+
+    def _import_stats(self, team, branch=None):
         """The four Import Data stat cards, counted from the database."""
         records = KpiRecord.objects.filter(
             kpi__team=team, kpi__branch=branch, is_active=True

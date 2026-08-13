@@ -72,6 +72,9 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    # Idle sign-out. Reads request.user and writes a message, so it has to come
+    # after both AuthenticationMiddleware and MessageMiddleware.
+    'apps.core.middleware.SessionIdleTimeoutMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -131,6 +134,77 @@ DATABASES = {
         ssl_require=DATABASE_SSL_REQUIRED,
     )
 }
+
+
+# Cache
+# https://docs.djangoproject.com/en/6.0/topics/cache/
+#
+# A THIRD channel, independent of the two below it: Redis (a Valkey container in
+# development, Render Key Value in staging). Postgres above is the source of
+# truth for application data and nothing else; everything stored here is a
+# derived answer that can be rebuilt from it, which is why losing the whole
+# cache costs one slow page and never a figure.
+#
+# Not local memory: that is per PROCESS, and staging runs gunicorn with several
+# workers. A KPI edit handled by worker 1 would leave workers 2 and 3 serving
+# the old figure until their own copies went stale, so "an edit is visible
+# immediately" would hold only for whichever worker took the next request. The
+# cache has to be shared for invalidation to mean anything.
+#
+# Not a table in Postgres either, which is what this replaced. Every cache read
+# was a query against the same database the cache exists to spare, every write
+# an INSERT, and the culling pass a DELETE over a table the application also
+# depends on. Redis keeps that traffic off the database entirely.
+#
+# The backend is Django's own `RedisCache`, which needs `redis` (see
+# requirements/base.txt) and speaks to Valkey unchanged: it is the same wire
+# protocol.
+REDIS_URL = (os.environ.get('REDIS_URL') or os.environ.get('CACHE_URL') or '').strip()
+
+if not REDIS_URL:
+    raise RuntimeError(
+        'REDIS_URL is not set. Development runs on Docker Compose (the `cache` '
+        'Valkey container, injected automatically); staging points at Render '
+        'Key Value. See .env.example.'
+    )
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': REDIS_URL,
+        # The default TTL for anything that does not name its own. Never None:
+        # a key with no expiry is a key nothing ever reclaims, and the free Key
+        # Value plan is 25MB.
+        'TIMEOUT': int(os.environ.get('CACHE_GC_SECONDS', '1800')),
+        # Namespaces our keys, so one Key Value instance could serve another
+        # service without either being able to read the other's entries.
+        'KEY_PREFIX': os.environ.get('CACHE_KEY_PREFIX', 'vz360'),
+        'OPTIONS': {
+            # A cache is an optimisation, so it gets seconds, not minutes. If
+            # Key Value is slow or unreachable the request should fall back to
+            # Postgres promptly rather than hold a worker (apps/core/cache.py
+            # treats any failure as a miss).
+            'socket_connect_timeout': 2,
+            'socket_timeout': 2,
+            'retry_on_timeout': True,
+            # Render's free instances idle out long-lived TCP connections; this
+            # pings a pooled one rather than handing over a dead socket.
+            'health_check_interval': 30,
+        },
+    }
+}
+
+# Read-through policy, applied by `apps.core.cache`. Stale time is how long a
+# cached answer is served; GC time is the key's TTL in Redis, and the only thing
+# bounding the keyspace. Neither delays a write: saving a KPI, a record or an
+# import retires its team's cache on the spot. That module's docstring explains
+# why all three exist.
+CACHE_STALE_SECONDS = int(os.environ.get('CACHE_STALE_SECONDS', '300'))    # 5 minutes
+CACHE_GC_SECONDS = int(os.environ.get('CACHE_GC_SECONDS', '1800'))        # 30 minutes
+# Version tokens have to outlive the entries they stamp. Long, but not forever:
+# a token nobody has read in a month belongs to a team nobody has opened in a
+# month. Losing one early only costs a recomputation.
+CACHE_VERSION_SECONDS = int(os.environ.get('CACHE_VERSION_SECONDS', '2592000'))  # 30 days
 
 
 # Object storage — Cloudflare R2
@@ -210,6 +284,42 @@ LOGIN_URL = 'login'
 # Where users land after a successful login / logout.
 LOGIN_REDIRECT_URL = 'dashboard:home'
 LOGOUT_REDIRECT_URL = 'login'
+
+
+# Sessions
+# https://docs.djangoproject.com/en/6.0/topics/http/sessions/
+#
+# One hour of INACTIVITY signs a user out, not one hour from sign-in. Somebody
+# entering a month of KPI figures is working, and a hard cap would throw away a
+# half-filled Add Record form to prove a point. The clock restarts on every
+# request they make.
+SESSION_IDLE_TIMEOUT = int(os.environ.get('SESSION_IDLE_TIMEOUT', '3600'))  # 1 hour
+
+# Re-stamps the session cookie on every response, which is what makes the window
+# roll. Without it the cookie would expire an hour after sign-in no matter how
+# busy the user was, which is the absolute timeout we are deliberately not using.
+SESSION_SAVE_EVERY_REQUEST = True
+
+# The cookie outlives the idle window by two minutes ON PURPOSE. Both enforce
+# the same hour, but `SessionIdleTimeoutMiddleware` is the one that can log the
+# sign-out and say why it happened; if the cookie went first the browser would
+# just stop sending it and the user would land on a bare login screen with no
+# explanation. The margin is what guarantees the server gets asked.
+SESSION_COOKIE_AGE = SESSION_IDLE_TIMEOUT + 120
+
+# The session survives closing the browser, up to the same idle window. Closing
+# a tab by accident should not mean signing in again; an hour away should.
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+# Session data stays server-side in the database (Django's default engine). The
+# browser holds only the opaque session key, so no role, team or KPI figure is
+# ever readable in a cookie.
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
+# The session cookie is not readable from JavaScript, and is not sent on
+# cross-site navigations. (`Secure` is added in prod.py, where there is TLS.)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
 
 
 # Icons (django-icons) — render Font Awesome via {% icon 'name' %}.

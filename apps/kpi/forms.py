@@ -102,6 +102,22 @@ class CategoryChoiceField(forms.ModelChoiceField):
             return None
         return super().to_python(value)
 
+    def label_from_instance(self, obj):
+        """The category's own name, without `KpiCategory.__str__`'s team prefix.
+
+        Two reasons, and the second one was measured. It reads better: the
+        queryset is already scoped to one team, so every option said
+        "Operations · " and the only part that varied came after it. And it is
+        the whole of a performance bug — the default label calls `str(obj)`,
+        which reaches through `obj.team` for that prefix, and neither the
+        category nor its team is select_related in a ModelChoiceField's own
+        iteration. KPI Management renders eleven of these pickers (the create
+        form plus one Edit modal per row), so the page was issuing a
+        `core_team` SELECT per option per form: 26 identical queries for one
+        team's name.
+        """
+        return obj.name
+
 
 _SHARED_WIDGETS = {
     "name": forms.TextInput(

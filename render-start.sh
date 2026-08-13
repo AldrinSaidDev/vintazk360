@@ -9,6 +9,11 @@ set -e
 echo "Applying database migrations..."
 python manage.py migrate --noinput
 
+# No cache table to create: the cache is Render Key Value (see CACHES in
+# config/settings/base.py), reached over REDIS_URL. Every gunicorn worker shares
+# it, which is what makes a KPI edit's invalidation visible to all of them, and
+# it needs no bootstrapping — an empty cache is a working cache.
+
 echo "Collecting static files..."
 python manage.py collectstatic --noinput
 

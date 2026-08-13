@@ -254,11 +254,14 @@
         </footer>
     </div>
 </div>
+{% endblock %}
 
 {# Outside <main> on purpose: main is the scroll container, and a toast pinned to #}
 {# the viewport should not sit inside the thing the user is scrolling. #}
+{# Outside {% block layout %} too, which the login page replaces wholesale: the #}
+{# session-expiry notice is a message addressed to somebody who has just been #}
+{# returned to the login screen, so that is the one page it MUST render on. #}
 {% include "partials/toasts.html" %}
-{% endblock %}
 
 {# Outside the layout block: the login page replaces that block entirely, and the #}
 {# right-click rule has to hold there too. #}

@@ -2,6 +2,10 @@
 #
 # - `db`       : Postgres for local development ONLY. On Render you point
 #                DATABASE_URL at Render Postgres and this service is not used.
+# - `cache`    : Valkey (the open-source Redis fork) for local development
+#                ONLY, standing in for Render Key Value. Same wire protocol, so
+#                the app cannot tell the difference. Nothing in it is durable by
+#                design — every entry is rebuildable from Postgres.
 # - `web`      : the Django app, hot-reloading via a bind mount.
 # - `tailwind` : watches templates + input.css and rebuilds static/css/output.css
 #                into the shared bind mount so style changes appear live.
@@ -29,6 +33,29 @@ services:
       timeout: 5s
       retries: 10
 
+  cache:
+    image: valkey/valkey:8-alpine
+    # Bounded and evictable, matching how Render Key Value is configured.
+    # `allkeys-lru` is the right policy here rather than a `volatile-*` one:
+    # every key in this instance is a derived answer, so the oldest unused one
+    # is always the safest thing to drop. Version tokens are droppable too — a
+    # lost token retires more than it should, which costs a recomputation and
+    # never a wrong figure (see apps/core/cache.py).
+    command: >
+      valkey-server
+      --maxmemory 64mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    ports:
+      # Exposed so `manage.py` run on the HOST can reach the same cache.
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   tailwind:
     image: node:22-slim
     working_dir: /app
@@ -51,6 +78,10 @@ services:
       # Inside the compose network the DB host is the service name `db`.
       # This overrides whatever is in .env so Docker always uses local Postgres.
       DATABASE_URL: postgresql://postgres:postgres@db:5432/vintazk360
+      # Inside the compose network the cache host is the service name `cache`.
+      # Same override reasoning as DATABASE_URL: Docker always uses the local
+      # Valkey container, whatever .env says.
+      REDIS_URL: redis://cache:6379/0
     ports:
       - "8000:8000"
     volumes:
@@ -58,6 +89,8 @@ services:
       - .:/app
     depends_on:
       db:
+        condition: service_healthy
+      cache:
         condition: service_healthy
 
 volumes:

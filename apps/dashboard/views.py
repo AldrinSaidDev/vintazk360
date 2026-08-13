@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from functools import partial
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth.decorators import login_required
@@ -6,6 +7,7 @@ from django.shortcuts import render
 from django.urls import NoReverseMatch, reverse
 
 from apps.core import async_content
+from apps.core import cache
 from apps.core import kpi as scoring
 from apps.core.access import accessible_teams
 from apps.kpi import records as kpi_records
@@ -236,142 +238,177 @@ def _department_rows(teams, filters):
     those as losses would also put 100% permanently out of reach for any
     department that owns one.
     """
-    rows = []
-    status_filter = filters['status']
-
-    for team in teams:
-        kpis = list(KpiDefinition.objects.filter(team=team, is_active=True))
-        if not kpis:
-            continue
-        history = _recent_records(
-            team, filters['period_from'], filters['period_to'],
-        )
-
-        counts = {'on_track': 0, 'at_risk': 0, 'below': 0,
-                  'monitored': 0, 'no_data': 0}
-        # `(has_target, attainment)` per KPI, handed to `scoring.goal_attainment`
-        # so this page and the branch overview apply one rule.
-        entries = []
-        # The subset that has a real figure. Drives the coverage line and the
-        # focus/best picks, which are about performance and would be meaningless
-        # if a KPI nobody has reported could win or lose them.
-        scores = []
-        # The KPIs worth naming on the card: the worst and the best scorer.
-        scored = []
-        # This period against the last, over the KPIs that have BOTH. Comparing
-        # a full current set against a smaller previous one would report the
-        # arrival of new data as a change in performance.
-        now_paired, then_paired = [], []
-
-        # The KPIs that survived the status filter. This is the gauge's total
-        # and the card's "N KPIs", so an unfiltered page counts every KPI the
-        # team owns and a filtered one counts only what it is showing.
-        kept = 0
-
-        for kpi in kpis:
-            recent = history.get(kpi.pk)
-            if recent:
-                attainment, status = kpi_records.score(kpi, _graded(recent[0]))
-            else:
-                attainment, status = None, 'no_data'
-
-            # Scored FIRST, then filtered. A KPI's status is what the filter
-            # selects on, so it has to exist before the decision can be made.
-            if status_filter and status != status_filter:
-                continue
-            kept += 1
-            counts[status] += 1
-
-            if not recent:
-                # `is_scored` is the KPI's own "does this have a target". A
-                # target with nothing reported against it has not been met, so
-                # it enters the roll-up as a miss rather than as an absence.
-                entries.append((kpi.is_scored, None))
-                continue
-
-            entries.append((attainment is not None, attainment))
-            if attainment is None:
-                # No target: a figure that cannot be attained or missed.
-                continue
-
-            scores.append(attainment)
-            scored.append({'name': kpi.name, 'attainment': attainment,
-                           'status': status})
-
-            if len(recent) > 1:
-                previous, _ = kpi_records.score(kpi, _graded(recent[1]))
-                if previous is not None:
-                    now_paired.append(attainment)
-                    then_paired.append(previous)
-
-        # A status filter no KPI in this team matches drops the card entirely.
-        # Rendering it at 0% would read as a department failing rather than as
-        # one with nothing in the state being asked about.
-        if not kept:
-            continue
-
-        # None only when the department owns no targeted KPI at all. That is
-        # "cannot be scored", not "scored zero", and it is what keeps such a
-        # department out of the company denominator instead of capping the
-        # company figure below 100 forever.
-        avg, scorable_count = scoring.goal_attainment(entries)
-
-        # "Needs attention" is the lowest scorer that is not already on track.
-        scored.sort(key=lambda k: k['attainment'])
-        focus = next((k for k in scored if k['status'] != 'on_track'), None)
-        best = scored[-1] if scored else None
-
-        trend = None
-        if then_paired:
-            now = sum(now_paired) / len(now_paired)
-            then = sum(then_paired) / len(then_paired)
-            trend = {
-                'now': round(now, 1),
-                'then': round(then, 1),
-                # Points, not percent: the difference between two percentages.
-                'delta': round(now - then, 1),
-                'kpi_count': len(now_paired),
-            }
-
-        # A team whose dashboard route isn't built yet renders as a plain card
-        # rather than a dead link.
-        try:
-            url = reverse(f'{team.slug}:index')
-        except NoReverseMatch:
-            url = None
-
-        # The gauge divides every KPI the team owns, so the two states with no
-        # verdict (no target, no figures) share one neutral band rather than
-        # being dropped — leaving them out would make a team with two reported
-        # KPIs out of twelve look fully covered.
-        unscored = counts['monitored'] + counts['no_data']
-
-        rows.append({
-            'name': team.name,
-            'slug': team.slug,
-            'url': url,
-            'avg': avg,
-            # Capped so an overachiever fills the track; the figure beside it
-            # still reads the true number.
-            'bar_pct': 0 if avg is None else min(round(avg), 100),
-            'kpi_count': kept,
-            'scored_count': len(scores),
-            # The figure's denominator, and the gap between the two is what the
-            # card's coverage line reports.
-            'scorable_count': scorable_count,
-            'missing_count': scorable_count - len(scores),
-            'has_data': bool(scores),
-            'focus': focus,
-            'best': best,
-            'trend': trend,
-            'segments': _gauge_segments({**counts, 'unscored': unscored}, kept),
-            **counts,
-        })
+    # Cached per department, not per page. Two people looking at the same
+    # unfiltered dashboard are asking for the same ten answers, and a
+    # department's row depends on nothing but that department's data and the
+    # window — not on who is reading. Caching the finished page instead would
+    # give every combination of accessible teams its own entry and share almost
+    # nothing.
+    #
+    # The filter combinations are cached too, not just the unfiltered view. A
+    # filtered row costs the same to build as an unfiltered one and the window
+    # is usually a period the whole company is looking at that week, so the
+    # combinations people actually use are worth keeping. They cost nothing to
+    # keep either: the key carries the window and the status, and an unused
+    # combination expires on the GC clock like anything else.
+    #
+    # Batched, and it has to be: the version token and the row are two round
+    # trips whatever the department count, rather than two per department. The
+    # producers stay lazy — `fetch_many` calls one only for a department that
+    # actually missed, so a warm page runs no queries at all.
+    keys = cache.team_keys(
+        'dept-row', [team.pk for team in teams],
+        filters['period_from'], filters['period_to'], filters['status'],
+    )
+    cached = cache.fetch_many(
+        (team.pk, keys[team.pk], partial(_department_row, team, filters))
+        for team in teams
+    )
+    rows = [row for row in (cached[team.pk] for team in teams) if row is not None]
 
     # Highest attainment first; departments with nothing scored sink to the
     # bottom rather than reading as 0%.
     rows.sort(key=lambda r: (r['avg'] is not None, r['avg'] or 0), reverse=True)
     return rows
+
+
+def _department_row(team, filters):
+    """One department's summary row, or None when the filters leave nothing.
+
+    Split out of `_department_rows` so it can be cached on its own. It must stay
+    a pure function of `(team, filters)` and return plain data: it is what goes
+    into the cache, so a model instance or a queryset in here would be stored as
+    a snapshot pretending to be live.
+    """
+    status_filter = filters['status']
+
+    kpis = list(KpiDefinition.objects.filter(team=team, is_active=True))
+    if not kpis:
+        return None
+    history = _recent_records(
+        team, filters['period_from'], filters['period_to'],
+    )
+
+    counts = {'on_track': 0, 'at_risk': 0, 'below': 0,
+              'monitored': 0, 'no_data': 0}
+    # `(has_target, attainment)` per KPI, handed to `scoring.goal_attainment`
+    # so this page and the branch overview apply one rule.
+    entries = []
+    # The subset that has a real figure. Drives the coverage line and the
+    # focus/best picks, which are about performance and would be meaningless
+    # if a KPI nobody has reported could win or lose them.
+    scores = []
+    # The KPIs worth naming on the card: the worst and the best scorer.
+    scored = []
+    # This period against the last, over the KPIs that have BOTH. Comparing
+    # a full current set against a smaller previous one would report the
+    # arrival of new data as a change in performance.
+    now_paired, then_paired = [], []
+
+    # The KPIs that survived the status filter. This is the gauge's total
+    # and the card's "N KPIs", so an unfiltered page counts every KPI the
+    # team owns and a filtered one counts only what it is showing.
+    kept = 0
+
+    for kpi in kpis:
+        recent = history.get(kpi.pk)
+        if recent:
+            attainment, status = kpi_records.score(kpi, _graded(recent[0]))
+        else:
+            attainment, status = None, 'no_data'
+
+        # Scored FIRST, then filtered. A KPI's status is what the filter
+        # selects on, so it has to exist before the decision can be made.
+        if status_filter and status != status_filter:
+            continue
+        kept += 1
+        counts[status] += 1
+
+        if not recent:
+            # `is_scored` is the KPI's own "does this have a target". A
+            # target with nothing reported against it has not been met, so
+            # it enters the roll-up as a miss rather than as an absence.
+            entries.append((kpi.is_scored, None))
+            continue
+
+        entries.append((attainment is not None, attainment))
+        if attainment is None:
+            # No target: a figure that cannot be attained or missed.
+            continue
+
+        scores.append(attainment)
+        scored.append({'name': kpi.name, 'attainment': attainment,
+                       'status': status})
+
+        if len(recent) > 1:
+            previous, _ = kpi_records.score(kpi, _graded(recent[1]))
+            if previous is not None:
+                now_paired.append(attainment)
+                then_paired.append(previous)
+
+    # A status filter no KPI in this team matches drops the card entirely.
+    # Rendering it at 0% would read as a department failing rather than as
+    # one with nothing in the state being asked about.
+    if not kept:
+        return None
+
+    # None only when the department owns no targeted KPI at all. That is
+    # "cannot be scored", not "scored zero", and it is what keeps such a
+    # department out of the company denominator instead of capping the
+    # company figure below 100 forever.
+    avg, scorable_count = scoring.goal_attainment(entries)
+
+    # "Needs attention" is the lowest scorer that is not already on track.
+    scored.sort(key=lambda k: k['attainment'])
+    focus = next((k for k in scored if k['status'] != 'on_track'), None)
+    best = scored[-1] if scored else None
+
+    trend = None
+    if then_paired:
+        now = sum(now_paired) / len(now_paired)
+        then = sum(then_paired) / len(then_paired)
+        trend = {
+            'now': round(now, 1),
+            'then': round(then, 1),
+            # Points, not percent: the difference between two percentages.
+            'delta': round(now - then, 1),
+            'kpi_count': len(now_paired),
+        }
+
+    # A team whose dashboard route isn't built yet renders as a plain card
+    # rather than a dead link.
+    try:
+        url = reverse(f'{team.slug}:index')
+    except NoReverseMatch:
+        url = None
+
+    # The gauge divides every KPI the team owns, so the two states with no
+    # verdict (no target, no figures) share one neutral band rather than
+    # being dropped — leaving them out would make a team with two reported
+    # KPIs out of twelve look fully covered.
+    unscored = counts['monitored'] + counts['no_data']
+
+    return {
+        'name': team.name,
+        'slug': team.slug,
+        'url': url,
+        'avg': avg,
+        # Capped so an overachiever fills the track; the figure beside it
+        # still reads the true number.
+        'bar_pct': 0 if avg is None else min(round(avg), 100),
+        'kpi_count': kept,
+        'scored_count': len(scores),
+        # The figure's denominator, and the gap between the two is what the
+        # card's coverage line reports.
+        'scorable_count': scorable_count,
+        'missing_count': scorable_count - len(scores),
+        'has_data': bool(scores),
+        'focus': focus,
+        'best': best,
+        'trend': trend,
+        'segments': _gauge_segments({**counts, 'unscored': unscored}, kept),
+        **counts,
+    }
 
 
 def _pct(part, whole):

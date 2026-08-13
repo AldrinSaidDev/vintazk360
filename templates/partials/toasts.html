@@ -1,6 +1,8 @@
 {% load icons %}
 {# Flash messages, bottom-right, each with a five-second countdown line. #}
-{# Included once from base.html, outside <main> so it never scrolls with the page. #}
+{# Included once from base.html, outside <main> so it never scrolls with the page, #}
+{# and outside {% block layout %} so the login screen (which replaces that block) #}
+{# can show the session-expiry notice. #}
 {# Colours come from .toast-<level> in static/src/input.css, which is also what #}
 {# drives the countdown: the toast is removed when that animation ends, so hovering #}
 {# pauses the animation and the dismissal together. #}
