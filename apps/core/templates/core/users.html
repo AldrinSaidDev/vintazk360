@@ -129,12 +129,7 @@
             </div>
         </form>
 
-        {% if is_scoped %}
-        <p class="mb-3 text-xs text-slate-400">
-            Showing accounts in {% for team in scoped_teams %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% empty %}your teams{% endfor %}, plus your own. Super Admin and Viewer accounts are managed by a Super Admin.
-        </p>
-        {% endif %}
-
+        {# No "whose list is this" note any more: administration is org-wide, so every administrator sees the same accounts. #}
         <div class="max-h-[38rem] overflow-auto rounded-lg border border-slate-100">
             <table class="w-full min-w-[980px] text-left text-sm text-slate-600">
                 <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 shadow-[inset_0_-1px_0_theme(colors.slate.200)]">
@@ -160,14 +155,14 @@
                         </td>
                         <td class="px-4 py-3">
                             {% if row.sees_all_teams %}
-                            {# Super Admin and Viewer ignore the M2M, so listing rows here would be a lie about how their access works. #}
+                            {# Super Admin, Admin and Viewer ignore the M2M, so listing rows here would be a lie about how their access works. #}
                             <span class="text-xs italic text-slate-400">All teams</span>
                             {% else %}
                             <span class="flex flex-wrap gap-1">
                                 {% for team in row.teams %}
                                 <span class="rounded-full bg-blush/30 px-2 py-0.5 text-[11px] font-medium text-brand-dark">{{ team.name }}</span>
                                 {% empty %}
-                                <span class="text-xs italic text-status-warn">No teams, so this account can open nothing.</span>
+                                <span class="text-xs">N/A</span>
                                 {% endfor %}
                             </span>
                             {% endif %}
@@ -195,11 +190,12 @@
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
                                     {% icon 'pencil' %}
                                 </a>
-                                {% if not row.is_self %}
-                                <a href="#userPassword-{{ row.pk }}" title="Set password" aria-label="Set password for {{ row.username }}"
+                                {# Your own row keeps this one: it asks for your current password and keeps you signed in. #}
+                                <a href="#userPassword-{{ row.pk }}" title="{% if row.is_self %}Change your password{% else %}Set password{% endif %}" aria-label="{% if row.is_self %}Change your own password{% else %}Set password for {{ row.username }}{% endif %}"
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
                                     {% icon 'key' %}
                                 </a>
+                                {% if not row.is_self %}
                                 {% if row.is_active %}
                                 <a href="#userDeactivate-{{ row.pk }}" title="Deactivate account" aria-label="Deactivate {{ row.username }}"
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
@@ -303,15 +299,17 @@
                     <div class="sm:col-span-2">
                         <label for="{{ create_form.role.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Role{% include "partials/required_mark.html" %}</label>
                         {{ create_form.role }}
-                        <p class="mt-1.5 text-xs text-slate-400">Super Admin, Admin and Manager can change data. User and Viewer are read only. A Viewer reads every team.</p>
+                        <p class="mt-1.5 text-xs text-slate-400">Super Admin, Admin and Manager can change data. User and Viewer are read only. Super Admin, Admin and Viewer reach every team.</p>
                         {% include "partials/field_errors.html" with field=create_form.role %}
                     </div>
 
-                    <div class="sm:col-span-2">
+                    {# Hidden by role-teams.js while the selected role reaches every team. #}
+                    <div data-teams-field class="sm:col-span-2">
                         <span class="mb-1.5 block text-sm font-medium text-slate-700">Teams{% include "partials/required_mark.html" %}</span>
                         {% include "partials/team_checkboxes.html" with field=create_form.teams %}
                         {% include "partials/field_errors.html" with field=create_form.teams %}
                     </div>
+                    {% include "partials/all_teams_note.html" %}
 
                     {# Both password fields and the checklist share one container: the script reads the two inputs out of it, and the ids repeat across the Set password modals below. #}
                     <div data-password-checklist class="sm:col-span-2 grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
@@ -394,7 +392,7 @@
 
                     {% if row.is_self %}
                     <div class="sm:col-span-2 rounded-lg border border-status-warn/30 bg-status-warn/10 px-3 py-2 text-xs leading-5 text-amber-800">
-                        This is your own account, so your role and teams are not editable here. Another Super Admin can change them. Your password is in Settings, under Account Settings.
+                        This is your own account, so your role and teams are not editable here. Another administrator can change them. To change your password, use the key button on your row or Settings, under Account Settings.
                     </div>
                     {% else %}
                     <div class="sm:col-span-2">
@@ -403,11 +401,13 @@
                         {% include "partials/field_errors.html" with field=row.form.role %}
                     </div>
 
-                    <div class="sm:col-span-2">
+                    {# Hidden by role-teams.js while the selected role reaches every team. #}
+                    <div data-teams-field class="sm:col-span-2">
                         <span class="mb-1.5 block text-sm font-medium text-slate-700">Teams{% include "partials/required_mark.html" %}</span>
                         {% include "partials/team_checkboxes.html" with field=row.form.teams %}
                         {% include "partials/field_errors.html" with field=row.form.teams %}
                     </div>
+                    {% include "partials/all_teams_note.html" %}
                     {% endif %}
 
                     <div class="sm:col-span-2 text-xs text-slate-400">
@@ -427,14 +427,13 @@
     </div>
 </div>
 
-{% if not row.is_self %}
-{# ============ Set password ============ #}
+{# ============ Set password. Rendered for your own row too, with the current-password field the form adds there. ============ #}
 <div id="userPassword-{{ row.pk }}"
      class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_password_pk == row.pk %} !flex{% endif %}">
     <div class="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div class="flex items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
             <div>
-                <h3 class="font-heading text-lg font-bold leading-tight">Set password</h3>
+                <h3 class="font-heading text-lg font-bold leading-tight">{% if row.is_self %}Change your password{% else %}Set password{% endif %}</h3>
                 <p class="text-xs text-white/70">{{ row.username }}</p>
             </div>
             <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
@@ -448,9 +447,20 @@
             <input type="hidden" name="_pk" value="{{ row.pk }}">
 
             <div class="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+                {% if row.is_self %}
+                <p class="text-sm leading-6 text-slate-500">
+                    This is your own account, so your current password is needed. You stay signed in on this device after the change.
+                </p>
+                <div>
+                    <label for="{{ row.password_form.current_password.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Current password</label>
+                    {{ row.password_form.current_password }}
+                    {% include "partials/field_errors.html" with field=row.password_form.current_password %}
+                </div>
+                {% else %}
                 <p class="text-sm leading-6 text-slate-500">
                     The old password is not needed. Give the new password and ask the user to change it in Settings.
                 </p>
+                {% endif %}
                 <div data-password-checklist class="space-y-5">
                     <div>
                         <label for="{{ row.password_form.password1.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">New password</label>
@@ -469,13 +479,14 @@
             <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
                 <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
                 <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">
-                    {% icon 'key' %} Set password
+                    {% icon 'key' %} {% if row.is_self %}Update password{% else %}Set password{% endif %}
                 </button>
             </div>
         </form>
     </div>
 </div>
 
+{% if not row.is_self %}
 {% if row.is_active %}
 {# ============ Deactivate. Nothing is deleted, so the copy says so. ============ #}
 <div id="userDeactivate-{{ row.pk }}"
@@ -564,4 +575,6 @@
 <script src="{% static 'js/confirm-timer.js' %}" defer></script>
 {# Ticks the password rules as they are met, in the Add user and Set password modals. #}
 <script src="{% static 'js/password-checklist.js' %}" defer></script>
+{# Hides the Teams block while the chosen role is one that reaches every team. #}
+<script src="{% static 'js/role-teams.js' %}" defer></script>
 {% endblock %}

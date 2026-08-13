@@ -19,8 +19,8 @@ from .access import (
     accessible_teams,
     assignable_roles,
     assignable_teams,
-    is_superadmin,
     manageable_users,
+    require_admin,
     require_user_admin,
 )
 from .forms import AdminPasswordForm, CreateUserForm, EditUserForm
@@ -66,17 +66,26 @@ def _params_without_page(request, key='page'):
 
 @login_required
 def logs(request):
-    """The activity log, read from `audit_log`.
+    """The activity log, read from `audit_log`. ADMINISTRATORS ONLY.
 
-    Scoped by `activity.visible_to`: an admin sees everything, everyone else
-    sees their teams' entries plus their own. Filters are plain GET, so a
-    filtered view is a URL somebody can send to somebody else.
+    Reading a team's figures was never enough to open this: the table carries
+    sign-ins, failed sign-ins and role changes alongside KPI edits, which is
+    administration rather than team data. So a Manager writes their team's
+    numbers and does not come here, and a User or a Viewer certainly does not.
+    Everyone still reads their own recent activity, in Settings.
+
+    `activity.visible_to` still scopes what is returned. It is not redundant:
+    it is what every OTHER reader of the audit log goes through, Settings
+    included, and it is the layer that would keep this table honest if the page
+    were ever opened up again.
 
     Two-stage render (apps/core/async_content.py): the frame comes back at once
     and the entries arrive on the follow-up fetch. This page scans and paginates
     the whole audit table, and the filters make that cost vary a lot from one
     view to the next, which is exactly when a skeleton earns its place.
     """
+    require_admin(request.user, 'Only administrators can open the activity log.')
+
     if async_content.wants_shell(request):
         return async_content.render_shell(
             request, shell_template='core/logs_shell.html',
@@ -422,24 +431,31 @@ def users(request):
                 bound_edit[target.pk], open_edit_pk = form, target.pk
 
             elif action == 'password':
-                if target.pk == request.user.pk:
-                    # Your own password lives in Settings, where changing it
-                    # keeps you signed in. Doing it here would log you out.
-                    messages.error(
-                        request,
-                        'Change your own password in Settings, under Account Settings.',
-                    )
-                    return redirect(_back_to_users(request))
-                form = AdminPasswordForm(request.POST, target=target)
+                # Your own account included. The form asks for the current
+                # password when the target is the actor, and the session hash
+                # is rotated below so changing it here does not sign you out.
+                form = AdminPasswordForm(request.POST, target=target, actor=request.user)
                 if form.is_valid():
                     form.save()
-                    _log_user(request, AuditLog.Action.UPDATED, target,
-                              new_values={'password': 'reset by an administrator'})
-                    messages.success(
-                        request,
-                        f"Password set for {target.get_username()}. "
-                        'They are signed out of any open sessions the next time they load a page.',
-                    )
+                    if form.is_self:
+                        # Setting a password rotates the session hash. Without
+                        # this the administrator is logged straight out by the
+                        # change they just made.
+                        update_session_auth_hash(request, target)
+                        _log_user(request, AuditLog.Action.UPDATED, target,
+                                  new_values={'password': 'changed by the account holder'})
+                        messages.success(
+                            request,
+                            'Your password has been updated. You are still signed in on this device.',
+                        )
+                    else:
+                        _log_user(request, AuditLog.Action.UPDATED, target,
+                                  new_values={'password': 'reset by an administrator'})
+                        messages.success(
+                            request,
+                            f"Password set for {target.get_username()}. "
+                            'They are signed out of any open sessions the next time they load a page.',
+                        )
                     return redirect(_back_to_users(request))
                 bound_password[target.pk], open_password_pk = form, target.pk
 
@@ -523,7 +539,9 @@ def users(request):
                 target=person,
                 initial=EditUserForm.initial_for(person),
             ),
-            'password_form': bound_password.get(person.pk) or AdminPasswordForm(target=person),
+            'password_form': bound_password.get(person.pk) or AdminPasswordForm(
+                target=person, actor=request.user,
+            ),
         })
 
     total = people.count()
@@ -567,13 +585,5 @@ def users(request):
         'open_create': open_create,
         'open_edit_pk': open_edit_pk,
         'open_password_pk': open_password_pk,
-        # Says whose list this is: an Admin sees their teams' accounts, a Super
-        # Admin sees the org's, and the same page with two very different
-        # contents should say which one it is showing.
-        'is_scoped': not is_superadmin(request.user),
-        'scoped_teams': (
-            accessible_teams(request.user)
-            if not is_superadmin(request.user) else None
-        ),
         'assignable_role_labels': [label for _, label in assignable_roles(request.user)],
     })

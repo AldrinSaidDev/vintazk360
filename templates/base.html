@@ -139,6 +139,8 @@
             </a>
             {% endif %}
 
+            {# The activity log is administration too: it carries sign-ins and role changes, not just KPI edits. A Manager writes their team's data and does not come here; everyone reads their own recent activity in Settings. The view refuses the rest, so hiding the link is presentation, not access control. #}
+            {% if is_admin %}
             {% url 'core:logs' as logs_url %}
             <a href="{{ logs_url }}" title="Logs"
                class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
@@ -146,6 +148,7 @@
                 <span class="flex h-5 w-5 shrink-0 items-center justify-center text-base">{% icon 'history' %}</span>
                 <span class="sidebar-label">Logs</span>
             </a>
+            {% endif %}
 
             {% url 'core:settings' as settings_url %}
             <a href="{{ settings_url }}" title="Settings"

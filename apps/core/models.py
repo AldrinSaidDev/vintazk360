@@ -35,9 +35,9 @@ class UserProfile(models.Model):
     ``core.access`` helpers and Part C of ``db_schema.txt``):
 
     *Which teams you reach*
-      * SUPERADMIN — every team (the ``teams`` M2M is ignored).
+      * SUPERADMIN / ADMIN — every team (the ``teams`` M2M is ignored).
       * VIEWER — every team, read-only.
-      * ADMIN / MANAGER — the teams in ``teams``.
+      * MANAGER — the teams in ``teams``.
       * USER — their assigned team(s), normally one.
 
     *What you may do there*
@@ -62,8 +62,11 @@ class UserProfile(models.Model):
     # Roles that may change data, in any team they can reach. Everything else
     # is read-only, and `access.can_edit_data()` is the one test for it.
     WRITE_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN, Role.MANAGER})
-    # Roles whose reach is every team rather than their `teams` M2M.
-    ALL_TEAM_ROLES = frozenset({Role.SUPERADMIN, Role.VIEWER})
+    # Roles whose reach is every team rather than their `teams` M2M. An Admin
+    # is here alongside the Super Admin because the two are one job: an Admin
+    # administers the whole organisation, so scoping them to a `teams` list
+    # made an Admin with no teams an account that could open nothing.
+    ALL_TEAM_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN, Role.VIEWER})
     # Roles that administer the system itself (users, settings, system-wide
     # audit entries), as opposed to a team's KPI data.
     ADMIN_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN})
@@ -104,7 +107,7 @@ class UserProfile(models.Model):
 
     @property
     def sees_all_teams(self):
-        """Super Admin and Viewer reach every team; everyone else their own."""
+        """Super Admin, Admin and Viewer reach every team; the rest their own."""
         return self.role in self.ALL_TEAM_ROLES
 
     @property

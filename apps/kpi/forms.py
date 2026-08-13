@@ -737,6 +737,160 @@ class AddRecordForm(forms.Form):
         )
 
 
+class EditRecordForm(forms.Form):
+    """Correcting one already-saved actual: its raw operands and its remarks.
+
+    Deliberately NOT a second way to enter a record. The KPI and the period are
+    the record's identity — `(kpi, period_start)` is the upsert key the whole
+    import pipeline turns on — so this form only rewrites the numbers behind an
+    existing figure and lets `records.save_record()` recompute the result, the
+    attainment and the status exactly as the first save did.
+
+    Fixing a figure filed against the WRONG PERIOD is still delete plus
+    re-enter: moving it here would mean deleting the row underneath the user
+    and would have to decide what to do when the destination period is already
+    taken, which is a different action wearing this one's clothes.
+
+    Unlike `AddRecordForm`, the operand fields are declared for real, because
+    there is exactly one KPI in play. Each form is prefixed with its record's
+    pk: the screen renders one modal per row and every field name would
+    otherwise repeat down the page.
+    """
+
+    INPUT_PREFIX = "input__"
+
+    remarks = forms.CharField(
+        required=False,
+        max_length=REMARKS_MAX_LENGTH,
+        widget=forms.Textarea(
+            attrs={
+                "class": TAILWIND_INPUT,
+                "rows": 3,
+                "maxlength": REMARKS_MAX_LENGTH,
+                "placeholder": "Add any context for this record…",
+            }
+        ),
+        help_text=f"Optional. Up to {REMARKS_MAX_LENGTH} characters.",
+    )
+    change_reason = forms.CharField(
+        required=False,
+        max_length=200,
+        widget=forms.TextInput(
+            attrs={
+                "class": TAILWIND_INPUT,
+                "placeholder": "e.g. Corrected the headcount figure",
+            }
+        ),
+        help_text="Optional. Shown on the activity log entry for this edit.",
+    )
+
+    def __init__(self, *args, record=None, **kwargs):
+        # The prefix is derived, not passed, so a caller cannot accidentally
+        # bind one record's POST data to another record's form.
+        kwargs.setdefault("prefix", self.prefix_for(record))
+        super().__init__(*args, **kwargs)
+        self.record = record
+        self.kpi = record.kpi
+
+        stored = {value.input_id: value for value in record.input_values.all()}
+        for row in self.kpi.inputs.all():
+            self.fields[f"{self.INPUT_PREFIX}{row.key}"] = self._input_field(
+                row, stored.get(row.pk)
+            )
+
+        self.fields["remarks"].initial = record.remarks
+
+    @staticmethod
+    def prefix_for(record):
+        return f"record{record.pk}"
+
+    @property
+    def operand_fields(self):
+        """The operand fields in CSV column order, for the template to loop.
+
+        Declared fields come first on a Django form and these are added in
+        `__init__`, so iterating the form itself would put Remarks above the
+        figures it is a remark about.
+        """
+        return [
+            self[f"{self.INPUT_PREFIX}{row.key}"] for row in self.kpi.inputs.all()
+        ]
+
+    def _input_field(self, row, stored):
+        """One operand field, pre-filled with what is currently stored.
+
+        `required=False` here on purpose: emptiness is `records.coerce()`'s
+        question, not the widget's, so a blank cell gets the KPI's own message
+        ("Total exits is required") rather than the browser's generic one, and
+        an optional input still counts as 0.
+        """
+        attrs = {"class": TAILWIND_INPUT}
+        if row.data_type == DataType.DATE:
+            attrs["type"] = "date"
+            initial = stored.value_date if stored else None
+            widget = forms.DateInput(attrs=attrs, format="%Y-%m-%d")
+        else:
+            attrs["inputmode"] = "decimal"
+            attrs["placeholder"] = row.placeholder
+            initial = self._number(stored.value_number) if stored else None
+            widget = forms.TextInput(attrs=attrs)
+
+        return forms.CharField(
+            label=row.label,
+            required=False,
+            initial=initial,
+            widget=widget,
+            help_text=row.help_text,
+        )
+
+    @staticmethod
+    def _number(value):
+        """A stored Decimal as a person typed it: `12`, not `12.0000`."""
+        if value is None:
+            return None
+        return format(value.normalize(), "f")
+
+    def clean(self):
+        cleaned = super().clean()
+
+        values = {}
+        for row in self.kpi.inputs.all():
+            field = f"{self.INPUT_PREFIX}{row.key}"
+            try:
+                values[row.key] = records.coerce(cleaned.get(field), row)
+            except records.RecordError as error:
+                self.add_error(field, str(error))
+        cleaned["values"] = values
+
+        if not self.errors:
+            # Same reason as `AddRecordForm`: a division by zero belongs on the
+            # form, not in a 500 at save time.
+            try:
+                records.evaluate(self.kpi, values)
+            except records.RecordError as error:
+                self.add_error(None, str(error))
+
+        return cleaned
+
+    def save(self, user=None):
+        """Rewrite the record through the one save path, and return it.
+
+        The source becomes MANUAL and the record stops pointing at the import
+        batch, because after this the figure is no longer what the file said.
+        That also keeps "delete this import" honest: it removes the records the
+        upload is still the source of, and this one no longer is.
+        """
+        record, _ = records.save_record(
+            self.kpi,
+            self.record.period_start,
+            self.cleaned_data["values"],
+            source=KpiRecord.Source.MANUAL,
+            user=user,
+            remarks=self.cleaned_data.get("remarks", ""),
+        )
+        return record
+
+
 class ImportRecordsForm(forms.Form):
     """Upload one filled-in CSV template.
 

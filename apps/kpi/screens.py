@@ -41,7 +41,12 @@ from django.utils import timezone
 from apps.core import async_content
 from apps.core import cache
 from apps.core import kpi as scoring
-from apps.core.access import require_edit, team_required
+from apps.core.access import (
+    can_edit_team,
+    edit_required,
+    require_edit,
+    team_required,
+)
 from apps.core.audit import log_action
 from apps.core.models import AuditLog, Team
 
@@ -52,6 +57,7 @@ from .forms import (
     AddRecordForm,
     CreateKpiForm,
     EditKpiForm,
+    EditRecordForm,
     ImportRecordsForm,
 )
 from .models import (
@@ -175,25 +181,38 @@ class KpiScreens:
 
         guard = [login_required, team_required(team_slug)]
 
-        def wrap(view, shell_title=None):
+        def wrap(view, shell_title=None, writers_only=False):
             # The shell wrapper goes on FIRST so the guards end up outside it.
             # Reversed, an anonymous visitor would be handed a page frame before
-            # anything checked whether they may see the team at all.
+            # anything checked whether they may see the team at all. Same for
+            # `edit_required`: a read-only role must be refused before a frame
+            # is painted, not after.
             if shell_title is not None:
                 view = self._shell_first(view, shell_title)
-            for decorator in reversed(guard):
+            for decorator in reversed(
+                guard + ([edit_required] if writers_only else [])
+            ):
                 view = decorator(view)
             return view
 
         # A shell_title means the screen renders in two stages: frame and
         # skeleton now, data on the follow-up fetch. The downloads have no
         # frame to paint, so they stay single-stage.
+        #
+        # Dashboard and KPI Definitions are for everyone who can reach the team.
+        # Import Data and KPI Management are WRITERS ONLY: every reason to open
+        # one is a reason to write, so a read-only role is refused the screen
+        # rather than shown one with every control stripped out. The two
+        # template downloads go with them, being the entry files those screens
+        # hand out.
         self.dashboard = wrap(self._dashboard, 'Dashboard')
         self.definitions = wrap(self._definitions, 'KPI Definitions')
-        self.import_data = wrap(self._import_data, 'Import Data')
-        self.management = wrap(self._management, 'KPI Management')
-        self.template = wrap(self._template)
-        self.workbook = wrap(self._workbook) if workbook_template else None
+        self.import_data = wrap(self._import_data, 'Import Data', writers_only=True)
+        self.management = wrap(self._management, 'KPI Management', writers_only=True)
+        self.template = wrap(self._template, writers_only=True)
+        self.workbook = (
+            wrap(self._workbook, writers_only=True) if workbook_template else None
+        )
         # Only a branch team has anything to roll up.
         self.overview = wrap(self._overview, 'Dashboard') if branched else None
 
@@ -516,14 +535,21 @@ class KpiScreens:
             ),
         }
 
-    def record_rows(self, records_qs):
+    def record_rows(self, records_qs, edit_forms=None):
         """KPI Records table rows, from `kpi_record`.
 
         Carries the detail the View modal shows as well as the columns of the
         table. Both come off rows already fetched, so opening a record costs no
         query: the alternative is a per-record endpoint for data the page is
         holding anyway.
+
+        `edit_forms` is `{pk: EditRecordForm}` for a writer, so each row's Edit
+        modal renders real fields with real validation messages. It is None for
+        a read-only role, which renders no edit modal at all. A row whose form
+        failed validation gets the BOUND one back, so what the user typed and
+        why it was refused are both still there.
         """
+        edit_forms = edit_forms or {}
         return [
             {
                 # The delete form posts this. Records have no slug of their own,
@@ -572,6 +598,8 @@ class KpiScreens:
                 'batch_file': (
                     record.import_batch.file_name if record.import_batch_id else ''
                 ),
+                # --- Edit modal only ---
+                'edit_form': edit_forms.get(record.pk),
             }
             for record in records_qs
         ]
@@ -681,6 +709,11 @@ class KpiScreens:
         add_form = AddRecordForm(team=team, branch=branch)
         import_form = ImportRecordsForm()
         open_add_modal = open_import_modal = False
+        # The one record whose edit failed validation, and its bound form. The
+        # modal is CSS `:target`, so re-rendering the page would otherwise close
+        # it and take the error messages with it, exactly as on KPI Management.
+        open_edit_record_pk = None
+        bound_edit_form = None
 
         if request.method == 'POST':
             # `team_required` said this user may be on the page; this says
@@ -728,7 +761,63 @@ class KpiScreens:
                 )
                 return redirect(self._back_to_records(request))
 
-            if request.POST.get('_action') == 'delete-import':
+            if request.POST.get('_action') == 'edit-record':
+                # Correcting a figure that is already filed: the operands are
+                # rewritten and the KPI's own formula recomputes the result, so
+                # a typed correction is scored exactly as an uploaded one.
+                # Scoped to this team and branch like every other id a modal
+                # posts, so a guessed pk from another LOB is a 404.
+                record = get_object_or_404(
+                    KpiRecord.objects.select_related('kpi').prefetch_related(
+                        'kpi__inputs', 'input_values__input'
+                    ),
+                    pk=_posted_pk(request, '_record'),
+                    kpi__team=team,
+                    kpi__branch=branch,
+                    is_active=True,
+                )
+                edit_form = EditRecordForm(request.POST, record=record)
+                # Read BEFORE the save: the row is updated in place, so the
+                # audit entry's "was" has to be taken while it is still true.
+                was = record.value_display or str(record.value)
+                period = kpi_periods.label(record.period_start, record.kpi.frequency)
+
+                if edit_form.is_valid():
+                    updated = edit_form.save(user=request.user)
+
+                    log_action(
+                        request,
+                        action=AuditLog.Action.UPDATED,
+                        entity=updated,
+                        entity_type='kpi_record',
+                        team=team,
+                        old_values={'value': was},
+                        new_values={
+                            'kpi': updated.kpi.name,
+                            'period': period,
+                            'value': updated.value_display,
+                            'status': updated.get_status_display(),
+                            **(
+                                {'reason': edit_form.cleaned_data['change_reason']}
+                                if edit_form.cleaned_data.get('change_reason') else {}
+                            ),
+                        },
+                    )
+
+                    messages.success(
+                        request,
+                        f'{updated.kpi.name} for {period} updated: '
+                        f'{updated.value_display} ({updated.get_status_display()}).',
+                    )
+                    return redirect(self._back_to_records(request))
+
+                open_edit_record_pk = record.pk
+                bound_edit_form = edit_form
+
+            # From here the branches CHAIN, because the last of them is the
+            # fall-through for Add Record: an edit that failed validation must
+            # drop straight to the render, not be re-read as a new record.
+            elif request.POST.get('_action') == 'delete-import':
                 # Deleting an upload deletes what it wrote. An import is one
                 # act, so undoing it row by row would leave the batch claiming
                 # records that are gone and the tiles counting figures nobody
@@ -777,7 +866,7 @@ class KpiScreens:
                 )
                 return redirect(self._back_to_records(request))
 
-            if request.POST.get('_action') == 'import':
+            elif request.POST.get('_action') == 'import':
                 import_form = ImportRecordsForm(request.POST, request.FILES)
 
                 if import_form.is_valid():
@@ -885,9 +974,10 @@ class KpiScreens:
                 kpi__team=team, kpi__branch=branch, is_active=True
             )
             .select_related('kpi', 'kpi__category', 'entered_by', 'import_batch')
-            # The View modal shows the raw operands behind the figure. Prefetched
-            # here so opening one costs no query.
-            .prefetch_related('input_values__input')
+            # The View modal shows the raw operands behind the figure, and the
+            # Edit modal offers one field per operand. Prefetched here so
+            # opening either costs no query.
+            .prefetch_related('input_values__input', 'kpi__inputs')
             .order_by('-period_start', 'kpi__sort_order')
         )
         if search:
@@ -942,13 +1032,28 @@ class KpiScreens:
             )
         )
 
+        # One Edit form per row ON THIS PAGE, and only for a role that may write:
+        # a read-only user renders no edit modal at all, and the POST is refused
+        # above regardless. The row whose save just failed gets its bound form
+        # back instead of a fresh one, so the errors survive the re-render.
+        edit_forms = {}
+        if can_edit_team(request.user, self.team_slug):
+            edit_forms = {
+                record.pk: (
+                    bound_edit_form if record.pk == open_edit_record_pk
+                    else EditRecordForm(record=record)
+                )
+                for record in page.object_list
+            }
+
         return async_content.render_content(request, 'kpi/import_data.html', {
             **self._urls(branch),
             'add_form': add_form,
             'import_form': import_form,
             'open_add_modal': open_add_modal,
             'open_import_modal': open_import_modal,
-            'records': self.record_rows(page.object_list),
+            'open_edit_record_pk': open_edit_record_pk,
+            'records': self.record_rows(page.object_list, edit_forms),
             # What the filters MATCHED. The Total Records stat card above keeps
             # counting every record, filtered or not.
             'record_count': paginator.count,

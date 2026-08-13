@@ -11,21 +11,24 @@ from .access import accessible_teams, can_edit_data, is_admin
 # without those pages built simply fall back to Dashboard-only because their
 # reverse() lookups fail here.
 #
-# (url_name, label) — resolved against the team's slug as the URL namespace.
+# (url_name, label, writers_only) — resolved against the team's slug as the URL
+# namespace. Import Data and KPI Management are writers only: the views
+# themselves refuse a read-only role (`access.edit_required`), so listing them
+# here for a User or a Viewer would be a sidebar entry that 403s on arrival.
 _TEAM_SUBPAGES = [
-    ('index', 'Dashboard'),
-    ('import_data', 'Import Data'),
-    ('kpis', 'KPI Definitions'),
-    ('kpi_management', 'KPI Management'),
+    ('index', 'Dashboard', False),
+    ('import_data', 'Import Data', True),
+    ('kpis', 'KPI Definitions', False),
+    ('kpi_management', 'KPI Management', True),
 ]
 
 # The same four screens, for teams that split into sub-teams ("branches" — see
 # apps/sales/branches.py). These URLs take the branch slug as an argument.
 _BRANCH_SUBPAGES = [
-    ('branch_index', 'Dashboard'),
-    ('branch_import_data', 'Import Data'),
-    ('branch_kpis', 'KPI Definitions'),
-    ('branch_kpi_management', 'KPI Management'),
+    ('branch_index', 'Dashboard', False),
+    ('branch_import_data', 'Import Data', True),
+    ('branch_kpis', 'KPI Definitions', False),
+    ('branch_kpi_management', 'KPI Management', True),
 ]
 
 
@@ -42,10 +45,16 @@ def _branches_of(team_slug):
     return getattr(module, 'NAV_BRANCHES', [])
 
 
-def _links(namespace, subpages, args=()):
-    """Reverse each (url_name, label), skipping the pages that aren't built."""
+def _links(namespace, subpages, args=(), writer=True):
+    """Reverse each (url_name, label), skipping the pages that aren't built.
+
+    A page is skipped for two reasons: its URL does not resolve, so that team
+    has not had it built, or it is writers only and this reader is read only.
+    """
     links = []
-    for url_name, label in subpages:
+    for url_name, label, writers_only in subpages:
+        if writers_only and not writer:
+            continue
         try:
             url = reverse(f'{namespace}:{url_name}', args=args)
         except NoReverseMatch:
@@ -54,18 +63,22 @@ def _links(namespace, subpages, args=()):
     return links
 
 
-def team_nav(team, path):
+def team_nav(team, path, writer=True):
     """Build a team's dropdown: its own links plus any branch sub-dropdowns.
 
     Public because `apps/core/search.py` builds the search palette's page list
     from it: the sidebar and the search results must offer the same screens, or
-    a page becomes reachable one way and not the other.
+    a page becomes reachable one way and not the other. `writer` is that
+    caller's `can_edit_data(user)`, for the same reason: both lists have to
+    drop the two screens a read-only role is refused.
     """
-    links = _links(team.slug, _TEAM_SUBPAGES)
+    links = _links(team.slug, _TEAM_SUBPAGES, writer=writer)
 
     branches = []
     for slug, name in _branches_of(team.slug):
-        branch_links = _links(team.slug, _BRANCH_SUBPAGES, args=(slug,))
+        branch_links = _links(
+            team.slug, _BRANCH_SUBPAGES, args=(slug,), writer=writer
+        )
         if not branch_links:
             continue
         branches.append({
@@ -102,7 +115,12 @@ def navigation(request):
     if user is None or not user.is_authenticated:
         return {'nav_teams': []}
     path = request.path
-    return {'nav_teams': [team_nav(t, path) for t in accessible_teams(user)]}
+    writer = can_edit_data(user)
+    return {
+        'nav_teams': [
+            team_nav(t, path, writer) for t in accessible_teams(user)
+        ]
+    }
 
 
 def permissions(request):
