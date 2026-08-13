@@ -24,7 +24,7 @@
         <div class="flex flex-col gap-4 px-6 pb-6 sm:flex-row sm:items-start">
             {# Avatar sits over the banner edge. Initial, not a photo — there's no avatar upload. #}
             <span class="relative -mt-12 flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-brand font-heading text-3xl font-bold text-white ring-4 ring-white">
-                {{ user.get_username|first|upper }}
+                {{ user.get_full_name|first|upper }}
                 {# Presence dot — hardcoded online; there's no session/presence tracking yet. #}
                 <span class="absolute bottom-1.5 right-1.5 h-4 w-4 rounded-full bg-emerald-500 ring-2 ring-white" title="Online"></span>
             </span>
