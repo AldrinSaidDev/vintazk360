@@ -2,6 +2,7 @@
 {# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
 {# fetch. See apps/core/async_content.py. #}
 {% extends base_template|default:"base.html" %}
+{% load static %}
 
 {% block page_title %}Settings{% endblock %}
 
@@ -112,7 +113,9 @@
             </div>
             {% endfor %}
 
-            <form method="post" action="{{ settings_url }}?tab=account" class="max-w-md space-y-5">
+            {# data-password-checklist wraps the whole form: the script takes the two #}
+            {# new-password inputs from inside it, skipping the current-password box. #}
+            <form method="post" action="{{ settings_url }}?tab=account" data-password-checklist class="max-w-md space-y-5">
                 {% csrf_token %}
 
                 {% if form.non_field_errors %}
@@ -126,29 +129,9 @@
                     <label for="{{ field.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">{{ field.label }}</label>
                     {{ field }}
 
+                    {# Live rule checklist, ticked as you type. It replaces Django's static help text on this field. #}
                     {% if field.name == 'new_password1' %}
-                    {# Live rule checklist — ticks as you type. Replaces Django's static #}
-                    {# help text; the rules mirror apps/core/validators.py exactly. #}
-                    {% with row="flex items-center gap-2 transition-colors text-slate-400" %}
-                    <ul id="pw-rules" class="mt-2.5 space-y-1.5 text-xs">
-                        <li data-rule="length" class="{{ row }}">
-                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
-                            At least 6 characters
-                        </li>
-                        <li data-rule="upper" class="{{ row }}">
-                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
-                            One uppercase letter
-                        </li>
-                        <li data-rule="special" class="{{ row }}">
-                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
-                            One special character
-                        </li>
-                        <li data-rule="match" class="{{ row }}">
-                            <span class="rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]"></span>
-                            Both new password fields match
-                        </li>
-                    </ul>
-                    {% endwith %}
+                    <div class="mt-2.5">{% include "partials/password_checklist.html" %}</div>
                     {% elif field.help_text %}
                     <div class="mt-1.5 text-xs leading-relaxed text-slate-400">{{ field.help_text|safe }}</div>
                     {% endif %}
@@ -233,45 +216,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    // Password rule checklist. Client-side hinting only — apps/core/validators.py
-    // is what actually enforces this on save; keep the two in sync.
-    (function () {
-        const list = document.getElementById('pw-rules');
-        if (!list) return;  // not on the Account tab
-
-        const pw1 = document.getElementById('id_new_password1');
-        const pw2 = document.getElementById('id_new_password2');
-
-        const RULES = {
-            length:  v => v.length >= 6,
-            upper:   v => /[A-Z]/.test(v),
-            special: v => /[^A-Za-z0-9]/.test(v),
-            match:   v => v.length > 0 && v === (pw2 ? pw2.value : ''),
-        };
-
-        // Full class strings written out literally — Tailwind purges classes it
-        // can't see as literals, and it does scan inside <script>.
-        const MET_TEXT = 'text-status-good';
-        const UNMET_TEXT = 'text-slate-400';
-        const MET_MARK = 'rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-status-good bg-status-good text-[9px] text-white';
-        const UNMET_MARK = 'rule-mark inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[9px]';
-
-        function render() {
-            const value = pw1 ? pw1.value : '';
-            list.querySelectorAll('li[data-rule]').forEach(li => {
-                const ok = RULES[li.dataset.rule](value);
-                li.classList.toggle(MET_TEXT, ok);
-                li.classList.toggle(UNMET_TEXT, !ok);
-                const mark = li.querySelector('.rule-mark');
-                mark.className = ok ? MET_MARK : UNMET_MARK;
-                mark.innerHTML = ok ? '<i class="fa fa-check"></i>' : '';
-            });
-        }
-
-        if (pw1) pw1.addEventListener('input', render);
-        if (pw2) pw2.addEventListener('input', render);
-        render();  // reflect any value the browser restored on reload
-    })();
-</script>
+{# Ticks the password rules as they are met. Shared with the Users screen, so every password box in the app checks the same list the same way. #}
+<script src="{% static 'js/password-checklist.js' %}" defer></script>
 {% endblock %}

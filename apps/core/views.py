@@ -214,6 +214,11 @@ def account_settings(request):
     for field in form.fields.values():
         field.widget.attrs['class'] = _INPUT_CLASSES
 
+    # Marks the pair the live rule checklist watches. Position alone would not
+    # do here: the current-password box comes first on this form.
+    form.fields['new_password1'].widget.attrs['data-password-main'] = ''
+    form.fields['new_password2'].widget.attrs['data-password-confirm'] = ''
+
     profile = getattr(request.user, 'profile', None)
 
     return async_content.render_content(request, 'core/settings.html', {
@@ -372,8 +377,7 @@ def users(request):
                           new_values=_snapshot(created))
                 messages.success(
                     request,
-                    f'Account {created.get_username()} created. '
-                    'Share the password with them and ask them to change it in Settings.',
+                    f'Account {created.get_username()} created. ',
                 )
                 return redirect(_back_to_users(request))
             create_form, open_create = form, True

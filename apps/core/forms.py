@@ -26,12 +26,22 @@ INPUT_CLASSES = (
 )
 
 
-def _password_field(label, help_text=''):
+def _password_field(label, help_text='', role='main'):
+    """A password box.
+
+    ``role`` marks it for ``static/js/password-checklist.js``, which ticks the
+    policy rules as they are met. It reads the pair out of the surrounding
+    ``[data-password-checklist]`` element rather than by id, since the Users
+    screen renders one Set password form per row and the ids repeat.
+    """
     return forms.CharField(
         label=label,
         help_text=help_text,
         strip=False,
-        widget=forms.PasswordInput(attrs={'autocomplete': 'new-password'}),
+        widget=forms.PasswordInput(attrs={
+            'autocomplete': 'new-password',
+            f'data-password-{role}': '',
+        }),
     )
 
 
@@ -118,11 +128,10 @@ class CreateUserForm(BaseUserForm):
         max_length=150,
         help_text='This is what the person signs in with, e.g. 2026-01-439.',
     )
-    password1 = _password_field(
-        'Password',
-        help_text=password_validation.password_validators_help_text_html(),
-    )
-    password2 = _password_field('Confirm password')
+    # No help text on either: the live checklist beside the fields lists the
+    # same rules and ticks them off as they are met.
+    password1 = _password_field('Password')
+    password2 = _password_field('Confirm password', role='confirm')
 
     field_order = [
         'username', 'first_name', 'last_name', 'email',
@@ -188,11 +197,8 @@ class AdminPasswordForm(forms.Form):
     setting someone else's, which is a different thing to confirm.
     """
 
-    password1 = _password_field(
-        'New password',
-        help_text=password_validation.password_validators_help_text_html(),
-    )
-    password2 = _password_field('Confirm new password')
+    password1 = _password_field('New password')
+    password2 = _password_field('Confirm new password', role='confirm')
 
     def __init__(self, *args, target, **kwargs):
         super().__init__(*args, **kwargs)

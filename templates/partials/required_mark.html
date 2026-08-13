@@ -1,0 +1,5 @@
+{# The asterisk on a required field's label. Usage: <label ...>Employee ID{% include "partials/required_mark.html" %}</label> #}
+{# One definition so every form marks "required" the same way, and one place to change if it ever stops being an asterisk. #}
+{# aria-hidden on purpose: the input already carries the `required` attribute, which is what a screen reader announces. Reading "star" on top of that is noise, not information. #}
+{# Only worth using on a form that MIXES required and optional fields. If everything is required the marks say nothing. #}
+<span class="ml-0.5 font-semibold text-status-bad" title="Required" aria-hidden="true">*</span>
