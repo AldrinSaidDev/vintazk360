@@ -29,8 +29,6 @@ case: the whole page, rendered the old way. It is also the fallback for anything
 that cannot use the shell.
 """
 
-from urllib.parse import urlencode
-
 from django.shortcuts import render
 
 # The flag stage 2 sets. A query parameter rather than a header, so the fragment
@@ -64,10 +62,20 @@ def partial_url(request):
     Built from ``request.GET`` rather than from the path alone, so a filtered or
     paginated screen fetches the page the user actually asked for. Without this
     every fetch would quietly return page 1 unfiltered.
+
+    ``QueryDict.urlencode()``, NOT ``urllib.parse.urlencode``, and ``doseq=True``
+    does not save the latter. Every multi-select facet on these screens posts a
+    REPEATED parameter (``category=Client+Impact&category=Financial``), and
+    urllib reaches for ``query.items()`` when it is handed a mapping, which on a
+    QueryDict yields one value per key: the last. So stage 2 fetched a URL
+    carrying a single category and the page came back filtered to one, with the
+    other box still ticked in the popover. Bug reported against Import Data's
+    Category facet; it silently truncated the KPI, Status and Source facets and
+    the dashboard's global filters the same way.
     """
     params = request.GET.copy()
     params[PARTIAL_PARAM] = '1'
-    return f'{request.path}?{urlencode(params, doseq=True)}'
+    return f'{request.path}?{params.urlencode()}'
 
 
 def render_shell(request, *, shell_template, skeleton=GENERIC_SKELETON, context=None):

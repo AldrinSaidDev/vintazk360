@@ -191,15 +191,24 @@
                 <span class="hidden shrink-0 sm:inline">{% block dept_badge %}{% endblock %}</span>
             </div>
             <div class="flex shrink-0 items-center gap-2 sm:gap-3">
-                <div class="relative hidden sm:block">
-                    <input type="search" placeholder="Search"
-                           class="w-56 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm
-                                  focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand">
-                </div>
+                {# A button, not an input: typing happens in the palette this opens (partials/search_palette.html), and a second field here would be a box that quietly discards what you type into it. It is styled as the field it replaces so it still reads as the search bar. #}
+                <button type="button" data-search-open
+                        class="hidden w-56 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-1.5 text-sm text-slate-400
+                               transition hover:border-brand/40 hover:text-slate-500 focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand
+                               sm:flex lg:w-[17.5rem]">
+                    <span class="shrink-0">{% icon 'search' %}</span>
+                    <span class="truncate">Search</span>
+                    <kbd class="ml-auto hidden shrink-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 lg:block">Ctrl K</kbd>
+                </button>
+                {# Below sm the field has no room, so the icon alone opens the same palette. #}
+                <button type="button" data-search-open aria-label="Search"
+                        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-brand sm:hidden">
+                    {% icon 'search' %}
+                </button>
                 {# Help is the same filled info mark used beside every heading in the app, so one symbol means "explain this" everywhere. This one starts the guided tour instead of showing a single tooltip: the marks beside a heading explain one panel, this explains the app. Tooltip anchored right, since the button sits a few pixels from the viewport edge. #}
                 <span class="group relative flex h-8 w-8 items-center justify-center">
                     <button type="button" data-tour-start aria-label="Take a tour"
-                            class="inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand
+                            class="inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand
                                    text-[9px] leading-none text-white transition hover:bg-brand-dark
                                    focus:outline-none focus:ring-2 focus:ring-brand/40">
                         {% icon 'info' %}
@@ -208,7 +217,7 @@
                           class="pointer-events-none absolute right-0 top-full z-50 mt-2 hidden w-64 rounded-lg border border-brand/15 bg-white px-3.5 py-2.5
                                  text-left text-xs font-normal normal-case leading-relaxed text-slate-600 shadow-lg
                                  group-hover:block group-focus-within:block">
-                        Take the guided tour: the dashboard, the sidebar, and your department's screens. The small marks beside each heading explain one panel on the spot.
+                        Take the guided tour: the dashboard, the sidebar, and your department's screens.
                     </span>
                 </span>
                 {# Avatar menu — native <details>, no JS needed #}
@@ -275,9 +284,14 @@
 {# the partial renders nothing on the login screen. #}
 {% include "partials/tour.html" %}
 
+{# Outside the layout block for the same reasons as the tour: it is an overlay, #}
+{# and it renders nothing for an anonymous visitor on the login screen. #}
+{% include "partials/search_palette.html" %}
+
 <script src="{% static 'js/page-loader.js' %}" defer></script>
 <script src="{% static 'js/async-content.js' %}" defer></script>
 <script src="{% static 'js/tour.js' %}" defer></script>
+<script src="{% static 'js/search.js' %}" defer></script>
 
 {% block scripts %}{% endblock %}
 </body>
