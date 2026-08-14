@@ -19,8 +19,11 @@ from .access import (
     accessible_teams,
     assignable_roles,
     assignable_teams,
+    can_deactivate_users,
+    can_manage_role,
+    is_superadmin,
     manageable_users,
-    require_admin,
+    require_superadmin,
     require_user_admin,
 )
 from .forms import AdminPasswordForm, CreateUserForm, EditUserForm
@@ -84,7 +87,9 @@ def logs(request):
     the whole audit table, and the filters make that cost vary a lot from one
     view to the next, which is exactly when a skeleton earns its place.
     """
-    require_admin(request.user, 'Only administrators can open the activity log.')
+    require_superadmin(
+        request.user, 'Only Super Admins can open the activity log.'
+    )
 
     if async_content.wants_shell(request):
         return async_content.render_shell(
@@ -481,6 +486,15 @@ def users(request):
                 bound_password[target.pk], open_password_pk = form, target.pk
 
             else:
+                # Super Admins only, both ways. Deactivation is the nearest
+                # thing to deleting a person and it closes every screen at
+                # once, so it sits with the role that answers for the system.
+                # Hiding the buttons in the template is presentation; this is
+                # what refuses a hand-made POST.
+                require_superadmin(
+                    request.user,
+                    'Only Super Admins can deactivate or reactivate an account.',
+                )
                 activating = action == 'activate'
                 if not activating and target.pk == request.user.pk:
                     # Nobody locks themselves out of the screen that would let
@@ -537,6 +551,11 @@ def users(request):
         paginator.get_elided_page_range(page.number, on_each_side=1, on_ends=1)
     )
 
+    # Both are the actor's own standing, so they are computed once rather than
+    # per row. `can_deactivate` still varies by row, because nobody deactivates
+    # themselves whatever their role.
+    may_deactivate = can_deactivate_users(request.user)
+
     rows = []
     for person in page.object_list:
         profile = getattr(person, 'profile', None)
@@ -553,6 +572,12 @@ def users(request):
             'last_login': person.last_login,
             'date_joined': person.date_joined,
             'is_self': person.pk == request.user.pk,
+            # An Admin looking at a Super Admin gets the name, email and
+            # password controls and not the role, teams or active flag. The
+            # form drops those fields on its own; these two drop the buttons,
+            # so the row does not offer an action that would then be refused.
+            'can_manage_role': can_manage_role(request.user, person),
+            'can_deactivate': may_deactivate and person.pk != request.user.pk,
             # Only the current page builds forms, and a failed submit keeps its
             # own bound one so the errors survive the re-render.
             'form': bound_edit.get(person.pk) or EditUserForm(

@@ -172,10 +172,13 @@
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
                                     {% icon 'pencil' %}
                                 </a>
+                                {# Administrators only. A Manager authors and retargets their team's KPIs; retiring one takes the metric away from everyone reading it. The view refuses the POST, so this is presentation. #}
+                                {% if is_admin %}
                                 <a href="#kpiDelete-{{ kpi.slug }}" title="Delete KPI" aria-label="Delete KPI"
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
                                     {% icon 'trash-o' %}
                                 </a>
+                                {% endif %}
                             </span>
                         </td>
                         {% endif %}
@@ -355,7 +358,8 @@
     </div>
 </div>
 
-{# ---- Delete confirmation. Deleting a KPI is a soft delete, and the copy says so. ---- #}
+{# ---- Delete confirmation. Deleting a KPI is a soft delete, and the copy says so. Administrators only, same as the bin that opens it. ---- #}
+{% if is_admin %}
 <div id="kpiDelete-{{ kpi.slug }}"
      class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
     {# Scrolls rather than clipping: on a landscape phone the copy plus the confirm row is taller than the viewport. #}
@@ -404,6 +408,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endfor %}
 {% include "kpi/create_kpi_modal.html" %}
 {% endif %}
