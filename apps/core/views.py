@@ -21,6 +21,7 @@ from .access import (
     assignable_teams,
     can_deactivate_users,
     can_manage_role,
+    require_admin,
     is_superadmin,
     manageable_users,
     require_superadmin,
@@ -75,7 +76,8 @@ def logs(request):
     sign-ins, failed sign-ins and role changes alongside KPI edits, which is
     administration rather than team data. So a Manager writes their team's
     numbers and does not come here, and a User or a Viewer certainly does not.
-    Everyone still reads their own recent activity, in Settings.
+    Admins and Super Admins both read the full log. Everyone still reads their
+    own recent activity, in Settings.
 
     `activity.visible_to` still scopes what is returned. It is not redundant:
     it is what every OTHER reader of the audit log goes through, Settings
@@ -87,9 +89,7 @@ def logs(request):
     the whole audit table, and the filters make that cost vary a lot from one
     view to the next, which is exactly when a skeleton earns its place.
     """
-    require_superadmin(
-        request.user, 'Only Super Admins can open the activity log.'
-    )
+    require_admin(request.user, 'Only administrators can open the activity log.')
 
     if async_content.wants_shell(request):
         return async_content.render_shell(

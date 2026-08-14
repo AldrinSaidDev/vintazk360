@@ -90,8 +90,8 @@ def _pages(user):
 
     # Both are administration, and the log is administration even though it
     # reads like team data: it carries sign-ins and role changes as well. The
-    # log is a level above the accounts screen, though: it audits what an Admin
-    # does, so it is offered to Super Admins alone, exactly as the sidebar is.
+    # log audits what an Admin does too, so it is offered to every
+    # administrator, exactly as the sidebar is.
     if is_admin(user):
         pages.append(_entry(
             'User Profiles',
@@ -100,7 +100,7 @@ def _pages(user):
             'users',
         ))
 
-    if is_superadmin(user):
+    if is_admin(user):
         pages.append(_entry(
             'Logs',
             'Activity across the organisation',
