@@ -704,17 +704,17 @@
                         <div class="sm:col-span-2">
                             <p class="text-sm font-semibold text-ink">Change your password</p>
                             <p class="mt-1 text-xs leading-5 text-slate-500">
-                                Optional. Leave both boxes empty to keep the password you signed in with. Change it if anyone else has seen it.
+                                Optional. Leave both boxes empty to keep the password you signed in with.
                             </p>
                         </div>
                         <div>
                             <label for="{{ setup_form.password1.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">New password</label>
-                            {{ setup_form.password1 }}
+                            {% include "partials/password_toggle.html" with field=setup_form.password1 %}
                             {% include "partials/field_errors.html" with field=setup_form.password1 %}
                         </div>
                         <div>
                             <label for="{{ setup_form.password2.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Confirm new password</label>
-                            {{ setup_form.password2 }}
+                            {% include "partials/password_toggle.html" with field=setup_form.password2 %}
                             {% include "partials/field_errors.html" with field=setup_form.password2 %}
                         </div>
                         <div class="sm:col-span-2 -mt-2">
@@ -739,6 +739,7 @@
 {% block scripts %}
 {# Ticks the password rules as they are typed, in the first-sign-in setup card. #}
 <script src="{% static 'js/password-checklist.js' %}"></script>
+<script src="{% static 'js/password-toggle.js' %}"></script>
 <script src="{% static 'js/date-range-picker.js' %}"></script>
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
 <script>

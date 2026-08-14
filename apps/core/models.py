@@ -35,14 +35,16 @@ class UserProfile(models.Model):
     ``core.access`` helpers and Part C of ``db_schema.txt``):
 
     *Which teams you reach*
-      * SUPERADMIN / ADMIN — every team (the ``teams`` M2M is ignored).
-      * VIEWER — every team, read-only.
+      * SUPERADMIN — every team, the restricted departments included.
+      * ADMIN — every team except Finance and Human Resources.
+      * FINANCE / HR — every team, plus their own restricted department.
+      * VIEWER — every team except the restricted ones, read-only.
       * MANAGER — the teams in ``teams``.
       * USER — their assigned team(s), normally one.
 
     *What you may do there*
-      * SUPERADMIN / ADMIN / MANAGER — write: create and edit KPIs, move
-        targets, enter records, upload files, delete records.
+      * SUPERADMIN / ADMIN / FINANCE / HR / MANAGER — write: create and edit
+        KPIs, move targets, enter records, upload files, delete records.
       * USER / VIEWER — read only. Every write path is refused.
 
     The two axes cross: a VIEWER reads everything and writes nothing, a USER
@@ -55,20 +57,35 @@ class UserProfile(models.Model):
     class Role(models.TextChoices):
         SUPERADMIN = 'superadmin', 'Super Admin'
         ADMIN = 'admin', 'Admin'
+        # The two restricted departments have a role of their own, because
+        # reaching Finance or HR is not something the ordinary ladder can
+        # express: an Admin sits above a Manager and still may not open payroll.
+        # Each reaches its OWN restricted department and not the other one, and
+        # `access.restricted` is where that mapping lives.
+        FINANCE = 'finance', 'Finance'
+        HR = 'hr', 'HR'
         MANAGER = 'manager', 'Manager'
         USER = 'user', 'User'
         VIEWER = 'viewer', 'Viewer'
 
     # Roles that may change data, in any team they can reach. Everything else
     # is read-only, and `access.can_edit_data()` is the one test for it.
-    WRITE_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN, Role.MANAGER})
+    WRITE_ROLES = frozenset({
+        Role.SUPERADMIN, Role.ADMIN, Role.FINANCE, Role.HR, Role.MANAGER,
+    })
     # Roles whose reach is every team rather than their `teams` M2M. An Admin
     # is here alongside the Super Admin because the two are one job: an Admin
     # administers the whole organisation, so scoping them to a `teams` list
-    # made an Admin with no teams an account that could open nothing.
-    ALL_TEAM_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN, Role.VIEWER})
+    # made an Admin with no teams an account that could open nothing. Finance
+    # and HR are here for the same reason; what makes them different is the
+    # restricted department each one carries, not a shorter list of teams.
+    ALL_TEAM_ROLES = frozenset({
+        Role.SUPERADMIN, Role.ADMIN, Role.FINANCE, Role.HR, Role.VIEWER,
+    })
     # Roles that administer the system itself (users, settings, system-wide
-    # audit entries), as opposed to a team's KPI data.
+    # audit entries), as opposed to a team's KPI data. Finance and HR are NOT
+    # here: they write their department's figures and administer nobody, so
+    # User Profiles, the activity log and deleting a KPI are all closed to them.
     ADMIN_ROLES = frozenset({Role.SUPERADMIN, Role.ADMIN})
 
     user = models.OneToOneField(

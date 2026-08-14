@@ -155,7 +155,7 @@
                         </td>
                         <td class="px-4 py-3">
                             {% if row.sees_all_teams %}
-                            {# Super Admin, Admin and Viewer ignore the M2M, so listing rows here would be a lie about how their access works. #}
+                            {# The all-team roles ignore the M2M, so listing rows here would be a lie about how their access works. #}
                             <span class="text-xs italic text-slate-400">All teams</span>
                             {% else %}
                             <span class="flex flex-wrap gap-1">
@@ -270,13 +270,11 @@
                 {% endif %}
 
                 {# Says what the marks mean before the reader meets the first one. #}
-                <p class="mb-5 text-xs text-slate-400">Fields marked <span class="font-semibold text-status-bad">*</span> are required. Name and email can be filled in later.</p>
 
                 <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
                     <div class="sm:col-span-2">
                         <label for="{{ create_form.username.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Employee ID{% include "partials/required_mark.html" %}</label>
                         {{ create_form.username }}
-                        <p class="mt-1.5 text-xs text-slate-400">{{ create_form.username.help_text }} It cannot be changed later, because it is what every log entry is filed under.</p>
                         {% include "partials/field_errors.html" with field=create_form.username %}
                     </div>
 
@@ -300,7 +298,6 @@
                     <div class="sm:col-span-2">
                         <label for="{{ create_form.role.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Role{% include "partials/required_mark.html" %}</label>
                         {{ create_form.role }}
-                        <p class="mt-1.5 text-xs text-slate-400">Super Admin, Admin and Manager can change data. User and Viewer are read only. Super Admin, Admin and Viewer reach every team.</p>
                         {% include "partials/field_errors.html" with field=create_form.role %}
                     </div>
 
@@ -310,14 +307,14 @@
                         {% include "partials/team_checkboxes.html" with field=create_form.teams %}
                         {% include "partials/field_errors.html" with field=create_form.teams %}
                     </div>
-                    {% include "partials/all_teams_note.html" %}
+                    {% comment %} {% include "partials/all_teams_note.html" %} {% endcomment %}
 
                     {# Both password fields and the checklist share one container: the script reads the two inputs out of it, and the ids repeat across the Set password modals below. The generator sits in it for the same reason. #}
                     <div data-password-checklist class="sm:col-span-2 grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
                         {# Adding a colleague should not mean inventing a password for them. This fills both boxes and shows what it made, and the person replaces it with one only they know the first time they sign in. #}
                         <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand/20 bg-brand/5 px-3.5 py-3">
                             <p class="min-w-[14rem] flex-1 text-xs leading-5 text-slate-600">
-                                Generate one instead of thinking one up. You hand it over with the Employee ID, and the person is asked to set their own the first time they sign in.
+                               Generates a temporary password that the employee sets up when they first sign in.
                             </p>
                             <button type="button" data-password-generate
                                     class="inline-flex shrink-0 items-center gap-2 rounded-lg border border-brand bg-white px-3.5 py-2 text-xs font-semibold text-brand shadow-sm transition hover:bg-brand hover:text-white">
@@ -326,12 +323,12 @@
                         </div>
                         <div>
                             <label for="{{ create_form.password1.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Password{% include "partials/required_mark.html" %}</label>
-                            {{ create_form.password1 }}
+                            {% include "partials/password_toggle.html" with field=create_form.password1 %}
                             {% include "partials/field_errors.html" with field=create_form.password1 %}
                         </div>
                         <div>
                             <label for="{{ create_form.password2.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Confirm password{% include "partials/required_mark.html" %}</label>
-                            {{ create_form.password2 }}
+                            {% include "partials/password_toggle.html" with field=create_form.password2 %}
                             {% include "partials/field_errors.html" with field=create_form.password2 %}
                         </div>
                         <div class="sm:col-span-2 -mt-2">
@@ -429,7 +426,6 @@
 
                 {# Only worth saying on the form that still has both kinds of field. Editing your own account leaves nothing required, so the marks would be explaining themselves to nobody. #}
                 {% if not row.is_self %}
-                <p class="mb-5 text-xs text-slate-400">Fields marked <span class="font-semibold text-status-bad">*</span> are required.</p>
                 {% endif %}
 
                 <div class="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
@@ -456,7 +452,7 @@
                     </div>
                     {% elif not row.can_manage_role %}
                     <div class="sm:col-span-2 rounded-lg border border-status-warn/30 bg-status-warn/10 px-3 py-2 text-xs leading-5 text-amber-800">
-                        This is a Super Admin account, so its role and teams are not editable by an Admin. You can still correct the name and email here, and set a password from the key button. A Super Admin can change the rest.
+                        This account holds a role only a Super Admin assigns, so its role and teams are not editable by an Admin. You can still correct the name and email here, and set a password from the key button. A Super Admin can change the rest.
                     </div>
                     {% else %}
                     <div class="sm:col-span-2">
@@ -471,7 +467,7 @@
                         {% include "partials/team_checkboxes.html" with field=row.form.teams %}
                         {% include "partials/field_errors.html" with field=row.form.teams %}
                     </div>
-                    {% include "partials/all_teams_note.html" %}
+                    {% comment %} {% include "partials/all_teams_note.html" %} {% endcomment %}
                     {% endif %}
 
                     <div class="sm:col-span-2 text-xs text-slate-400">
@@ -517,7 +513,7 @@
                 </p>
                 <div>
                     <label for="{{ row.password_form.current_password.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Current password</label>
-                    {{ row.password_form.current_password }}
+                    {% include "partials/password_toggle.html" with field=row.password_form.current_password %}
                     {% include "partials/field_errors.html" with field=row.password_form.current_password %}
                 </div>
                 {% else %}
@@ -528,12 +524,12 @@
                 <div data-password-checklist class="space-y-5">
                     <div>
                         <label for="{{ row.password_form.password1.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">New password</label>
-                        {{ row.password_form.password1 }}
+                        {% include "partials/password_toggle.html" with field=row.password_form.password1 %}
                         {% include "partials/field_errors.html" with field=row.password_form.password1 %}
                     </div>
                     <div>
                         <label for="{{ row.password_form.password2.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Confirm new password</label>
-                        {{ row.password_form.password2 }}
+                        {% include "partials/password_toggle.html" with field=row.password_form.password2 %}
                         {% include "partials/field_errors.html" with field=row.password_form.password2 %}
                     </div>
                     {% include "partials/password_checklist.html" %}
@@ -643,6 +639,8 @@
 <script src="{% static 'js/role-teams.js' %}" defer></script>
 {# Fills both password boxes in the Add user modal with a generated password. #}
 <script src="{% static 'js/password-generate.js' %}" defer></script>
+{# Adds the eye toggle on the password fields in the Add User modal and the per-row password modals. #}
+<script src="{% static 'js/password-toggle.js' %}" defer></script>
 {# The Copy buttons on the sign-in details modal. #}
 <script src="{% static 'js/copy-button.js' %}" defer></script>
 {# Closes that modal. It is opened by the server rather than by a :target link, so it cannot be closed by one either. #}

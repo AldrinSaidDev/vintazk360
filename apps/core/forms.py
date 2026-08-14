@@ -41,6 +41,7 @@ def _password_field(label, help_text='', role='main'):
         widget=forms.PasswordInput(attrs={
             'autocomplete': 'new-password',
             f'data-password-{role}': '',
+            'class': f'{INPUT_CLASSES} pr-11',
         }),
     )
 
@@ -70,8 +71,10 @@ class BaseUserForm(forms.Form):
         # cannot undo it, because the screen that would undo it is the one they
         # just lost. Their own password and profile stay in Settings.
         self.editing_self = target is not None and target.pk == actor.pk
-        # An Admin administers accounts up to their own level. A Super Admin's
-        # role, teams and active flag are closed to them, or an Admin could
+        # An Admin administers accounts up to their own level. The role, teams
+        # and active flag of an account holding a role they cannot assign are
+        # closed to them: a Super Admin's, or a Finance or HR account, whose
+        # department they cannot reach themselves. Otherwise an Admin could
         # simply demote every Super Admin and take the top of the system, which
         # is granting themselves the role arrived at from the other end. The
         # name, email and password stay editable: those are housekeeping.
@@ -140,7 +143,6 @@ class CreateUserForm(BaseUserForm):
     username = forms.CharField(
         label='Employee ID',
         max_length=150,
-        help_text='This is what the person signs in with, e.g. 2026-01-439.',
     )
     # No help text on either: the live checklist beside the fields lists the
     # same rules and ticks them off as they are met.
@@ -177,13 +179,28 @@ class CreateUserForm(BaseUserForm):
             password=self.cleaned_data['password2'],
         )
         self._apply(user)
-        # An account made here is an Employee ID and a password and very little
-        # else: the name and email are optional on this form precisely so an
-        # administrator can add a dozen colleagues in one sitting. The person
-        # themselves is asked for the rest, and for a password only they know,
-        # the first time they open the dashboard. See `AccountSetupForm`.
-        UserProfile.objects.filter(user=user).update(needs_setup=True)
+        # Only when the details were actually left out. The name and email are
+        # optional on this form precisely so an administrator can add a dozen
+        # colleagues in one sitting, and THAT is what the setup card is for: the
+        # person is asked for what nobody else supplied. An administrator who
+        # typed all three has already answered it, so asking them again the
+        # first time they sign in is a form with nothing left to fill in.
+        #
+        # Deliberately NOT keyed off "has this account signed in yet": whether
+        # somebody has been here before is a different question from whether
+        # their details are known, and using it as the basis showed the card to
+        # every new account however completely it had been set up.
+        UserProfile.objects.filter(user=user).update(needs_setup=self.details_missing)
         return user
+
+    @property
+    def details_missing(self):
+        """True when the administrator left the person's own details blank."""
+        data = self.cleaned_data
+        return not all(
+            (data.get(field) or '').strip()
+            for field in ('first_name', 'last_name', 'email')
+        )
 
 
 class EditUserForm(BaseUserForm):
@@ -238,7 +255,13 @@ class AdminPasswordForm(forms.Form):
             self.fields['current_password'] = forms.CharField(
                 label='Current password',
                 strip=False,
-                widget=forms.PasswordInput(attrs={'autocomplete': 'current-password'}),
+                widget=forms.PasswordInput(attrs={
+                    'autocomplete': 'current-password',
+                    # Room for the visibility toggle, same as `_password_field`.
+                    # It reads back what you typed, which is the whole reason a
+                    # mistyped current password is worth being able to check.
+                    'class': f'{INPUT_CLASSES} pr-11',
+                }),
             )
             # Declared fields come first otherwise, and being asked to confirm
             # the old password below the new one reads as an afterthought.

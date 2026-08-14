@@ -6,25 +6,27 @@ separately because the answers cross (see Part C of ``db_schema.txt``):
 
 *Which teams may I reach?* — ``accessible_teams()`` / ``team_required()``
 
-  * Super Admin  → every team
-  * Admin        → every team
-  * Viewer       → every team
-  * Manager      → the teams assigned to them
-  * User         → their assigned team (normally one)
+  * Super Admin      → every team
+  * Admin            → every team
+  * Finance / HR     → every team
+  * Viewer           → every team
+  * Manager          → the teams assigned to them
+  * User             → their assigned team (normally one)
 
 *May I change anything there?* — ``can_edit_data()`` / ``edit_required()``
 
-  * Super Admin / Admin / Manager → yes
-  * User / Viewer                 → no, read only
+  * Super Admin / Admin / Finance / HR / Manager → yes
+  * User / Viewer                                → no, read only
 
 Reaching a team is not permission to write in it, and a Viewer proves why:
 they read every dashboard in the org and may not touch a single figure.
 
 *And is anything reserved regardless?* — ``apps/core/restricted.py``
 
-  Finance and Human Resources are named-person departments, so the role rules
-  above decide what a person reaches and the allowlist then takes those two
-  back off anyone not named in it. It narrows the answer, it never widens one.
+  Finance and Human Resources are opened by ONE role each, not by seniority.
+  The rules above decide what a person reaches and that module then takes both
+  departments back off anyone who does not hold them, an Admin included. It
+  narrows the answer, it never widens one. Only a Super Admin gets both.
 
 Everyone (any authenticated user) always has the shared Dashboard.
 
@@ -45,6 +47,16 @@ from django.core.exceptions import PermissionDenied
 from . import restricted
 from .models import Team, UserProfile
 
+# Roles only a Super Admin hands out. Super Admin itself is authority above an
+# Admin's own; Finance and HR each open a department an Admin cannot reach, so
+# granting one would be handing out access the granter does not have. The same
+# set is what closes those accounts to an Admin in `can_manage_role()`.
+_SUPERADMIN_ONLY_ROLES = frozenset({
+    UserProfile.Role.SUPERADMIN,
+    UserProfile.Role.FINANCE,
+    UserProfile.Role.HR,
+})
+
 
 def accessible_teams(user):
     """Return a queryset of Teams the given user may access.
@@ -54,18 +66,16 @@ def accessible_teams(user):
     profile-less users reach none.
 
     The restricted departments (`apps/core/restricted.py`) are then removed for
-    anyone not named in the allowlist, INCLUDING a superuser and a Super Admin.
-    That subtraction happens here, once, so every screen that asks this question
-    gets the same answer: the sidebar, `team_required`, the dashboard's team
-    filter, the search palette and the log's Module filter all go through it.
+    anyone who does not hold them: an Admin and a Viewer reach every department
+    except Finance and Human Resources. That subtraction happens here, once, so
+    every screen that asks this question gets the same answer: the sidebar,
+    `team_required`, the dashboard's team filter, the search palette and the
+    log's Module filter all go through it.
     """
     if not user.is_authenticated:
         return Team.objects.none()
 
     if user.is_superuser:
-        # Django superuser flag is an escape hatch for the ROLE rules. It is
-        # not one for the allowlist: it exists so a locked out administrator
-        # can still run the system, which is not a reason to hand them payroll.
         teams = Team.objects.all()
     else:
         profile = getattr(user, 'profile', None)
@@ -224,12 +234,22 @@ def can_manage_role(actor, target):
     closed. Without this an Admin could simply demote every Super Admin and take
     the top of the system, which is the same escalation as granting themselves
     the role, arrived at from the other end.
+
+    A **Finance** or **HR** account is closed to them for the other half of the
+    same rule: an administrator may not take away authority they could not hand
+    out, and an Admin who could demote the HR account would be deciding who
+    reaches personnel records without being able to reach them himself. The test
+    is therefore "is this role one I may assign", which keeps the two halves in
+    step: a role added to `_SUPERADMIN_ONLY_ROLES` is closed both ways at once.
     """
     if not is_admin(actor):
         return False
     if is_superadmin(actor):
         return True
-    return not is_superadmin_account(target)
+    if is_superadmin_account(target):
+        return False
+    profile = getattr(target, 'profile', None)
+    return profile is None or profile.role not in _SUPERADMIN_ONLY_ROLES
 
 
 def can_deactivate_users(actor):
@@ -247,9 +267,11 @@ def assignable_roles(actor):
     """The roles ``actor`` may hand out, as ``(value, label)`` pairs.
 
     An administrator may not grant authority above their own, so **Super Admin
-    is offered to Super Admins only**. An Admin hands out Admin and below, which
-    is every role they themselves could exercise. Anyone who is not an
-    administrator never reaches this screen at all.
+    is offered to Super Admins only**, and so are **Finance and HR**: each of
+    those opens a department the Admin themselves cannot reach, so handing one
+    out would be granting access the granter does not have. An Admin hands out
+    Manager, User, Viewer and Admin, which is every role they could exercise.
+    Anyone who is not an administrator never reaches this screen at all.
     """
     if not is_admin(actor):
         return []
@@ -260,7 +282,7 @@ def assignable_roles(actor):
     return [
         (value, label)
         for value, label in choices
-        if value != UserProfile.Role.SUPERADMIN
+        if value not in _SUPERADMIN_ONLY_ROLES
     ]
 
 

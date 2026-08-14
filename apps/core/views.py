@@ -226,8 +226,11 @@ def account_settings(request):
     else:
         form = PasswordChangeForm(user=request.user)
 
+    # Every field on this form is a password box, so every one of them gets the
+    # room the visibility toggle sits in. `partials/password_toggle.html` draws
+    # the eye over that padding.
     for field in form.fields.values():
-        field.widget.attrs['class'] = _INPUT_CLASSES
+        field.widget.attrs['class'] = f'{_INPUT_CLASSES} pr-11'
 
     # Marks the pair the live rule checklist watches. Position alone would not
     # do here: the current-password box comes first on this form.

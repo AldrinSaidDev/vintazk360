@@ -127,7 +127,8 @@
                 {% for field in form %}
                 <div>
                     <label for="{{ field.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">{{ field.label }}</label>
-                    {{ field }}
+                    {# Every field here is a password, so every one gets the eye. #}
+                    {% include "partials/password_toggle.html" with field=field %}
 
                     {# Live rule checklist, ticked as you type. It replaces Django's static help text on this field. #}
                     {% if field.name == 'new_password1' %}
@@ -219,4 +220,5 @@
 {% block scripts %}
 {# Ticks the password rules as they are met. Shared with the Users screen, so every password box in the app checks the same list the same way. #}
 <script src="{% static 'js/password-checklist.js' %}" defer></script>
+<script src="{% static 'js/password-toggle.js' %}" defer></script>
 {% endblock %}
