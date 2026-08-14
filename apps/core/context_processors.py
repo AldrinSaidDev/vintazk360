@@ -135,9 +135,9 @@ def permissions(request):
 
     `is_admin` and `is_superadmin` are two levels, not one flag read twice.
     `is_admin` opens the accounts screen and the KPI delete control;
-    `is_superadmin` is what grants the top role, deactivates an account and
-    reads the activity log. Every template that hides one of those asks the
-    narrower question, and the view refuses the POST regardless.
+    `is_superadmin` is what grants the top role and deactivates an account.
+    `is_admin` reads the activity log. Every template that hides one of those
+    asks the narrower question, and the view refuses the POST regardless.
     """
     user = getattr(request, 'user', None)
     if user is None:

@@ -13,10 +13,10 @@ skipped, so re-running after adding one entry to a `kpis.py` creates only that
 one. It never updates an existing row, because by then the row is whatever the
 business edited it to be and this file is only what it started as.
 
-**Sales is a branch team.** Its data lives in `apps/sales/branches.py` as
-`BRANCHES` rather than a flat `KPIS`/`MODAL_SPECS` pair, and each branch seeds a
-`kpi_branch` row plus its own KPIs. Slugs are unique per `(team, branch)`, so
-two branches may each own a "Qualified Leads Generated".
+**Sales and Operations are branch teams.** Their data lives in
+`apps/<slug>/branches.py` as `BRANCHES` rather than a flat `KPIS`/`MODAL_SPECS`
+pair, and each branch seeds a `kpi_branch` row plus its own KPIs. Slugs are
+unique per `(team, branch)`, so two branches may each own the same KPI name.
 """
 
 from django.core.management.base import BaseCommand, CommandError
@@ -45,7 +45,7 @@ LOBS = [
 
 # Branch teams keep their KPIs under `apps.<slug>.branches.BRANCHES` instead of a
 # flat KPIS/MODAL_SPECS pair, because each branch is its own scope.
-BRANCHED = {'sales'}
+BRANCHED = {'sales', 'operations'}
 
 
 class Command(BaseCommand):

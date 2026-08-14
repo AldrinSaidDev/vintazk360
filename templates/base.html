@@ -139,8 +139,8 @@
             </a>
             {% endif %}
 
-            {# Super Admins only. The log audits administration itself, role changes an Admin makes included, so it sits one level above the people it records. Everyone reads their own recent activity in Settings. The view refuses the rest, so hiding the link is presentation, not access control. #}
-            {% if is_superadmin %}
+            {# Administrators only. The log audits administration itself, role changes an Admin makes included, so it sits above Settings and is visible to every administrator. The view refuses the rest, so hiding the link is presentation, not access control. #}
+            {% if is_admin %}
             {% url 'core:logs' as logs_url %}
             <a href="{{ logs_url }}" title="Logs"
                class="nav-link flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
