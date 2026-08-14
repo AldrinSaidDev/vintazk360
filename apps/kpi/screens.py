@@ -44,6 +44,8 @@ from apps.core import kpi as scoring
 from apps.core.access import (
     can_edit_team,
     edit_required,
+    is_admin,
+    require_admin,
     require_edit,
     team_required,
 )
@@ -1204,6 +1206,18 @@ class KpiScreens:
             # One view, three modals: each form identifies itself so the create
             # form isn't bound to an edit's POST data, and vice versa.
             if request.POST.get('_action') == 'delete':
+                # Deleting a KPI is a level above writing one, and only
+                # administrators do it. A Manager owns their team's figures and
+                # may author, retarget and refile them; retiring the metric
+                # itself takes the scorecard away from everyone reading it, and
+                # every record already entered against it with it. Hiding the
+                # bin in the template is presentation; this is the refusal.
+                require_admin(
+                    request.user,
+                    'Only administrators can delete a KPI. You can edit this '
+                    "one, or ask an administrator to retire it.",
+                )
+
                 kpi = get_object_or_404(
                     KpiDefinition,
                     team=team,

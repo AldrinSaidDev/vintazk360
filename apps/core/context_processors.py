@@ -4,7 +4,8 @@ from importlib import import_module
 from django.urls import NoReverseMatch, reverse
 
 from . import async_content, tour as tour_steps
-from .access import accessible_teams, can_edit_data, is_admin
+from .access import accessible_teams, can_edit_data, is_admin, is_superadmin
+from .models import Team
 
 # Per-team sub-navigation. Each team's dropdown shows a Dashboard link plus any
 # of these extra pages whose URL actually resolves for that team's app. Teams
@@ -131,11 +132,122 @@ def permissions(request):
     that this user may be on it, so the only remaining question is whether
     they may act. The view still calls `access.require_edit()` on POST, since
     hiding a button is not access control.
+
+    `is_admin` and `is_superadmin` are two levels, not one flag read twice.
+    `is_admin` opens the accounts screen and the KPI delete control;
+    `is_superadmin` is what grants the top role, deactivates an account and
+    reads the activity log. Every template that hides one of those asks the
+    narrower question, and the view refuses the POST regardless.
     """
     user = getattr(request, 'user', None)
     if user is None:
-        return {'can_edit': False, 'is_admin': False}
-    return {'can_edit': can_edit_data(user), 'is_admin': is_admin(user)}
+        return {'can_edit': False, 'is_admin': False, 'is_superadmin': False}
+    return {
+        'can_edit': can_edit_data(user),
+        'is_admin': is_admin(user),
+        'is_superadmin': is_superadmin(user),
+    }
+
+
+# Every screen's own name, keyed by the URL name that resolves to it. The four
+# KPI screens come from the two lists above rather than being repeated here, so
+# a page renamed in the sidebar is renamed in the breadcrumb by the same edit.
+_PAGE_LABELS = {
+    **{url_name: label for url_name, label, _ in _TEAM_SUBPAGES},
+    **{url_name: label for url_name, label, _ in _BRANCH_SUBPAGES},
+    'logs': 'Logs',
+    'users': 'User Profiles',
+    'settings': 'Settings',
+}
+
+# Pages that hang off the shared Dashboard rather than off a department.
+_CORE_PAGES = {'logs', 'users', 'settings'}
+
+
+def _crumb(label, url=None):
+    return {'label': label, 'url': url}
+
+
+def breadcrumbs(request):
+    """The trail under the header: where this page sits, and how to walk back up.
+
+    Built from the RESOLVED URL, not from the path, so it names a screen the
+    same way the sidebar does rather than title-casing a slug. Three shapes:
+
+        Dashboard
+        Dashboard › Operations › Moxxi & Jade › Import Data
+        Dashboard › User Profiles
+
+    Every crumb but the last carries a URL; the last IS the page you are on, so
+    it is text. That is also why the Dashboard-only case renders nothing: a
+    trail whose single entry is the page you are looking at tells you nothing.
+
+    It renders in `base.html`, which is the SHELL of a two-stage screen, so it
+    arrives with the page frame and never waits on the content fetch. That is
+    the whole reason it is a context processor rather than per-view context:
+    ten LOB views and four shared ones would each have to build the same list,
+    and the shells would have to build it a second time.
+    """
+    match = getattr(request, 'resolver_match', None)
+    if match is None:
+        return {'breadcrumbs': []}
+
+    user = getattr(request, 'user', None)
+    if user is None or not user.is_authenticated:
+        return {'breadcrumbs': []}
+
+    namespace = match.namespace
+    url_name = match.url_name
+
+    # The dashboard is the root of every trail, so on the dashboard itself
+    # there is no trail: one crumb naming the current page is decoration.
+    if namespace == 'dashboard':
+        return {'breadcrumbs': []}
+
+    trail = [_crumb('Dashboard', reverse('dashboard:home'))]
+
+    if namespace == 'core' and url_name in _CORE_PAGES:
+        trail.append(_crumb(_PAGE_LABELS[url_name]))
+        return {'breadcrumbs': trail}
+
+    # An LOB screen. The URL namespace IS the team slug (the sidebar and
+    # `team_required` both rely on that already), so one indexed lookup names
+    # the department without the view having to pass anything down.
+    team = Team.objects.filter(slug=namespace).first()
+    if team is None:
+        return {'breadcrumbs': []}
+
+    try:
+        team_url = reverse(f'{namespace}:index')
+    except NoReverseMatch:
+        team_url = None
+    trail.append(_crumb(team.name, team_url))
+
+    branch_slug = match.kwargs.get('branch')
+    if branch_slug:
+        # Named from NAV_BRANCHES, the same list the sidebar reads, so the
+        # breadcrumb cannot call a business unit something the sidebar doesn't.
+        # A slug with no entry falls back to itself rather than dropping the
+        # crumb, since a trail that silently skips a level is worse than an
+        # ugly one.
+        names = dict(_branches_of(namespace))
+        try:
+            branch_url = reverse(f'{namespace}:branch_index', args=(branch_slug,))
+        except NoReverseMatch:
+            branch_url = None
+        trail.append(_crumb(names.get(branch_slug, branch_slug), branch_url))
+
+    # The department's own landing page is the crumb already added, so it is
+    # not repeated as a leaf. Same for a branch's dashboard.
+    if url_name not in ('index', 'branch_index'):
+        label = _PAGE_LABELS.get(url_name)
+        if label:
+            trail.append(_crumb(label))
+
+    # The leaf is the page you are on, so it never carries a link. Walking back
+    # up to the department is what the crumb above it is for.
+    trail[-1]['url'] = None
+    return {'breadcrumbs': trail}
 
 
 def tour(request):

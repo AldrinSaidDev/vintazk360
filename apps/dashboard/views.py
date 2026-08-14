@@ -5,8 +5,10 @@ from zoneinfo import ZoneInfo
 from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.db.models import Max
 from django.shortcuts import redirect, render
 from django.urls import NoReverseMatch, reverse
+from django.utils.timesince import timesince
 
 from apps.core import async_content
 from apps.core import audit
@@ -16,7 +18,7 @@ from apps.core.access import accessible_teams
 from apps.core.forms import AccountSetupForm
 from apps.core.models import AuditLog
 from apps.kpi import records as kpi_records
-from apps.kpi.models import KpiDefinition, KpiRecord
+from apps.kpi.models import KpiBranch, KpiDefinition, KpiImportBatch, KpiRecord
 
 # settings.TIME_ZONE is UTC, but the org runs on Philippine time and the welcome
 # header states today's date — under UTC it would show yesterday for the whole
@@ -277,6 +279,91 @@ def _department_rows(teams, filters):
     return rows
 
 
+def _reporting_activity(team):
+    """When this department last put a figure in, broken down by business unit.
+
+    "Reported" means either way in: somebody typed a record on Import Data, or
+    somebody uploaded a workbook. Both count, because the reader's question is
+    "is this department keeping its numbers up to date", and answering it from
+    imports alone would show a department that types everything by hand as
+    silent. `updated_at` rather than `created_at`: correcting last month's
+    figure today is reporting activity, not a month-old event.
+
+    **Deliberately outside the period filters.** Those pick which reporting
+    PERIODS are being scored; this is about when a person last acted, and a
+    range covering July must not make a department look abandoned because the
+    figures it entered yesterday were for August.
+
+    Two grouped queries per department whatever the unit count, plus one for
+    the unit names. Soft-deleted records and imports are excluded, so undoing
+    an import correctly takes its timestamp back off the card with it.
+    """
+    branches = list(KpiBranch.objects.filter(team=team, is_active=True))
+
+    def _by_branch(rows, key):
+        """Fold a values().annotate() result into {branch_pk or None: datetime}."""
+        return {row[key]: row['last'] for row in rows if row['last'] is not None}
+
+    records = _by_branch(
+        KpiRecord.objects
+        .filter(kpi__team=team, is_active=True, kpi__is_active=True)
+        .values('kpi__branch')
+        .annotate(last=Max('updated_at')),
+        'kpi__branch',
+    )
+    imports = _by_branch(
+        KpiImportBatch.objects
+        .filter(team=team, is_active=True)
+        .values('branch')
+        .annotate(last=Max('created_at')),
+        'branch',
+    )
+
+    def _latest(*values):
+        real = [v for v in values if v is not None]
+        return max(real) if real else None
+
+    def _ago(value):
+        """How long ago, to ONE unit ("3 days", not "3 days, 4 hours").
+
+        The card answers "is this department keeping up", and the reader makes
+        that call on the leading unit. The second one is noise at a glance, and
+        the exact stamp is on the element's title for anyone who wants it.
+        Rendered here rather than by the `timesince` filter, which always gives
+        two. `depth=1` on the utility is the same code with the tail cut off.
+        """
+        return timesince(value, depth=1) if value is not None else None
+
+    # The department's own figure is the latest anything happened anywhere
+    # under it, units included: a rollup that ignored its units would read
+    # "never reported" for a department reporting every week.
+    team_last = _latest(*records.values(), *imports.values())
+
+    units = []
+    for branch in branches:
+        try:
+            url = reverse(f'{team.slug}:branch_index', args=(branch.slug,))
+        except NoReverseMatch:
+            url = None
+        last_at = _latest(records.get(branch.pk), imports.get(branch.pk))
+        units.append({
+            'name': branch.name,
+            'slug': branch.slug,
+            'url': url,
+            'last_at': last_at,
+            'ago': _ago(last_at),
+        })
+
+    # Most recent first, and the ones that have never reported last. A card is
+    # read to find who is behind, and the silent units are that answer. Split
+    # rather than sorted on a tuple: two Nones would be compared to each other.
+    reported = [unit for unit in units if unit['last_at'] is not None]
+    silent = [unit for unit in units if unit['last_at'] is None]
+    reported.sort(key=lambda unit: unit['last_at'], reverse=True)
+
+    return {'last_at': team_last, 'ago': _ago(team_last), 'units': reported + silent}
+
+
 def _department_row(team, filters):
     """One department's summary row, or None when the filters leave nothing.
 
@@ -393,10 +480,18 @@ def _department_row(team, filters):
     # KPIs out of twelve look fully covered.
     unscored = counts['monitored'] + counts['no_data']
 
+    activity = _reporting_activity(team)
+
     return {
         'name': team.name,
         'slug': team.slug,
         'url': url,
+        # When somebody last put a figure in, and the same per business unit
+        # for a department that has them. Not the same question as the gauge
+        # above it: a department can be fully on target and three weeks stale.
+        'last_reported_at': activity['last_at'],
+        'last_reported_ago': activity['ago'],
+        'units': activity['units'],
         'avg': avg,
         # Capped so an overachiever fills the track; the figure beside it
         # still reads the true number.

@@ -1,0 +1,21 @@
+{% load icons %}
+{# Trail under the header. Built by apps/core/context_processors.breadcrumbs, so every screen gets one without its view passing anything. Renders nothing on the Dashboard, where the only crumb would be the page you are already on. #}
+{% if breadcrumbs|length > 1 %}
+<nav aria-label="Breadcrumb" class="border-b border-slate-200 bg-white px-4 py-2.5 sm:px-6">
+    <ol class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+        {% for crumb in breadcrumbs %}
+        <li class="flex items-center gap-x-1.5">
+            {% if not forloop.first %}
+            <span class="text-slate-300" aria-hidden="true">{% icon 'angle-right' %}</span>
+            {% endif %}
+            {% if crumb.url %}
+            <a href="{{ crumb.url }}" class="font-medium text-slate-500 transition hover:text-brand hover:underline">{{ crumb.label }}</a>
+            {% else %}
+            {# The leaf is the current page, so it is text and carries aria-current for a screen reader. #}
+            <span class="font-semibold text-ink" aria-current="page">{{ crumb.label }}</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</nav>
+{% endif %}

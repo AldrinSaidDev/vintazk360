@@ -16,7 +16,7 @@ from django import forms
 from django.contrib.auth import get_user_model, password_validation
 from django.db import transaction
 
-from .access import assignable_roles, assignable_teams
+from .access import assignable_roles, assignable_teams, can_manage_role
 from .models import Team, UserProfile
 
 # Shared with the hand-written inputs on the rest of the screens.
@@ -70,8 +70,14 @@ class BaseUserForm(forms.Form):
         # cannot undo it, because the screen that would undo it is the one they
         # just lost. Their own password and profile stay in Settings.
         self.editing_self = target is not None and target.pk == actor.pk
+        # An Admin administers accounts up to their own level. A Super Admin's
+        # role, teams and active flag are closed to them, or an Admin could
+        # simply demote every Super Admin and take the top of the system, which
+        # is granting themselves the role arrived at from the other end. The
+        # name, email and password stay editable: those are housekeeping.
+        self.role_locked = target is not None and not can_manage_role(actor, target)
 
-        if self.editing_self:
+        if self.editing_self or self.role_locked:
             del self.fields['role']
             del self.fields['teams']
         else:
@@ -116,7 +122,7 @@ class BaseUserForm(forms.Form):
         user.email = data.get('email', '')
         user.save()
 
-        if self.editing_self:
+        if self.editing_self or self.role_locked:
             return user
 
         # The post_save signal creates the profile, but get_or_create keeps

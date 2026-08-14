@@ -92,6 +92,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'apps.core.context_processors.navigation',
                 'apps.core.context_processors.permissions',
+                'apps.core.context_processors.breadcrumbs',
                 'apps.core.context_processors.tour',
             ],
         },

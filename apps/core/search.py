@@ -27,7 +27,7 @@ from django.urls import NoReverseMatch, reverse
 
 from apps.kpi.models import KpiDefinition
 
-from .access import accessible_teams, can_edit_data, is_admin
+from .access import accessible_teams, can_edit_data, is_admin, is_superadmin
 from .context_processors import team_nav
 
 # How many of each kind a query returns. The palette scrolls, but a list long
@@ -89,7 +89,9 @@ def _pages(user):
                 ))
 
     # Both are administration, and the log is administration even though it
-    # reads like team data: it carries sign-ins and role changes as well.
+    # reads like team data: it carries sign-ins and role changes as well. The
+    # log is a level above the accounts screen, though: it audits what an Admin
+    # does, so it is offered to Super Admins alone, exactly as the sidebar is.
     if is_admin(user):
         pages.append(_entry(
             'User Profiles',
@@ -97,6 +99,8 @@ def _pages(user):
             reverse('core:users'),
             'users',
         ))
+
+    if is_superadmin(user):
         pages.append(_entry(
             'Logs',
             'Activity across the organisation',

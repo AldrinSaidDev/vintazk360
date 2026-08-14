@@ -195,7 +195,8 @@
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
                                     {% icon 'key' %}
                                 </a>
-                                {% if not row.is_self %}
+                                {# Super Admins only. An Admin keeps Edit and the key button on every row. #}
+                                {% if row.can_deactivate %}
                                 {% if row.is_active %}
                                 <a href="#userDeactivate-{{ row.pk }}" title="Deactivate account" aria-label="Deactivate {{ row.username }}"
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
@@ -452,6 +453,10 @@
                     {% if row.is_self %}
                     <div class="sm:col-span-2 rounded-lg border border-status-warn/30 bg-status-warn/10 px-3 py-2 text-xs leading-5 text-amber-800">
                         This is your own account, so your role and teams are not editable here. Another administrator can change them. To change your password, use the key button on your row or Settings, under Account Settings.
+                    </div>
+                    {% elif not row.can_manage_role %}
+                    <div class="sm:col-span-2 rounded-lg border border-status-warn/30 bg-status-warn/10 px-3 py-2 text-xs leading-5 text-amber-800">
+                        This is a Super Admin account, so its role and teams are not editable by an Admin. You can still correct the name and email here, and set a password from the key button. A Super Admin can change the rest.
                     </div>
                     {% else %}
                     <div class="sm:col-span-2">

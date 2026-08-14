@@ -3,6 +3,18 @@
 Operations was the first LOB wired to the database, so these dicts no longer
 render anything: every screen reads `kpi_definition`. They survive as the input
 to `manage.py seed_lob_kpis operations`, which turns them into real rows.
+
+**Do not run that seeder against Operations any more.** Operations now splits
+into business units (`apps/operations/branches.py`), and the seeder writes
+TEAM-LEVEL KPIs, with `branch` empty. The four screens are branch-scoped, so
+rows written that way belong to no unit and appear on no page: they would be
+invisible KPIs that still count against nothing. A unit's KPIs are created on
+its own KPI Management screen, or seeded against a branch.
+
+`SCOPE` below is likewise no longer read. The banner copy for every Operations
+screen comes from `branches.SCOPE`, which carries the extra `overview_blurb`
+the rollup page needs. This copy is kept only so the KPI seed dicts around it
+stay readable on their own.
 """
 
 KPIS = [
