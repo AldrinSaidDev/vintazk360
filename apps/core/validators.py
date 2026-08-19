@@ -55,3 +55,46 @@ class PasswordPolicyValidator:
             f'At least {MIN_LENGTH} characters, including one uppercase letter '
             'and one special character.'
         )
+
+
+# --- Employee ID ------------------------------------------------------------
+#
+# The sign-in credential, and the `entity_name` on every audit row, so its shape
+# is worth pinning down: YYYY-MM-NNN, e.g. 2026-07-462.
+#
+#   YYYY  the year the person was hired
+#   MM    the month they were hired, 01 to 12, always two digits
+#   NNN   three digits, issued with no pattern, so nothing here can check it
+#         beyond its length
+#
+# Digits and two dashes only. Letters and punctuation are refused outright
+# rather than stripped, since silently rewriting somebody's ID would hand them a
+# credential different from the one they were given.
+EMPLOYEE_ID_FORMAT = 'YYYY-MM-NNN'
+EMPLOYEE_ID_EXAMPLE = '2026-07-462'
+
+_EMPLOYEE_ID = re.compile(r'^(\d{4})-(\d{2})-(\d{3})$')
+
+# For the `pattern` attribute on the input, which is HTML's own dialect and has
+# no `re` flags. It anchors on its own, so no ^ or $.
+EMPLOYEE_ID_HTML_PATTERN = r'\d{4}-(0[1-9]|1[0-2])-\d{3}'
+
+
+def validate_employee_id(value):
+    """Refuse anything that is not YYYY-MM-NNN with a real month."""
+    match = _EMPLOYEE_ID.match(value or '')
+    if not match:
+        raise ValidationError(
+            f'Employee ID must be in the format {EMPLOYEE_ID_FORMAT}, '
+            f'for example {EMPLOYEE_ID_EXAMPLE}. Numbers and dashes only.',
+            code='employee_id_format',
+        )
+
+    month = int(match.group(2))
+    # The regex cannot say this: it counts digits, and 00 and 13 are both two of
+    # them. A hire month is a calendar month.
+    if not 1 <= month <= 12:
+        raise ValidationError(
+            'The middle two digits are the hire month, so they must be 01 to 12.',
+            code='employee_id_month',
+        )

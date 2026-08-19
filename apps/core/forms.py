@@ -18,6 +18,11 @@ from django.db import transaction
 
 from .access import assignable_roles, assignable_teams, can_manage_role
 from .models import Team, UserProfile
+from .validators import (
+    EMPLOYEE_ID_EXAMPLE,
+    EMPLOYEE_ID_HTML_PATTERN,
+    validate_employee_id,
+)
 
 # Shared with the hand-written inputs on the rest of the screens.
 INPUT_CLASSES = (
@@ -140,9 +145,26 @@ class BaseUserForm(forms.Form):
 class CreateUserForm(BaseUserForm):
     """A new account, with its first password set by the administrator."""
 
+    # The shape is YYYY-MM-NNN (hire year, hire month, then three issued digits).
+    # The `pattern` and `maxlength` attributes are the same rule in the browser's
+    # dialect and turn a typo into a message before the round trip;
+    # `validate_employee_id` is what actually decides, since a hand-made POST
+    # never meets the input.
+    #
+    # No `max_length` on the FIELD, deliberately: the validator already bounds
+    # the length, and a second rule saying "at most 11 characters" only stacks a
+    # redundant sentence under the one that explains the format.
     username = forms.CharField(
         label='Employee ID',
-        max_length=150,
+        validators=[validate_employee_id],
+        help_text=f'Hire year, hire month, then three digits. For example {EMPLOYEE_ID_EXAMPLE}.',
+        widget=forms.TextInput(attrs={
+            'placeholder': EMPLOYEE_ID_EXAMPLE,
+            'pattern': EMPLOYEE_ID_HTML_PATTERN,
+            'inputmode': 'numeric',
+            'autocomplete': 'off',
+            'maxlength': '11',
+        }),
     )
     # No help text on either: the live checklist beside the fields lists the
     # same rules and ticks them off as they are met.
@@ -156,6 +178,10 @@ class CreateUserForm(BaseUserForm):
 
     def clean_username(self):
         username = self.cleaned_data['username'].strip()
+        # Re-checked after the strip, because the field validators ran on the
+        # raw value: " 2026-07-462 " would otherwise be stored trimmed but
+        # never actually checked in the shape it is stored in.
+        validate_employee_id(username)
         # Django's default backend matches the username exactly, but two
         # accounts differing only in case would be indistinguishable to a
         # person reading the table, so both are refused.
