@@ -2,7 +2,7 @@
 {# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
 {# fetch. See apps/core/async_content.py. #}
 {% extends base_template|default:"base.html" %}
-{% load icons static %}
+{% load icons static assets %}
 
 {% block page_title %}Import Data{% endblock %}
 {% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
@@ -218,11 +218,8 @@
                                     </svg>
                                 </a>
                                 {% if can_edit %}
-                                <a href="#recordEdit-{{ record.pk }}" title="Edit record" aria-label="Edit record"
-                                   class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">
-                                    {% icon 'pencil' %}
-                                </a>
-                                <a href="#recordDelete-{{ record.pk }}" title="Delete record" aria-label="Delete record"
+                                {# No pencil on the row: the figure here is the collapse of every entry in the period, so there is nothing at this level to edit. The View modal lists the entries, each with its own pencil. #}
+                                <a href="#recordDelete-{{ record.pk }}" title="Delete period" aria-label="Delete period"
                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">
                                     {% icon 'trash-o' %}
                                 </a>
@@ -385,8 +382,12 @@
             {# The result, its target and its verdict: the three things the table row shows, in full. #}
             <div class="flex flex-wrap items-end justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
                 <div>
-                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recorded value</p>
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Period total</p>
                     <p class="mt-0.5 font-heading text-2xl font-bold text-ink">{{ record.actual }}</p>
+                    {# What the total is made of. A figure built from six submissions should say so, or it reads as one number somebody typed. #}
+                    <p class="mt-0.5 text-[11px] text-slate-400">
+                        From {{ record.entry_count }} entr{{ record.entry_count|pluralize:"y,ies" }}{% if record.is_in_progress %}, still open{% endif %}
+                    </p>
                 </div>
                 <div class="text-right">
                     <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Target</p>
@@ -409,7 +410,7 @@
                 </div>
             </div>
 
-            {# The formula and the raw operands. Together they are the whole answer to "why is this figure what it is?" — the record stores the result, kpi_record_input stores the numbers it came from. #}
+            {# The formula and the COLLAPSED operands. Together they are the whole answer to "why is this figure what it is?" — the record stores the result, kpi_record_input stores the numbers it came from, and the entry list below shows where each of those numbers came from in turn. #}
             <div>
                 <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">How it was calculated</h4>
                 <p class="rounded-lg border border-brand/15 bg-brand/5 px-3 py-2 font-mono text-xs leading-relaxed text-brand-dark">{{ record.formula }}</p>
@@ -418,7 +419,11 @@
                 <dl class="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-100">
                     {% for input in record.inputs %}
                     <div class="flex items-baseline justify-between gap-4 px-4 py-2.5">
-                        <dt class="min-w-0 text-sm text-slate-500">{{ input.label }}</dt>
+                        <dt class="min-w-0 text-sm text-slate-500">
+                            {{ input.label }}
+                            {# The rule that turned this period's entries into one figure. Shown per operand, because a total of 6 beside an unchanged 385 is otherwise unexplained. #}
+                            <span class="mt-0.5 block text-[11px] text-slate-400">Across {{ record.entry_count }} entr{{ record.entry_count|pluralize:"y,ies" }}: {{ input.aggregation|lower }}</span>
+                        </dt>
                         <dd class="whitespace-nowrap font-heading text-sm font-bold text-ink">{{ input.value }}</dd>
                     </div>
                     {% endfor %}
@@ -428,6 +433,45 @@
                 <p class="mt-3 text-xs italic text-slate-400">The raw figures behind this record were not stored.</p>
                 {% endif %}
             </div>
+
+            {# The history: every submission that went into this period, newest first. This is the answer to "the month says 6, who added what and when?", and it is the reason a period can be topped up at all. #}
+            {% if record.entries %}
+            <div>
+                <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Entries in this period</h4>
+                <ul class="divide-y divide-slate-100 rounded-lg border border-slate-100">
+                    {% for entry in record.entries %}
+                    <li class="px-4 py-3">
+                        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                            <div class="min-w-0">
+                                <p class="font-medium text-ink">{{ entry.date|date:"d M Y" }}</p>
+                                <p class="text-[11px] text-slate-400">
+                                    {{ entry.entered_by }} &middot; {{ entry.source }}{% if entry.batch_file %} &middot; {{ entry.batch_file }}{% endif %}
+                                </p>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="whitespace-nowrap font-heading text-sm font-bold text-ink">{{ entry.value }}</span>
+                                {% if can_edit %}
+                                <a href="#recordEdit-{{ entry.pk }}" title="Edit entry" aria-label="Edit entry"
+                                   class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-brand/10 hover:text-brand">{% icon 'pencil' %}</a>
+                                <a href="#entryDelete-{{ entry.pk }}" title="Remove entry" aria-label="Remove entry"
+                                   class="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-status-bad/10 hover:text-status-bad">{% icon 'trash-o' %}</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {# The operands as they were submitted, so a wrong total can be traced to the entry that carries the wrong number. #}
+                        {% if entry.inputs %}
+                        <p class="mt-1.5 text-[11px] text-slate-500">
+                            {% for input in entry.inputs %}{{ input.label }} {{ input.value }}{% if not forloop.last %} &middot; {% endif %}{% endfor %}
+                        </p>
+                        {% endif %}
+                        {% if entry.remarks %}
+                        <p class="mt-1 text-[11px] italic text-slate-400">{{ entry.remarks }}</p>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
 
             <div>
                 <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Record detail</h4>
@@ -471,12 +515,9 @@
 
         <div class="flex shrink-0 items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
             {% if can_edit %}
-            {# Straight from reading a record to correcting or removing it, without hunting for its row again. #}
+            {# Only the whole period is deletable from here. A figure is derived from its entries, so there is nothing to edit at this level: correcting the month means correcting the entry that got it wrong, which is what the pencil on each row of the list above is for. #}
             <a href="#recordDelete-{{ record.pk }}" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-status-bad/10 hover:text-status-bad">
-                {% icon 'trash-o' %} Delete
-            </a>
-            <a href="#recordEdit-{{ record.pk }}" class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-brand/10 hover:text-brand">
-                {% icon 'pencil' %} Edit
+                {% icon 'trash-o' %} Delete period
             </a>
             {% endif %}
             <a href="#" class="rounded-lg bg-brand px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark">Close</a>
@@ -693,15 +734,23 @@
                             {% endfor %}
                         </div>
 
-                        <p class="text-xs text-slate-400" data-period-example="{{ kpi.period_example }}">Period format: {{ kpi.period_hint }} &middot; this period is {{ kpi.period_example }}</p>
+                        {# The cadence rides on the panel so the script can name the period the chosen date falls in. `data-period-example` is today's period at this cadence, which is what the field shows before a date is picked. #}
+                        <p class="hidden" data-kpi-cadence="{{ kpi.cadence }}" data-period-example="{{ kpi.period_example }}"></p>
                     </div>
                     {% endfor %}
 
+                    {# Ask for the DATE, show the PERIOD. The date is what the person knows ("these are today's figures"); which reporting period it belongs to follows from the KPI's cadence, so the form works it out rather than asking someone to spell "2026-Q3" correctly. Changing the KPI re-reads the period without changing what was typed. #}
                     <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700">Reporting Period <span class="text-status-bad" aria-hidden="true">*</span></label>
-                        {{ add_form.period }}
-                        <p class="mt-1.5 text-xs text-slate-400">Matches the KPI's cadence. Pick a KPI above to see its format.</p>
-                        {% include "partials/field_errors.html" with field=add_form.period %}
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ add_form.entry_date.id_for_label }}">Date <span class="text-status-bad" aria-hidden="true">*</span></label>
+                        {{ add_form.entry_date }}
+                        {% include "partials/field_errors.html" with field=add_form.entry_date %}
+
+                        <div class="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                            <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Reporting period</p>
+                            <p class="mt-0.5 text-sm font-medium text-ink" data-period-preview>Pick a KPI to see which period this counts towards.</p>
+                            {# The rule, said once where it matters. Somebody about to enter a second figure for the same month needs to know it will be added, not that it will replace what is there. #}
+                            <p class="mt-1 text-xs text-slate-400" data-period-note>Figures entered for the same period are accumulated, not replaced.</p>
+                        </div>
                     </div>
 
                     <div>
@@ -790,13 +839,14 @@
     </div>
 </div>
 
-{# ============ Edit-record modals ============ #}
-{# One per row on this page, keyed by pk like the delete confirms and for the same reason: a <div> is not valid inside <tbody>. #}
-{# The KPI and the period are not editable: (kpi, period_start) is the record's identity and the key every upsert turns on. Correcting a figure filed against the wrong period is still delete plus re-enter. #}
+{# ============ Edit-entry modals ============ #}
+{# One per ENTRY on this page, keyed by entry pk. Outside the table for the usual reason: a <div> is not valid inside <tbody>. #}
+{# It edits a submission, not a period. A period's figure is derived from its entries, so correcting the month means correcting the entry that got it wrong. The DATE is editable — moving an entry to another month rebuilds both — but the KPI is not, since its operands belong to that formula. #}
 {% for record in records %}
-{% if record.edit_form %}
-<div id="recordEdit-{{ record.pk }}"
-     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_edit_record_pk == record.pk %} !flex{% endif %}">
+{% for entry in record.entries %}
+{% if entry.edit_form %}
+<div id="recordEdit-{{ entry.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm{% if open_edit_record_pk == entry.pk %} !flex{% endif %}">
     <div class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
 
         <div class="flex shrink-0 items-start justify-between gap-4 bg-gradient-to-br from-brand to-brand-dark px-6 py-5 text-white">
@@ -804,7 +854,7 @@
                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15">{% icon 'pencil' %}</span>
                 <div class="min-w-0">
                     <h3 class="truncate font-heading text-lg font-bold leading-tight">Edit {{ record.kpi }}</h3>
-                    <p class="text-xs text-white/70">{{ record.frequency }} &middot; {{ record.period }}</p>
+                    <p class="text-xs text-white/70">Entry of {{ entry.date|date:"d M Y" }} &middot; counts towards {{ record.period }}</p>
                 </div>
             </div>
             <a href="#" class="rounded-lg p-1.5 text-white/70 transition hover:bg-white/15 hover:text-white" aria-label="Close">
@@ -815,30 +865,38 @@
         <form method="post" class="flex min-h-0 flex-1 flex-col">
             {% csrf_token %}
             <input type="hidden" name="_action" value="edit-record">
-            <input type="hidden" name="_record" value="{{ record.pk }}">
+            <input type="hidden" name="_entry" value="{{ entry.pk }}">
 
             <div class="min-h-0 flex-1 overflow-y-auto p-6">
 
-                {% if record.edit_form.non_field_errors %}
+                {% if entry.edit_form.non_field_errors %}
                 <div class="mb-5 rounded-lg border border-status-bad/30 bg-status-bad/5 px-3 py-2 text-xs font-medium text-status-bad">
-                    {{ record.edit_form.non_field_errors }}
+                    {{ entry.edit_form.non_field_errors }}
                 </div>
                 {% endif %}
 
                 <div class="space-y-5">
 
-                    {# The figures are raw operands, so this says what they add up to and what they are judged against. Saving recomputes both. #}
+                    {# What this entry contributes and what the period stands at. Both matter: the figures below are this submission's, the verdict is the whole month's. #}
                     <div class="rounded-lg border border-brand/15 bg-brand/5 px-3 py-2">
                         <p class="text-[11px] font-semibold uppercase tracking-wide text-brand/70">How it's calculated</p>
                         <p class="mt-1 font-mono text-xs leading-relaxed text-brand-dark">{{ record.formula }}</p>
                         <p class="mt-2 border-t border-dashed border-brand/15 pt-2 text-xs text-slate-500">
-                            Target <span class="font-semibold text-ink">{{ record.target }}</span>
-                            · Currently <span class="font-semibold text-ink">{{ record.actual }}</span> ({{ record.status_label }})
+                            This entry <span class="font-semibold text-ink">{{ entry.value }}</span>
+                            · {{ record.period }} total <span class="font-semibold text-ink">{{ record.actual }}</span> ({{ record.status_label }})
+                            · Target <span class="font-semibold text-ink">{{ record.target }}</span>
                         </p>
                     </div>
 
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ entry.edit_form.entry_date.id_for_label }}">{{ entry.edit_form.entry_date.label }}</label>
+                        {{ entry.edit_form.entry_date }}
+                        <p class="mt-1 text-xs text-slate-400">{{ entry.edit_form.entry_date.help_text }} Moving it to another {{ record.frequency|lower }} period recalculates both.</p>
+                        {% include "partials/field_errors.html" with field=entry.edit_form.entry_date %}
+                    </div>
+
                     <div class="grid gap-3 sm:grid-cols-2">
-                        {% for field in record.edit_form.operand_fields %}
+                        {% for field in entry.edit_form.operand_fields %}
                         <div>
                             <label class="mb-1.5 block text-sm font-medium leading-snug text-slate-700" for="{{ field.id_for_label }}">{{ field.label }}</label>
                             {{ field }}
@@ -851,16 +909,16 @@
                     </div>
 
                     <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ record.edit_form.remarks.id_for_label }}">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
-                        {{ record.edit_form.remarks }}
-                        {% include "partials/field_errors.html" with field=record.edit_form.remarks %}
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ entry.edit_form.remarks.id_for_label }}">Remarks <span class="font-normal text-slate-400">(Optional)</span></label>
+                        {{ entry.edit_form.remarks }}
+                        {% include "partials/field_errors.html" with field=entry.edit_form.remarks %}
                     </div>
 
                     <div>
-                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ record.edit_form.change_reason.id_for_label }}">Reason for the change <span class="font-normal text-slate-400">(Optional)</span></label>
-                        {{ record.edit_form.change_reason }}
-                        <p class="mt-1.5 text-xs text-slate-400">{{ record.edit_form.change_reason.help_text }}</p>
-                        {% include "partials/field_errors.html" with field=record.edit_form.change_reason %}
+                        <label class="mb-1.5 block text-sm font-medium text-slate-700" for="{{ entry.edit_form.change_reason.id_for_label }}">Reason for the change <span class="font-normal text-slate-400">(Optional)</span></label>
+                        {{ entry.edit_form.change_reason }}
+                        <p class="mt-1.5 text-xs text-slate-400">{{ entry.edit_form.change_reason.help_text }}</p>
+                        {% include "partials/field_errors.html" with field=entry.edit_form.change_reason %}
                     </div>
                 </div>
             </div>
@@ -876,6 +934,7 @@
 </div>
 {% endif %}
 {% endfor %}
+{% endfor %}
 
 {# ============ Delete-record confirms ============ #}
 {# Outside the table: a <div> is not valid inside <tbody>, so these live here and the row links to them by id, same as KPI Management's per-row modals. #}
@@ -888,9 +947,10 @@
             <div class="flex items-start gap-4">
                 <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>
                 <div class="min-w-0">
-                    <h3 class="font-heading text-base font-bold text-ink">Delete this record?</h3>
+                    <h3 class="font-heading text-base font-bold text-ink">Delete this whole period?</h3>
                     <p class="mt-1.5 text-sm leading-6 text-slate-500">
-                        The figure and the numbers behind it are kept, and re-entering this period restores the record.
+                        {# Says how many submissions go with it. Deleting a month that was topped up six times is a bigger act than deleting one figure, and the count is the only thing on screen that says so. #}
+                        Every entry behind this figure goes with it, {{ record.entry_count }} in total. The numbers are kept and nothing is destroyed. To remove just one entry, use the bin beside it in the View panel.
                     </p>
                 </div>
             </div>
@@ -906,8 +966,12 @@
                     <dd class="font-medium text-ink">{{ record.period }}</dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-4">
-                    <dt class="text-xs uppercase tracking-wide text-slate-400">Value</dt>
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Total</dt>
                     <dd class="font-heading font-bold text-ink">{{ record.actual }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Entries</dt>
+                    <dd class="font-medium text-ink">{{ record.entry_count }}</dd>
                 </div>
             </dl>
         </div>
@@ -935,7 +999,7 @@
                         {# Rendered ENABLED: if the page script never runs, the guard is lost but the button still works. A dead button would be worse than an unguarded one. #}
                         <button type="submit" data-delete-confirm
                                 class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
-                            {% icon 'trash-o' %} Delete record{# The count sits at the END of the label so it only ever changes the button's left edge. The button is right-aligned in this row, so the edge under the pointer stays put when the number goes. #}<span class="tabular-nums" data-delete-countdown></span>
+                            {% icon 'trash-o' %} Delete period{# The count sits at the END of the label so it only ever changes the button's left edge. The button is right-aligned in this row, so the edge under the pointer stays put when the number goes. #}<span class="tabular-nums" data-delete-countdown></span>
                         </button>
                     </span>
                 </form>
@@ -943,6 +1007,73 @@
         </div>
     </div>
 </div>
+{% endfor %}
+
+{# ============ Delete-entry confirms ============ #}
+{# Removing ONE submission from a period. Deliberately a smaller act than the period confirm above: the rest of the month stays and the figure re-collapses around the gap, which is exactly what a mistyped top-up needs. Same 5s arming, because it still changes a number the dashboard is reading. #}
+{% for record in records %}
+{% for entry in record.entries %}
+{% if can_edit %}
+<div id="entryDelete-{{ entry.pk }}"
+     class="modal-overlay fixed inset-0 z-50 hidden items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+    <div class="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div class="px-6 pb-5 pt-6">
+            <div class="flex items-start gap-4">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-status-bad/10 text-lg text-status-bad">{% icon 'trash-o' %}</span>
+                <div class="min-w-0">
+                    <h3 class="font-heading text-base font-bold text-ink">Remove this entry?</h3>
+                    <p class="mt-1.5 text-sm leading-6 text-slate-500">
+                        The other {{ record.entry_count|add:"-1" }} entr{{ record.entry_count|add:"-1"|pluralize:"y,ies" }} in {{ record.period }} stay, and the total is recalculated without this one.
+                    </p>
+                </div>
+            </div>
+
+            <dl class="mt-4 space-y-1.5 rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3 text-sm">
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">KPI</dt>
+                    <dd class="min-w-0 truncate font-medium text-ink">{{ record.kpi }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">Date</dt>
+                    <dd class="font-medium text-ink">{{ entry.date|date:"d M Y" }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-4">
+                    <dt class="text-xs uppercase tracking-wide text-slate-400">This entry</dt>
+                    <dd class="font-heading font-bold text-ink">{{ entry.value }}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="border-t border-slate-100 bg-slate-50/60 px-6 py-4">
+            <div data-delete-timer class="mb-3 hidden" data-delete-seconds="5">
+                <p class="text-xs text-slate-500">Check the date and figure above.</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-3">
+                <a href="#" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700">Cancel</a>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="_action" value="delete-entry">
+                    <input type="hidden" name="_entry" value="{{ entry.pk }}">
+                    <span class="relative inline-flex text-slate-300">
+                        <svg class="pointer-events-none absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
+                            <rect x="0" y="0" width="100%" height="100%" rx="8" ry="8"
+                                  fill="none" stroke="currentColor" stroke-width="2"
+                                  pathLength="100" stroke-dasharray="0 100" stroke-dashoffset="0"
+                                  data-delete-ring></rect>
+                        </svg>
+                        <button type="submit" data-delete-confirm
+                                class="inline-flex items-center gap-2 rounded-lg bg-status-bad px-6 py-2 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none disabled:hover:brightness-100">
+                            {% icon 'trash-o' %} Remove entry<span class="tabular-nums" data-delete-countdown></span>
+                        </button>
+                    </span>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
 {% endfor %}
 
 {# ============ Delete-import confirms ============ #}
@@ -1012,9 +1143,9 @@
 
 {% block scripts %}
 {# Arms the delete confirm on a 5s timer. Shared with KPI Management, so both screens agree on how long the wait is and when the button goes live. #}
-<script src="{% static 'js/confirm-timer.js' %}" defer></script>
+<script src="{% asset 'js/confirm-timer.js' %}" defer></script>
 {# Live character counter for the remarks field. #}
-<script src="{% static 'js/char-counter.js' %}" defer></script>
+<script src="{% asset 'js/char-counter.js' %}" defer></script>
 <script>
 (function () {
     "use strict";
@@ -1066,26 +1197,79 @@
     if (form) {
         var select = form.querySelector("[data-record-kpi]");
         var panels = Array.prototype.slice.call(form.querySelectorAll("[data-kpi-panel]"));
-        var period = form.querySelector("#id_period");
+        var dateField = form.querySelector("[data-record-date]");
+        var preview = form.querySelector("[data-period-preview]");
+
+        // The period LABEL for a date at one cadence. A deliberate second copy
+        // of `apps/kpi/periods.label()`, and the only one: it exists so picking
+        // a KPI names its period without a round trip. It is display only —
+        // the server derives the period it actually files against from the
+        // date, so a disagreement here can mislead but can never mis-file.
+        function periodLabel(iso, cadence) {
+            // Parsed by hand, not `new Date(iso)`, which reads a bare
+            // YYYY-MM-DD as UTC midnight and lands on the previous day
+            // anywhere west of Greenwich. Same trap as the date range picker.
+            var parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+            if (!parts) return "";
+            var year = +parts[1], month = +parts[2], day = +parts[3];
+
+            if (cadence === "daily") return iso;
+            if (cadence === "annually") return String(year);
+            if (cadence === "quarterly") {
+                return year + "-Q" + (Math.floor((month - 1) / 3) + 1);
+            }
+            if (cadence === "weekly") {
+                // ISO week, which can belong to the neighbouring year: 1 Jan
+                // 2027 is 2026-W53. Thursday decides the year, so the date is
+                // moved there before the count.
+                var date = new Date(Date.UTC(year, month - 1, day));
+                var weekday = date.getUTCDay() || 7;          // Sunday is 7
+                date.setUTCDate(date.getUTCDate() + 4 - weekday);
+                var jan1 = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+                var week = Math.ceil(((date - jan1) / 86400000 + 1) / 7);
+                return date.getUTCFullYear() + "-W" + (week < 10 ? "0" : "") + week;
+            }
+            return year + "-" + (month < 10 ? "0" : "") + month;   // monthly
+        }
 
         function show() {
             var chosen = select.value;
+            var active = null;
             panels.forEach(function (panel) {
-                var active = panel.dataset.kpiPanel === chosen;
-                panel.classList.toggle("hidden", !active);
+                var on = panel.dataset.kpiPanel === chosen;
+                if (on) active = panel;
+                panel.classList.toggle("hidden", !on);
                 panel.querySelectorAll("input").forEach(function (field) {
-                    field.disabled = !active;
+                    field.disabled = !on;
                 });
-                if (active && period && !period.value) {
-                    // Default the period to the one we are currently inside,
-                    // written in this KPI's own cadence format.
-                    var hint = panel.querySelector("[data-period-example]");
-                    if (hint) period.value = hint.dataset.periodExample;
-                }
             });
+            refresh(active);
+        }
+
+        // Runs on BOTH changes, which is the whole point: the period depends on
+        // the date and on the cadence, so changing either has to re-read it.
+        // The date itself is never rewritten — what the user typed is what they
+        // meant, and only the period it resolves to moves.
+        function refresh(panel) {
+            if (!preview) return;
+            if (!panel) {
+                preview.textContent = "Pick a KPI to see which period this counts towards.";
+                return;
+            }
+            var hint = panel.querySelector("[data-kpi-cadence]");
+            if (!hint) return;
+            var label = periodLabel(dateField && dateField.value, hint.dataset.kpiCadence);
+            // Falling back to today's period rather than going blank: an empty
+            // date is a moment mid-edit, not a reason to stop explaining what
+            // the field does.
+            preview.textContent = label || hint.dataset.periodExample || "";
         }
 
         select.addEventListener("change", show);
+        if (dateField) {
+            dateField.addEventListener("change", show);
+            dateField.addEventListener("input", show);
+        }
         show();
     }
 

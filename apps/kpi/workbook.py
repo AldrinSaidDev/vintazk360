@@ -100,6 +100,10 @@ def _write_sheet(sheet, kpi, team, generated, when=None):
         f'| generated={generated}',
         f'{COMMENT} Formula: {kpi.formula_text or kpi.expression}  ·  Target: {target}'
         + (f' ({direction})' if direction else '')
+        + '  ·  '
+        + csv_template.PERIOD_NOTE.format(
+            cadence=csv_template.CADENCE_WORD.get(kpi.frequency, 'reporting')
+        )
         + (f'  ·  {csv_template.DATE_NOTE}' if dates else '')
         + '  ·  Rows starting with # are notes. Leave them; they are ignored on upload.',
     ]
@@ -146,8 +150,11 @@ def _write_sheet(sheet, kpi, team, generated, when=None):
         cell = sheet.cell(row=FIRST_DATA_ROW + 1, column=index)
         cell.font = Font(size=11, color=_INK)
         cell.fill = PatternFill('solid', fgColor=_BLUSH if index == 1 else 'FFFFFFFF')
+    # Today's DATE, not the period label. The column carries the date the
+    # figures are for and the cadence decides which period that lands in, which
+    # is what lets a month be topped up on the 7th and again on the 21st.
     sheet.cell(row=FIRST_DATA_ROW + 1, column=1,
-               value=csv_template.period_label(kpi.frequency, when))
+               value=(when or timezone.localdate()).isoformat())
 
     # Wide enough to read the column names without dragging every border.
     for index, name in enumerate(columns, start=1):

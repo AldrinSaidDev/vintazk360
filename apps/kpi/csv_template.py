@@ -47,6 +47,26 @@ HEADER_NOTE = (
 # `coerce()` already tolerates "1,234", "₱1,234" and stray spaces.
 DATE_NOTE = 'Dates as YYYY-MM-DD'
 
+# The `period` column changed meaning: it carries the DATE a row is for, and the
+# KPI's cadence decides which reporting period that lands in. Saying so on the
+# file matters more than most notes here, because the behaviour it describes is
+# the one people will not expect: uploading twice in a month ADDS to that month
+# rather than replacing it. A bare period label (2026-08) still works, so every
+# template downloaded before this change keeps importing.
+PERIOD_NOTE = (
+    'The period column takes the date the figures are for (2026-08-21). '
+    'Rows falling in the same {cadence} are combined, and uploading again '
+    'later adds to that {cadence} rather than replacing it.'
+)
+
+CADENCE_WORD = {
+    Frequency.DAILY: 'day',
+    Frequency.WEEKLY: 'week',
+    Frequency.MONTHLY: 'month',
+    Frequency.QUARTERLY: 'quarter',
+    Frequency.ANNUALLY: 'year',
+}
+
 DIRECTION_NOTE = {
     Direction.UP: 'higher is better',
     Direction.DOWN: 'lower is better',
@@ -122,16 +142,19 @@ def example_values(kpi):
 
 
 def previous_period(kpi, when=None):
-    """The period BEFORE the one the blank row carries.
+    """The example row's date: a day inside the period BEFORE this one.
 
-    Deliberately not the same period as the row below it: two rows for one
-    period is exactly the thing the importer rejects, so an example that
-    duplicated it would be a trap for anyone who uncommented it.
+    A DATE now, matching what the column means and what the blank row below it
+    carries. It stays in an earlier period rather than sharing this one, but the
+    reason has changed: two rows for a period used to be rejected outright, and
+    now they simply add together. So uncommenting this line is no longer a trap,
+    it just contributes an example figure. Keeping it in the previous period
+    means doing that does not quietly move the current period's total.
     """
     from . import periods
 
     start, _ = periods.parse(period_label(kpi.frequency, when), kpi.frequency)
-    return periods.label(start - dt.timedelta(days=1), kpi.frequency)
+    return (start - dt.timedelta(days=1)).isoformat()
 
 
 def example_line(kpi, when=None) -> str:
@@ -188,9 +211,14 @@ def build(kpi, when=None) -> str:
         f'| frequency={kpi.frequency} | generated={generated}\n'
     )
     dates = any(row.data_type == DataType.DATE for row in kpi.inputs.all())
+    # Still ONE line: line 1 promises exactly three comment lines, and the
+    # importer counts comments to work out which spreadsheet row a bad cell was
+    # on, so adding a fourth would misreport every error position in the file.
     buffer.write(
         f'# Formula: {formula}  ·  Target: {target}'
         + (f' ({direction})' if direction else '')
+        + '  ·  '
+        + PERIOD_NOTE.format(cadence=CADENCE_WORD.get(kpi.frequency, 'reporting'))
         + (f'  ·  {DATE_NOTE}' if dates else '')
         + '\n'
     )
@@ -206,8 +234,13 @@ def build(kpi, when=None) -> str:
     # values in the live row; commenting it answers both needs at once.
     buffer.write(example_line(kpi, when))
 
-    # The row to actually fill: the current period, and nothing else.
-    writer.writerow([period_label(kpi.frequency, when), *[''] * (len(header) - 1)])
+    # The row to actually fill: today's DATE, and nothing else. A date rather
+    # than the period label it used to carry, because that is what the column
+    # now means and because a filled-in date is the thing that makes the
+    # accumulate-into-the-period behaviour visible rather than surprising.
+    writer.writerow([
+        (when or timezone.localdate()).isoformat(), *[''] * (len(header) - 1)
+    ])
 
     return buffer.getvalue()
 

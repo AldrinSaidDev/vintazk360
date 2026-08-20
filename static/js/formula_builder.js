@@ -194,6 +194,17 @@
         const canvas = root.querySelector("[data-formula-canvas]");
         const expressionField = root.querySelector("[data-expression-field]");
         const inputsField = root.querySelector("[data-inputs-field]");
+        const aggregationList = root.querySelector("[data-aggregation-list]");
+        const aggregationEmpty = root.querySelector("[data-aggregation-empty]");
+
+        // From the model, via the form. Falls back to the two that carry the
+        // whole decision, so a missing attribute degrades to a usable picker
+        // rather than an empty one.
+        let AGGREGATIONS = [["sum", "Add them up"], ["last", "Most recent wins"]];
+        try {
+            const parsed = JSON.parse(root.dataset.aggregationChoices || "[]");
+            if (Array.isArray(parsed) && parsed.length) AGGREGATIONS = parsed;
+        } catch (error) { /* keep the fallback */ }
         const expressionPreview = root.querySelector("[data-expression-preview]");
         const humanPreview = root.querySelector("[data-human-preview]");
         const validationStatus = root.querySelector("[data-formula-validation]");
@@ -236,8 +247,16 @@
             // The operands travel with the formula: they become kpi_input rows,
             // and those rows ARE the CSV columns and the Add-Record fields.
             if (inputsField) {
+                // `aggregation` travels WITH the input, and leaving it out was a
+                // real bug: the server fills a missing one from the formula, so
+                // a hand-picked override was silently reverted by any later edit
+                // that happened to touch something else.
                 inputsField.value = JSON.stringify(state.inputs.map(function (input) {
-                    return { key: input.variable, label: input.label };
+                    return {
+                        key: input.variable,
+                        label: input.label,
+                        aggregation: input.aggregation || defaultAggregation(input.variable),
+                    };
                 }));
             }
             expressionPreview.textContent = expression || "Nothing yet";
@@ -258,8 +277,122 @@
             }
         }
 
+        // --- Accumulation --------------------------------------------------
+        //
+        // Which operands sit under a divide, read off the CANVAS rather than by
+        // parsing a string. The tokens are already an ordered list, so this
+        // walks them tracking parenthesis depth: after a `÷`, everything down
+        // to the end of that group is a denominator.
+        //
+        // Deliberately a rough mirror of `formula.divisors()` on the server and
+        // not a second authority. It only picks a DEFAULT for a picker the user
+        // can override, and the server derives its own for anything the form
+        // does not send, so the two disagreeing costs a suggestion, never a
+        // wrong figure.
+        function denominators() {
+            const under = {};      // seen under a divide
+            const outside = {};    // seen anywhere else
+            let depth = 0;
+            let dividingAt = null;   // the depth a `÷` opened at, or null
+
+            state.tokens.forEach(function (token) {
+                if (token.type === "parenthesis") {
+                    depth += token.value === "(" ? 1 : -1;
+                    // Leaving the group the divide applied to ends it.
+                    if (dividingAt !== null && depth < dividingAt) dividingAt = null;
+                    return;
+                }
+                if (token.type === "operator") {
+                    if (token.value === "/") {
+                        dividingAt = depth;
+                    } else if (dividingAt !== null && depth === dividingAt) {
+                        // A `+` or `-` at the SAME depth ends the denominator:
+                        // in `a / b + c`, `c` is not under the divide. Inside a
+                        // deeper group it does not, so `a / (b + c)` keeps both.
+                        if (token.value === "+" || token.value === "-") dividingAt = null;
+                    }
+                    return;
+                }
+                if (token.type === "input") {
+                    (dividingAt !== null ? under : outside)[token.value] = true;
+                }
+            });
+
+            // An operand on BOTH sides is not a divisor. See formula.divisors():
+            // `(total - errors) / total` counts events, and calling `total` a
+            // divisor halved the denominator and read 195% instead of 97.5%.
+            const found = {};
+            Object.keys(under).forEach(function (key) {
+                if (!outside[key]) found[key] = true;
+            });
+            return found;
+        }
+
+        function defaultAggregation(variable) {
+            return denominators()[variable] ? "last" : "sum";
+        }
+
+        function renderAggregations() {
+            if (!aggregationList) return;
+            aggregationList.replaceChildren();
+            // The empty note stands in until there is an operand to decide
+            // about, so the panel is never a heading over nothing.
+            if (aggregationEmpty) {
+                aggregationEmpty.classList.toggle("hidden", state.inputs.length > 0);
+            }
+            if (!state.inputs.length) return;
+
+            const divisors = denominators();
+
+            state.inputs.forEach(function (input) {
+                const row = document.createElement("div");
+                row.className = "flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2";
+
+                const name = document.createElement("div");
+                name.className = "min-w-0";
+                const title = document.createElement("p");
+                title.className = "truncate text-xs font-medium text-slate-700";
+                title.textContent = input.label;
+                name.appendChild(title);
+
+                // Say WHY it was defaulted, only where the formula is the
+                // reason. A note on every row would be noise; a note on the
+                // divisors is the explanation somebody needs before overriding.
+                if (divisors[input.variable] && !input.aggregation) {
+                    const why = document.createElement("p");
+                    why.className = "text-[11px] text-slate-400";
+                    why.textContent = "Divides the formula, so it is not added up by default.";
+                    name.appendChild(why);
+                }
+
+                const select = document.createElement("select");
+                select.className = "rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20";
+                select.setAttribute("aria-label", "How " + input.label + " combines across a period");
+                AGGREGATIONS.forEach(function (choice) {
+                    const option = document.createElement("option");
+                    option.value = choice[0];
+                    option.textContent = choice[1];
+                    select.appendChild(option);
+                });
+                select.value = input.aggregation || defaultAggregation(input.variable);
+
+                select.addEventListener("change", function () {
+                    // Recorded on the input, so it survives every later render
+                    // AND stops tracking the formula: once someone has chosen,
+                    // rearranging the canvas must not quietly change it back.
+                    input.aggregation = select.value;
+                    renderAggregations();
+                    updateOutput();
+                });
+
+                row.append(name, select);
+                aggregationList.appendChild(row);
+            });
+        }
+
         function renderInputs() {
             inputList.replaceChildren();
+            renderAggregations();
 
             if (!state.inputs.length) {
                 const empty = document.createElement("p");
@@ -381,6 +514,10 @@
                 canvas.appendChild(item);
             });
 
+            // The canvas decides which operands are denominators, so the
+            // suggested aggregations move with it. An input somebody has
+            // already chosen for keeps what they chose.
+            renderAggregations();
             updateOutput();
         }
 
@@ -388,7 +525,7 @@
             const preset = PRESETS[name];
             if (!preset) return;
             state.inputs = preset.inputs.map(function (input) {
-                return { label: input[0], variable: input[1] };
+                return { label: input[0], variable: input[1], aggregation: "" };
             });
             state.tokens = tokenise(preset.expression, state.inputs) || [];
             renderInputs();
@@ -414,7 +551,7 @@
                 return;
             }
 
-            state.inputs.push({ label: label, variable: variable });
+            state.inputs.push({ label: label, variable: variable, aggregation: "" });
             renderInputs();
             setEditorVisibility(false);
         }
@@ -494,6 +631,11 @@
                             return {
                                 label: item.label || titleFromVariable(item.key),
                                 variable: item.key,
+                                // Carried through so reopening an Edit modal
+                                // shows what this KPI is actually set to, and
+                                // so saving it again does not revert a choice
+                                // the formula would not have suggested.
+                                aggregation: item.aggregation || "",
                             };
                         });
                 }

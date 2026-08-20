@@ -14,6 +14,8 @@ from .models import (
     KpiBranch,
     KpiCategory,
     KpiDefinition,
+    KpiEntry,
+    KpiEntryInput,
     KpiFormulaHistory,
     KpiImportBatch,
     KpiImportIssue,
@@ -100,6 +102,33 @@ class KpiRecordAdmin(admin.ModelAdmin):
     search_fields = ('kpi__name', 'remarks')
     date_hierarchy = 'period_start'
     inlines = (KpiRecordInputInline,)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+class KpiEntryInputInline(admin.TabularInline):
+    model = KpiEntryInput
+    extra = 0
+
+
+@admin.register(KpiEntry)
+class KpiEntryAdmin(admin.ModelAdmin):
+    """The submissions a period's figure is built from.
+
+    Editing here does NOT re-collapse the period: `records.rebuild_period()` is
+    what writes `kpi_record`, and nothing calls it from the admin. So a figure
+    changed on this screen leaves the record showing the old total until that
+    period is next written to. That is fine for looking, and for reviving a
+    soft-deleted entry ahead of a re-save, but a correction belongs on Import
+    Data where the rebuild is part of the action.
+    """
+
+    list_display = (
+        'kpi', 'entry_date', 'period_start', 'value_display', 'source', 'is_active',
+    )
+    list_filter = ('is_active', 'source', 'kpi__team', 'entry_date')
+    search_fields = ('kpi__name', 'remarks')
+    date_hierarchy = 'entry_date'
+    inlines = (KpiEntryInputInline,)
     readonly_fields = ('created_at', 'updated_at')
 
 

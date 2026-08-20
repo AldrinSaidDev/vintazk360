@@ -135,3 +135,30 @@ def label(start: dt.date, frequency: str) -> str:
 def current(frequency: str, today: dt.date | None = None) -> tuple[dt.date, dt.date]:
     """The period we are inside right now, for form defaults."""
     return parse(label(today or dt.date.today(), frequency), frequency)
+
+
+def parse_entry_date(cell: str, frequency: str) -> dt.date:
+    """The DATE one submission is for, from the same cell `parse()` reads.
+
+    An entry carries the day it is for (`2026-07-21`) and the KPI's cadence
+    decides which period that lands in. So a full date is kept exactly as
+    written, which is what lets the history log say when each top-up happened.
+
+    A bare period label (`2026-08`, `2026-Q3`) is still accepted, because
+    reporting a whole month in one go is a perfectly ordinary thing to do and
+    every template downloaded before this change carries one. It is read as the
+    first day of that period — a real date, and honest about how little the cell
+    said.
+
+    Anything neither form is a `PeriodError`, with the same message as `parse`.
+    """
+    text = (cell or '').strip()
+    iso = _ISO_DATE.match(text)
+    if iso:
+        try:
+            return dt.date(*(int(part) for part in iso.groups()[:3]))
+        except ValueError as error:
+            raise PeriodError(f'"{text}" is not a real date ({error}).')
+
+    start, _ = parse(text, frequency)
+    return start

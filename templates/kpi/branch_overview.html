@@ -2,7 +2,7 @@
 {# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
 {# fetch. See apps/core/async_content.py. #}
 {% extends base_template|default:"base.html" %}
-{% load static %}
+{% load static assets %}
 
 {# A branch team's own Dashboard. Unlike a flat LOB this one rolls its branches #}
 {# up: tiles and chart score every branch at once, then the branch cards below #}
@@ -166,5 +166,5 @@
 
 {% block scripts %}
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
-<script src="{% static 'js/kpi-chart.js' %}"></script>
+<script src="{% asset 'js/kpi-chart.js' %}"></script>
 {% endblock %}

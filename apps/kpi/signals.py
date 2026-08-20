@@ -8,8 +8,9 @@ reproduce. A `post_save` receiver cannot be forgotten: it also covers the Django
 admin (the only place a deleted record or import can be restored) and
 `manage.py seed_lob_kpis`, neither of which goes anywhere near a view.
 
-**Soft deletes are saves.** `KpiDefinition`, `KpiRecord` and `KpiImportBatch`
-are all deleted by setting `is_active=False`, so `post_save` sees them.
+**Soft deletes are saves.** `KpiDefinition`, `KpiRecord`, `KpiEntry` and
+`KpiImportBatch` are all deleted by setting `is_active=False`, so `post_save`
+sees them.
 `post_delete` is wired anyway for the hard deletes that do happen: replacing a
 record's operand rows, removing an input, and anything done from a shell.
 
@@ -32,6 +33,7 @@ from .models import (
     KpiBranch,
     KpiCategory,
     KpiDefinition,
+    KpiEntry,
     KpiImportBatch,
     KpiInput,
     KpiRecord,
@@ -81,6 +83,8 @@ def invalidate_from_team_field(sender, instance, **kwargs):
 
 @receiver(post_save, sender=KpiRecord)
 @receiver(post_delete, sender=KpiRecord)
+@receiver(post_save, sender=KpiEntry)
+@receiver(post_delete, sender=KpiEntry)
 @receiver(post_save, sender=KpiInput)
 @receiver(post_delete, sender=KpiInput)
 def invalidate_from_kpi(sender, instance, **kwargs):

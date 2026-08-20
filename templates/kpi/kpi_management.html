@@ -2,7 +2,7 @@
 {# base.html for a full page, partials/fragment_base.html for the ?partial=1 #}
 {# fetch. See apps/core/async_content.py. #}
 {% extends base_template|default:"base.html" %}
-{% load icons static %}
+{% load icons static assets %}
 
 {% block page_title %}KPI Management{% endblock %}
 {% block dept_badge %}<span class="rounded-full bg-blush/40 px-3 py-0.5 text-xs font-semibold text-brand-dark">{{ scope.badge }}</span>{% endblock %}
@@ -416,10 +416,10 @@
 
 {% block scripts %}
 {# One tag for the page: the create modal and every edit modal are separate builders, and the script initialises them all. #}
-<script src="{% static 'js/formula_builder.js' %}" defer></script>
+<script src="{% asset 'js/formula_builder.js' %}" defer></script>
 {# Arms every delete confirm on a 5s timer. Shared with Import Data, so both screens agree on how long the wait is and when the button goes live. #}
-<script src="{% static 'js/confirm-timer.js' %}" defer></script>
+<script src="{% asset 'js/confirm-timer.js' %}" defer></script>
 {# Live character counter for description fields. #}
-<script src="{% static 'js/char-counter.js' %}" defer></script>
+<script src="{% asset 'js/char-counter.js' %}" defer></script>
 {% endblock %}
 

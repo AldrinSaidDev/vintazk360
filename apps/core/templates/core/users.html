@@ -275,6 +275,8 @@
                     <div class="sm:col-span-2">
                         <label for="{{ create_form.username.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-700">Employee ID{% include "partials/required_mark.html" %}</label>
                         {{ create_form.username }}
+                        {# The format is not guessable, so it is stated here rather than only in the message you get for typing it wrong. #}
+                        {% if not create_form.username.errors %}<p class="mt-1.5 text-xs text-slate-500">{{ create_form.username.help_text }}</p>{% endif %}
                         {% include "partials/field_errors.html" with field=create_form.username %}
                     </div>
 

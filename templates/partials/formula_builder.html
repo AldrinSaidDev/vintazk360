@@ -5,7 +5,9 @@
 {# columns and the Add-Record fields. static/js/formula_builder.js drives every [data-formula-builder] on #}
 {# the page, so a page may carry several — include the script ONCE, in the page's scripts block. #}
 {# `_formula_mode` is radio state only; it is namespaced by uid so two builders don't share a group. #}
-<fieldset class="sm:col-span-2" data-formula-builder>
+{# The aggregation options come off the model via the form, not out of formula_builder.js, so adding one cannot leave the picker offering a stale list. Same reasoning as role-teams.js's data-all-team-roles. #}
+<fieldset class="sm:col-span-2" data-formula-builder
+          data-aggregation-choices="{{ form.aggregation_choices }}">
     <legend class="mb-3 text-sm font-medium text-slate-700">
         Formula <span class="text-status-bad" aria-hidden="true">*</span>
     </legend>
@@ -103,6 +105,25 @@
         </div>
 
         <div class="mt-3 flex flex-wrap gap-2" data-input-list></div>
+    </div>
+
+    {# THE setting a tricky formula needs a human for. Cadence decides the reporting period; this decides what happens when somebody reports into that period twice. It belongs to the KPI, not to the upload: whoever enters figures knows the numbers and the date, and should never be asked the arithmetic. #}
+    {# ONE calculation order, always: combine each figure across the period's entries, then run the formula once over the combined figures. The mode picker that used to sit here (and its "combine the results by" partner) is gone. Nothing used it, and two orders that disagree by design is one more way for a figure to be wrong. #}
+    <div class="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm" data-accumulation-block>
+        <h4 class="text-sm font-semibold text-ink">When a period has several entries</h4>
+        <p class="mt-0.5 text-xs text-slate-500">
+            A period can be reported into as often as new figures arrive. Each figure is combined across those entries first, then the formula runs once over the combined figures.
+        </p>
+
+        <div class="mt-3 border-t border-slate-100 pt-3" data-input-agg-block>
+            <p class="text-xs font-medium text-slate-700">How each figure is combined first</p>
+            <p class="mt-0.5 text-xs text-slate-500">
+                Events that add up take <span class="font-medium text-slate-600">Add them up</span>; a snapshot or a divisor should not.
+            </p>
+            <div class="mt-3 space-y-2" data-aggregation-list></div>
+            {# Shown until there is an input to decide about, so the panel is never an unexplained empty box. #}
+            <p class="mt-3 text-xs italic text-slate-400" data-aggregation-empty>Add an input above to choose how it combines.</p>
+        </div>
     </div>
 
     <div class="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
