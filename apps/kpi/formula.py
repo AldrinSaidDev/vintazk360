@@ -132,6 +132,60 @@ def names(expression: str) -> set[str]:
     }
 
 
+def divisors(expression: str) -> set[str]:
+    """Input keys that sit under a division, i.e. the formula's denominators.
+
+    Which operand may be accumulated across a period's entries is a question the
+    formula can half answer on its own. In `exits / average_headcount * 100`,
+    `exits` is a count of events and adds up; `average_headcount` is the
+    population it is measured against, and adding three uploads of it together
+    gives a headcount nobody has and an attrition rate a third of the truth.
+
+    So a denominator is never defaulted to `sum`. It is a DEFAULT, not a rule —
+    `kpi_input.aggregation` is the override, because a numerator can be a
+    snapshot too and no amount of AST-walking can tell.
+
+    Everything reachable from the right-hand side counts, so `a / (b + c)`
+    reports both `b` and `c`.
+
+    **An operand appearing OUTSIDE the denominator as well is not one.** In
+    `(total_transactions - errors) / total_transactions * 100`,
+    `total_transactions` is on both sides, and it is a count of events: 100
+    transactions on Monday and 100 on Tuesday is 200, not 100. Reporting it as a
+    divisor put it on `last` and halved the denominator, which read 195% rather
+    than 97.5% — a wrong figure, not a wrong suggestion. Four live KPIs had this
+    shape (Payroll Accuracy, Invoice Accuracy, Budget Variance, Cash Flow
+    Forecast Accuracy); migration `kpi.0008` corrects them.
+    """
+    denominator, elsewhere = set(), set()
+    _split(parse(expression), False, denominator, elsewhere)
+    # A function name is an ast.Name as well — same trap `names()` documents.
+    return (denominator - elsewhere) & names(expression)
+
+
+def _split(node, in_denominator, denominator, elsewhere):
+    """Sort every name into "under a divide" and "not", for `divisors()`.
+
+    A plain `ast.walk` cannot do this: it flattens the tree, losing which side
+    of a `/` a name was on.
+    """
+    if isinstance(node, ast.Name):
+        (denominator if in_denominator else elsewhere).add(node.id)
+        return
+
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        _split(node.left, in_denominator, denominator, elsewhere)
+        # Nested divides stay denominators: in `a / (b / c)` both `b` and `c`
+        # are reported, which is conservative — `c` is mathematically a
+        # numerator. Erring towards NOT auto-summing is the safe direction, and
+        # the picker on KPI Management is the answer for a formula like that.
+        _split(node.right, True, denominator, elsewhere)
+        return
+
+    for child in ast.iter_child_nodes(node):
+        _split(child, in_denominator, denominator, elsewhere)
+
+
 def validate(expression: str, keys) -> str:
     """Check the expression against this KPI's declared input keys.
 

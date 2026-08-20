@@ -67,6 +67,7 @@ from .models import (
     KpiBranch,
     KpiCategory,
     KpiDefinition,
+    KpiEntry,
     KpiImportBatch,
     KpiRecord,
 )
@@ -537,7 +538,45 @@ class KpiScreens:
             ),
         }
 
-    def record_rows(self, records_qs, edit_forms=None):
+    def entries_for(self, records):
+        """`{(kpi_id, period_start): [entry, ...]}` for the records on this page.
+
+        ONE query for the whole page, not one per row. The entries cannot ride
+        along on the records — `kpi_record` has no foreign key TO them, the
+        relation runs the other way through (kpi, period_start) — and reaching
+        them through `record.kpi.entries` would drag in every period that KPI
+        has ever had, to show the one on screen.
+
+        Newest first, which is the order the history reads in.
+        """
+        wanted = [(r.kpi_id, r.period_start) for r in records]
+        if not wanted:
+            return {}
+
+        rows = (
+            KpiEntry.objects.filter(
+                kpi_id__in={kpi_id for kpi_id, _ in wanted},
+                period_start__in={period for _, period in wanted},
+                is_active=True,
+            )
+            .select_related('kpi', 'import_batch', 'entered_by')
+            # `kpi__inputs` is for the EDIT FORMS, not this method: one is built
+            # per entry and its `__init__` walks `entry.kpi.inputs`, so without
+            # it a page of entries is a query each.
+            .prefetch_related('input_values__input', 'kpi__inputs')
+            .order_by('-entry_date', '-created_at')
+        )
+
+        # The two `__in`s above are a rectangle, so they can over-select when a
+        # page holds several KPIs: KPI A's August is asked for and KPI B's
+        # August comes back too. Grouping by the exact pair is what discards it,
+        # and it is still one query instead of ten.
+        grouped = {}
+        for entry in rows:
+            grouped.setdefault((entry.kpi_id, entry.period_start), []).append(entry)
+        return grouped
+
+    def record_rows(self, records_qs, edit_forms=None, entries=None):
         """KPI Records table rows, from `kpi_record`.
 
         Carries the detail the View modal shows as well as the columns of the
@@ -545,13 +584,21 @@ class KpiScreens:
         query: the alternative is a per-record endpoint for data the page is
         holding anyway.
 
-        `edit_forms` is `{pk: EditRecordForm}` for a writer, so each row's Edit
-        modal renders real fields with real validation messages. It is None for
-        a read-only role, which renders no edit modal at all. A row whose form
-        failed validation gets the BOUND one back, so what the user typed and
-        why it was refused are both still there.
+        One row is one PERIOD, which is the figure every chart and target reads.
+        What went into it is `entries` — the submissions that were collapsed to
+        reach it, newest first, each with its own operands, date and author.
+        That list is the answer to "the total says 6, who added what?", and it
+        is why the modal is a history rather than a second copy of the row.
+
+        `edit_forms` is `{entry_pk: EditRecordForm}` for a writer, keyed on the
+        ENTRY: a period's figure is derived and there is nothing there to edit,
+        so correcting a month means correcting the submission that got it wrong.
+        It is None for a read-only role, which renders no edit modal at all. An
+        entry whose form failed validation gets the BOUND one back, so what the
+        user typed and why it was refused are both still there.
         """
         edit_forms = edit_forms or {}
+        entries = entries or {}
         return [
             {
                 # The delete form posts this. Records have no slug of their own,
@@ -579,6 +626,11 @@ class KpiScreens:
                     {
                         'label': value.input.label,
                         'key': value.input.key,
+                        # How this operand collapsed across the period's
+                        # entries. Without it the panel shows 6 and 385 with no
+                        # way to tell that one was added up and the other was
+                        # not, which is the first question a total invites.
+                        'aggregation': value.input.get_aggregation_display(),
                         'value': (
                             value.value_date if value.value_number is None
                             else value.value_number
@@ -600,8 +652,53 @@ class KpiScreens:
                 'batch_file': (
                     record.import_batch.file_name if record.import_batch_id else ''
                 ),
-                # --- Edit modal only ---
-                'edit_form': edit_forms.get(record.pk),
+                # How many submissions this figure is made of, and whether the
+                # period is still open. A part-filled month is scored against
+                # the full target, so this is what stops it reading as failure.
+                'entry_count': record.entry_count,
+                'is_in_progress': record.is_in_progress,
+                # --- View modal: the history, newest first ---
+                'entries': [
+                    {
+                        'pk': entry.pk,
+                        'date': entry.entry_date,
+                        'value': entry.value_display or entry.value,
+                        'source': entry.get_source_display(),
+                        'remarks': entry.remarks,
+                        'entered_by': (
+                            entry.entered_by.get_full_name()
+                            or entry.entered_by.get_username()
+                            if entry.entered_by_id
+                            else 'System'
+                        ),
+                        'created_at': entry.created_at,
+                        'batch_file': (
+                            entry.import_batch.file_name
+                            if entry.import_batch_id else ''
+                        ),
+                        'inputs': [
+                            {
+                                'label': value.input.label,
+                                'key': value.input.key,
+                                # What this input DOES when a period has several
+                                # entries. Shown here because it is the whole
+                                # explanation of why 2 + 3 + 1 came to 6 in one
+                                # column and 385 in the next.
+                                'aggregation': value.input.get_aggregation_display(),
+                                'value': (
+                                    value.value_date if value.value_number is None
+                                    else value.value_number
+                                ),
+                            }
+                            for value in sorted(
+                                entry.input_values.all(),
+                                key=lambda v: v.input.position,
+                            )
+                        ],
+                        'edit_form': edit_forms.get(entry.pk),
+                    }
+                    for entry in entries.get((record.kpi_id, record.period_start), ())
+                ],
             }
             for record in records_qs
         ]
@@ -638,9 +735,12 @@ class KpiScreens:
                 'completed_at': batch.completed_at,
                 # How many of this upload's records are still live. A batch
                 # whose rows were later deleted one by one should not claim to
-                # be holding them.
+                # be holding them. Counted over ENTRIES, not records: a period
+                # this upload topped up is shared with whatever else went into
+                # it, so the honest number is how many submissions of this
+                # upload's own are still standing.
                 'live_records': sum(
-                    1 for record in batch.records.all() if record.is_active
+                    1 for entry in batch.entries.all() if entry.is_active
                 ),
                 'issues': [
                     {
@@ -738,8 +838,17 @@ class KpiScreens:
                 )
                 period = kpi_periods.label(record.period_start, record.kpi.frequency)
 
+                # Deleting a PERIOD deletes every submission that made it. The
+                # record is derived, so clearing it alone would leave its
+                # entries behind and the next rebuild would bring the figure
+                # straight back. Removing one top-up by mistake is the entry
+                # bin inside the View modal, not this.
+                KpiEntry.objects.filter(
+                    kpi=record.kpi, period_start=record.period_start, is_active=True
+                ).update(is_active=False)
                 record.is_active = False
-                record.save(update_fields=['is_active', 'updated_at'])
+                record.entry_count = 0
+                record.save(update_fields=['is_active', 'entry_count', 'updated_at'])
 
                 log_action(
                     request,
@@ -758,44 +867,99 @@ class KpiScreens:
 
                 messages.success(
                     request,
-                    f'{record.kpi.name} for {period} has been deleted. '
-                    'Re-entering that period restores it.',
+                    f'{record.kpi.name} for {period} has been deleted, along '
+                    'with every entry behind it.',
                 )
                 return redirect(self._back_to_records(request))
 
-            if request.POST.get('_action') == 'edit-record':
-                # Correcting a figure that is already filed: the operands are
-                # rewritten and the KPI's own formula recomputes the result, so
-                # a typed correction is scored exactly as an uploaded one.
-                # Scoped to this team and branch like every other id a modal
-                # posts, so a guessed pk from another LOB is a 404.
-                record = get_object_or_404(
-                    KpiRecord.objects.select_related('kpi').prefetch_related(
-                        'kpi__inputs', 'input_values__input'
-                    ),
-                    pk=_posted_pk(request, '_record'),
+            if request.POST.get('_action') == 'delete-entry':
+                # Removing ONE submission from a period, which is what a
+                # mistyped top-up needs: the rest of the month stays and the
+                # figure re-collapses around the gap. Soft, like everything
+                # else, so the operands survive.
+                entry = get_object_or_404(
+                    KpiEntry.objects.select_related('kpi'),
+                    pk=_posted_pk(request, '_entry'),
                     kpi__team=team,
                     kpi__branch=branch,
                     is_active=True,
                 )
-                edit_form = EditRecordForm(request.POST, record=record)
+                period = kpi_periods.label(entry.period_start, entry.kpi.frequency)
+                was = entry.value_display or str(entry.value)
+
+                entry.is_active = False
+                entry.save(update_fields=['is_active', 'updated_at'])
+                # The period is now one entry lighter, so its figure has moved.
+                # This returns None when that was the last one, which correctly
+                # takes the period off every table and chart.
+                record = kpi_records.rebuild_period(entry.kpi, entry.period_start)
+
+                log_action(
+                    request,
+                    action=AuditLog.Action.DELETED,
+                    entity=entry,
+                    entity_type='kpi_entry',
+                    team=team,
+                    old_values={'is_active': True},
+                    new_values={
+                        'is_active': False,
+                        'kpi': entry.kpi.name,
+                        'date': str(entry.entry_date),
+                        'period': period,
+                        'value': was,
+                    },
+                )
+
+                messages.success(
+                    request,
+                    f'The entry for {entry.entry_date:%d %b %Y} has been removed. '
+                    + (
+                        f'{entry.kpi.name} for {period} is now '
+                        f'{record.value_display}.'
+                        if record is not None
+                        else f'{entry.kpi.name} has no figures left for {period}.'
+                    ),
+                )
+                return redirect(self._back_to_records(request))
+
+            if request.POST.get('_action') == 'edit-record':
+                # Correcting one SUBMISSION: its date, its operands and its
+                # note. The period's figure is derived, so there is nothing
+                # there to edit — fixing the month means fixing the entry that
+                # got it wrong, and the rest re-collapse around it.
+                # Scoped to this team and branch like every other id a modal
+                # posts, so a guessed pk from another LOB is a 404.
+                entry = get_object_or_404(
+                    KpiEntry.objects.select_related('kpi').prefetch_related(
+                        'kpi__inputs', 'input_values__input'
+                    ),
+                    pk=_posted_pk(request, '_entry'),
+                    kpi__team=team,
+                    kpi__branch=branch,
+                    is_active=True,
+                )
+                edit_form = EditRecordForm(request.POST, entry=entry)
                 # Read BEFORE the save: the row is updated in place, so the
                 # audit entry's "was" has to be taken while it is still true.
-                was = record.value_display or str(record.value)
-                period = kpi_periods.label(record.period_start, record.kpi.frequency)
+                was = entry.value_display or str(entry.value)
+                was_date = entry.entry_date
 
                 if edit_form.is_valid():
                     updated = edit_form.save(user=request.user)
+                    period = kpi_periods.label(
+                        updated.period_start, updated.kpi.frequency
+                    )
 
                     log_action(
                         request,
                         action=AuditLog.Action.UPDATED,
-                        entity=updated,
-                        entity_type='kpi_record',
+                        entity=entry,
+                        entity_type='kpi_entry',
                         team=team,
-                        old_values={'value': was},
+                        old_values={'value': was, 'date': str(was_date)},
                         new_values={
                             'kpi': updated.kpi.name,
+                            'date': str(entry.entry_date),
                             'period': period,
                             'value': updated.value_display,
                             'status': updated.get_status_display(),
@@ -808,12 +972,12 @@ class KpiScreens:
 
                     messages.success(
                         request,
-                        f'{updated.kpi.name} for {period} updated: '
+                        f'Entry updated. {updated.kpi.name} for {period} is now '
                         f'{updated.value_display} ({updated.get_status_display()}).',
                     )
                     return redirect(self._back_to_records(request))
 
-                open_edit_record_pk = record.pk
+                open_edit_record_pk = entry.pk
                 bound_edit_form = edit_form
 
             # From here the branches CHAIN, because the last of them is the
@@ -837,12 +1001,25 @@ class KpiScreens:
                     is_active=True,
                 )
 
-                # Only the records this batch is still the source of. A period
-                # that was re-uploaded later belongs to that later batch, whose
-                # `import_batch` now points there, so it is correctly left alone.
-                removed = KpiRecord.objects.filter(
+                # Only the ENTRIES this batch is still the source of. A figure
+                # corrected by hand afterwards points at no batch and stays; a
+                # period this upload only topped up keeps everything else that
+                # went into it and is re-collapsed below without this file's
+                # contribution. Removing the periods wholesale would throw away
+                # figures the upload never touched.
+                doomed = list(
+                    KpiEntry.objects.filter(import_batch=batch, is_active=True)
+                    .select_related('kpi')
+                )
+                removed = KpiEntry.objects.filter(
                     import_batch=batch, is_active=True
                 ).update(is_active=False)
+
+                # Rebuild each period ONCE however many of its entries went.
+                for kpi, period_start in {
+                    (entry.kpi, entry.period_start) for entry in doomed
+                }:
+                    kpi_records.rebuild_period(kpi, period_start)
 
                 batch.is_active = False
                 batch.save(update_fields=['is_active'])
@@ -864,7 +1041,8 @@ class KpiScreens:
                 messages.success(
                     request,
                     f'{batch.file_name} has been deleted, along with '
-                    f'{removed} record{"" if removed == 1 else "s"} it entered. ',
+                    f'{removed} entr{"y" if removed == 1 else "ies"} it added. '
+                    'Any other figures for those periods are untouched.',
                 )
                 return redirect(self._back_to_records(request))
 
@@ -916,31 +1094,41 @@ class KpiScreens:
                 add_form = AddRecordForm(request.POST, team=team, branch=branch)
 
                 if add_form.is_valid():
-                    record, created = add_form.save(user=request.user)
+                    entry, record = add_form.save(user=request.user)
+                    period = kpi_periods.label(
+                        record.period_start, record.kpi.frequency
+                    )
 
                     log_action(
                         request,
-                        action=(
-                            AuditLog.Action.CREATED if created
-                            else AuditLog.Action.UPDATED
-                        ),
-                        entity=record,
-                        entity_type='kpi_record',
+                        action=AuditLog.Action.CREATED,
+                        entity=entry,
+                        entity_type='kpi_entry',
                         team=team,
                         new_values={
                             'kpi': record.kpi.name,
-                            'period': str(record.period_start),
-                            'value': record.value_display,
+                            'date': str(entry.entry_date),
+                            'period': period,
+                            'entry_value': entry.value_display,
+                            'period_value': record.value_display,
                             'status': record.status,
                         },
                     )
 
+                    # Report the PERIOD's figure, not what was just typed. Two
+                    # top-ups into one month and the useful sentence is "August
+                    # is now 6", not "you entered 1" — seeing the month fill in
+                    # is the point of being able to report into it twice. How
+                    # many entries it took is there so the total is not read as
+                    # a single mistyped figure.
                     messages.success(
                         request,
-                        f'{record.kpi.name} for '
-                        f'{kpi_periods.label(record.period_start, record.kpi.frequency)} '
-                        f'{"recorded" if created else "updated"}: '
-                        f'{record.value_display} ({record.get_status_display()}).',
+                        f'Recorded. {record.kpi.name} for {period} is now '
+                        f'{record.value_display} ({record.get_status_display()})'
+                        + (
+                            f', from {record.entry_count} entries.'
+                            if record.entry_count > 1 else '.'
+                        ),
                     )
                     return redirect(self._back_to_records(request))
 
@@ -1021,7 +1209,7 @@ class KpiScreens:
             .select_related('kpi', 'uploaded_by')
             # Both feed the View modal: which rows were refused and why, and how
             # many of the records this upload wrote are still live.
-            .prefetch_related('issues', 'records')
+            .prefetch_related('issues', 'entries')
             .order_by('-uploaded_at')
         )
         imports_paginator = Paginator(batches_qs, IMPORTS_PAGE_SIZE)
@@ -1034,18 +1222,26 @@ class KpiScreens:
             )
         )
 
-        # One Edit form per row ON THIS PAGE, and only for a role that may write:
-        # a read-only user renders no edit modal at all, and the POST is refused
-        # above regardless. The row whose save just failed gets its bound form
-        # back instead of a fresh one, so the errors survive the re-render.
+        # The submissions behind the periods on this page, one query for the
+        # lot, so opening a row's history costs nothing.
+        entries_by_period = self.entries_for(page.object_list)
+
+        # One Edit form per ENTRY on this page, and only for a role that may
+        # write: a read-only user renders no edit modal at all, and the POST is
+        # refused above regardless. Keyed on the entry because that is what is
+        # editable — a period's figure is derived from its entries and has
+        # nothing of its own to change. The entry whose save just failed gets
+        # its bound form back instead of a fresh one, so the errors survive the
+        # re-render.
         edit_forms = {}
         if can_edit_team(request.user, self.team_slug):
             edit_forms = {
-                record.pk: (
-                    bound_edit_form if record.pk == open_edit_record_pk
-                    else EditRecordForm(record=record)
+                entry.pk: (
+                    bound_edit_form if entry.pk == open_edit_record_pk
+                    else EditRecordForm(entry=entry)
                 )
-                for record in page.object_list
+                for entries in entries_by_period.values()
+                for entry in entries
             }
 
         return async_content.render_content(request, 'kpi/import_data.html', {
@@ -1055,7 +1251,7 @@ class KpiScreens:
             'open_add_modal': open_add_modal,
             'open_import_modal': open_import_modal,
             'open_edit_record_pk': open_edit_record_pk,
-            'records': self.record_rows(page.object_list, edit_forms),
+            'records': self.record_rows(page.object_list, edit_forms, entries_by_period),
             # What the filters MATCHED. The Total Records stat card above keeps
             # counting every record, filtered or not.
             'record_count': paginator.count,
@@ -1118,6 +1314,14 @@ class KpiScreens:
             'imports_tab_url': _tab_url(request, IMPORTS_TAB),
             # The Add-Record modal renders one field group per KPI; only the
             # selected one is enabled, so only its operands are submitted.
+            #
+            # `cadence` is what the modal reads back when the KPI dropdown
+            # changes: the form asks for a DATE and the cadence turns it into a
+            # reporting period, so picking a quarterly KPI has to say "this goes
+            # into 2026-Q3" without a round trip. It is emitted per KPI here
+            # rather than worked out in JS, because the label formats are
+            # `apps/kpi/periods.py`'s and a second copy of them in the browser
+            # is a second thing to keep in step.
             'record_kpis': [
                 {
                     'pk': kpi.pk,
@@ -1125,6 +1329,7 @@ class KpiScreens:
                     'formula': kpi.formula_text or kpi.expression,
                     'target_display': kpi.target_display or 'No Target',
                     'frequency': kpi.get_frequency_display(),
+                    'cadence': kpi.frequency,
                     'period_hint': kpi_periods.FORMAT_HINT.get(kpi.frequency, ''),
                     'period_example': kpi_periods.label(
                         timezone.localdate(), kpi.frequency

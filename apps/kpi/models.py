@@ -69,18 +69,33 @@ class DataType(models.TextChoices):
 
 
 class Aggregation(models.TextChoices):
-    """How one input's column collapses over a reporting period.
+    """How one input collapses when a period has several entries.
 
-    `NONE` means exactly one row per period and more than one is an error;
-    `COUNT` is what turns "one CSV row per hire" into a headcount.
+    THE most consequential setting on a KPI, and the one thing a manager has to
+    get right per input. Cadence decides the reporting period; this decides what
+    "the period's figure" means once somebody has reported into it twice.
+
+    Additive events take SUM: hires, exits, tickets, revenue. A snapshot or a
+    DIVISOR takes LAST or AVG — adding up "average headcount" over three
+    uploads gives 1,140 people and an attrition rate a third of the truth. The
+    seeder's defaults are derived from the formula itself (an operand under a
+    `/` is never auto-summed), and this field is the override for what the
+    formula cannot know.
+
+    THREE options, and that is deliberate. A figure somebody types into a
+    template is either something that accumulates (SUM), something measured
+    repeatedly whose readings average (AVG), or a snapshot whose newest reading
+    stands (LAST). `COUNT`, `MIN` and `MAX` were dropped: COUNT ignored the
+    number in the cell and counted rows, so the column the uploader filled in
+    stopped mattering, and MIN/MAX answered a question about the entries rather
+    than about the period. Nothing on the database held any of the three. There
+    is no "replace" setting either: it collapsed exactly as `LAST` does, so it
+    was one label too many for one behaviour, and it was the misleading one.
+    Nothing here overwrites a period.
     """
-    NONE = 'none', 'One row per period'
-    SUM = 'sum', 'Sum the rows'
-    COUNT = 'count', 'Count the rows'
+    SUM = 'sum', 'Add them up'
     AVG = 'avg', 'Average'
-    MIN = 'min', 'Minimum'
-    MAX = 'max', 'Maximum'
-    LAST = 'last', 'Last value'
+    LAST = 'last', 'Most recent wins'
 
 
 class Accumulation(models.TextChoices):
@@ -171,7 +186,7 @@ class KpiPresetInput(models.Model):
     placeholder = models.CharField(max_length=60, blank=True)
     data_type = models.CharField(max_length=10, choices=DataType.choices, default=DataType.NUMBER)
     aggregation = models.CharField(
-        max_length=8, choices=Aggregation.choices, default=Aggregation.NONE
+        max_length=8, choices=Aggregation.choices, default=Aggregation.SUM
     )
     position = models.PositiveSmallIntegerField(default=1)
 
@@ -420,8 +435,11 @@ class KpiInput(models.Model):
     aggregation = models.CharField(
         max_length=8,
         choices=Aggregation.choices,
-        default=Aggregation.NONE,
-        help_text='How this column collapses when a period has several rows.',
+        default=Aggregation.SUM,
+        help_text=(
+            'How this figure collapses when a period has several entries. '
+            'Additive events add up. A snapshot or a divisor should not.'
+        ),
     )
     position = models.PositiveSmallIntegerField(
         default=1, help_text='Order in the form and in the CSV.'
@@ -463,9 +481,15 @@ class KpiRecord(models.Model):
     charts don't recompute per page load — they are always re-derivable from
     the record plus the KPI's target.
 
-    One KPI has exactly one row per period, which is also what makes
-    re-uploading a corrected file safe: the parser upserts on
-    (kpi, period_start) and fixes the month rather than duplicating it.
+    One KPI has exactly one row per period. It is now DERIVED rather than
+    written directly: `kpi_entry` holds each act of reporting and
+    `records.rebuild_period()` collapses that period's entries, re-runs the
+    formula and upserts this row. So a month can be topped up any number of
+    times and this stays the single figure every chart reads.
+
+    Nothing should write this table except `records.rebuild_period()`. Writing a
+    value here directly would be overwritten by the next entry against the same
+    period, silently.
     """
 
     class Status(models.TextChoices):
@@ -506,6 +530,17 @@ class KpiRecord(models.Model):
     status = models.CharField(
         max_length=12, choices=Status.choices, default=Status.MONITORED
     )
+    # How many entries collapsed into this figure. Cached from kpi_entry so the
+    # records table can say "3 entries" without a count per row, and so a
+    # reader can tell one submission from a month that has been topped up.
+    entry_count = models.PositiveIntegerField(default=0)
+    # True while `period_end` is still in the future: the period is open and
+    # more entries are expected. The status is still scored against the FULL
+    # target, deliberately — pro-rating a target would be a guess about how
+    # evenly work lands across a month, and would quietly rewrite what the
+    # target means. This flag is what stops a part-filled month reading as
+    # failure instead of as unfinished.
+    is_in_progress = models.BooleanField(default=False)
 
     source = models.CharField(max_length=10, choices=Source.choices, default=Source.MANUAL)
     import_batch = models.ForeignKey(
@@ -591,6 +626,131 @@ class KpiRecordInput(models.Model):
             ),
         ]
         verbose_name = 'KPI record input'
+
+    def __str__(self):
+        return f'{self.input.key} = {self.value_number if self.value_date is None else self.value_date}'
+
+
+# ---------------------------------------------------------------------------
+# 8b · Entries — what was actually submitted, one row per act of reporting
+# ---------------------------------------------------------------------------
+
+
+class KpiEntry(models.Model):
+    """One submission: the figures somebody entered or uploaded on one date.
+
+    `kpi_record` holds one row per reporting PERIOD and is what every dashboard
+    reads. This holds one row per ACT OF REPORTING, and the record is derived
+    from it. The two answer different questions:
+
+        kpi_entry   "on 21 July somebody added 5 hires"
+        kpi_record  "July's total is 23 hires, 92% of target"
+
+    Cadence decides the period, never how often you may report. A monthly KPI
+    can be topped up every day of the month; each top-up is an entry, they
+    collapse into that month's one record, and the month can be watched filling
+    in instead of only being readable once it has ended.
+
+    Accumulation happens on the OPERANDS, per `kpi_input.aggregation`, never on
+    the finished figure: 3% attrition plus 4% attrition is not 7%. Summing the
+    operands and re-running the formula is correct at every KPI shape, and it is
+    why a divisor is left on `last` rather than being added up.
+
+    Deliberately NOT unique on (kpi, entry_date): two uploads on one day are two
+    entries, which is the whole point of the table.
+    """
+
+    kpi = models.ForeignKey(KpiDefinition, on_delete=models.CASCADE, related_name='entries')
+
+    entry_date = models.DateField(
+        help_text='The date this figure is for, e.g. 2026-07-21.'
+    )
+    # Derived from `entry_date` through the KPI's frequency and stored, so that
+    # grouping a period's entries is an indexed lookup rather than a date
+    # calculation repeated per row. `records.add_entry()` is what keeps it true.
+    period_start = models.DateField(help_text="First day of the period `entry_date` falls in.")
+    period_end = models.DateField(help_text='Last day of that period.')
+
+    # This entry's own figure, so the history log can show what each submission
+    # contributed. The PERIOD's figure lives on kpi_record and is NOT these
+    # summed — it is the collapsed operands re-run through the formula.
+    value = models.DecimalField(
+        max_digits=14, decimal_places=4, help_text="This entry's own result."
+    )
+    value_display = models.CharField(max_length=40, blank=True)
+
+    source = models.CharField(
+        max_length=10, choices=KpiRecord.Source.choices, default=KpiRecord.Source.MANUAL
+    )
+    import_batch = models.ForeignKey(
+        'kpi.KpiImportBatch',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='entries',
+        help_text='Which upload produced this, if any.',
+    )
+    remarks = models.TextField(blank=True, max_length=REMARKS_MAX_LENGTH)
+    entered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kpi_entries_entered',
+    )
+    # Soft, like everything else here. Removing one entry re-collapses the
+    # period rather than deleting the record, so a mistyped top-up can be taken
+    # back without losing the rest of the month.
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'kpi_entry'
+        ordering = ['-entry_date', '-created_at']
+        indexes = [
+            # The one query that matters: every entry of one period, to collapse.
+            models.Index(fields=['kpi', 'period_start'], name='kpi_entry_period'),
+        ]
+        verbose_name = 'KPI entry'
+        verbose_name_plural = 'KPI entries'
+
+    def __str__(self):
+        return f'{self.kpi.name} · {self.entry_date} · {self.value_display or self.value}'
+
+
+class KpiEntryInput(models.Model):
+    """The raw operands of one entry — one row per input.
+
+    The same job `kpi_record_input` does for a period, one level down. Both
+    exist: these are what get collapsed, those are the collapsed result, and
+    keeping the collapsed copy means a dashboard never has to re-aggregate to
+    answer "why is the month this number?".
+    """
+
+    entry = models.ForeignKey(KpiEntry, on_delete=models.CASCADE, related_name='input_values')
+    input = models.ForeignKey(KpiInput, on_delete=models.PROTECT, related_name='entry_values')
+    value_number = models.DecimalField(
+        max_digits=16, decimal_places=4, null=True, blank=True
+    )
+    value_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'kpi_entry_input'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['entry', 'input'], name='kpi_entry_input_unique_operand'
+            ),
+            # Exactly one of the two value columns is filled.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(value_number__isnull=False, value_date__isnull=True)
+                    | models.Q(value_number__isnull=True, value_date__isnull=False)
+                ),
+                name='kpi_entry_input_one_value',
+            ),
+        ]
+        verbose_name = 'KPI entry input'
 
     def __str__(self):
         return f'{self.input.key} = {self.value_number if self.value_date is None else self.value_date}'

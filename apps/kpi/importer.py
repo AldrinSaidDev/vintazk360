@@ -1,18 +1,21 @@
-"""The CSV import pipeline, exactly as `db_schema.txt` Part D specifies it.
+"""The CSV import pipeline, per `db_schema.txt` Part D.
 
     read the kpi= header      → load kpi_definition
     check template= header    → reject if older than the KPI's version
     read its kpi_input rows   → those ARE the expected columns
     validate each cell        → against data_type
-    group rows                → by reporting period
-    collapse each column      → per kpi_input.aggregation
-    evaluate expression       → apps.kpi.formula
-    apply accumulation        → apps.kpi.records
-    score against the band    → apps.core.kpi, unchanged
-    upsert kpi_record         → on (kpi, period_start)
-    write kpi_record_input    → one row per operand
+    read each row's date      → the cadence decides which period it lands in
+    write kpi_entry           → ONE PER ROW, never merged on the way in
+    rebuild each period       → apps.kpi.records collapses and scores it
     log kpi_import_issue      → for anything rejected
     write audit_log           → one `imported` entry (the caller does this)
+
+**An upload adds to a period, it does not replace it.** Rows are no longer
+collapsed here before being written: each one is its own submission, and the
+period is re-derived from every submission ever made against it. So a file
+uploaded on the 7th and another on the 21st both count towards August, and the
+month can be watched filling in. Cadence decides the period; it has never
+decided how often you may upload.
 
 **Nothing here is KPI-specific.** Adding a KPI adds zero lines to this file:
 the columns come from the KPI's own `kpi_input` rows and the maths from its own
@@ -25,7 +28,6 @@ import csv
 import hashlib
 import io
 import re
-import statistics
 import uuid
 from dataclasses import dataclass, field
 
@@ -36,7 +38,6 @@ from . import periods, records, workbook
 from .models import (
     REMARKS_MAX_LENGTH,
     DESCRIPTION_MAX_LENGTH,
-    Aggregation,
     KpiDefinition,
     KpiImportBatch,
     KpiImportIssue,
@@ -62,17 +63,9 @@ def _remarks_error(text):
     )
 
 
-def _join_remarks(parts):
-    """One period's notes as a single string, capped at the stored length.
-
-    Every part already fits on its own, but several rows collapsing into one
-    period can still add up past the limit. Returns `(text, truncated)` so the
-    caller can say so rather than shortening it silently.
-    """
-    joined = ' · '.join(parts)
-    if len(joined) <= REMARKS_MAX_LENGTH:
-        return joined, False
-    return joined[:REMARKS_MAX_LENGTH], True
+# Joining a period's notes moved to `records._join_remarks`: a note now belongs
+# to an ENTRY, and what the period's remarks say is decided when the period is
+# collapsed, not when one file happens to be read.
 
 # team/slug, or team/branch/slug for a branch KPI (see csv_template.scope_path).
 _KPI_HEADER = re.compile(r'kpi\s*=\s*([\w-]+)/(?:([\w-]+)/)?([\w-]+)', re.IGNORECASE)
@@ -96,8 +89,14 @@ class Issue:
 @dataclass
 class Result:
     batch: KpiImportBatch = None
+    # PERIODS opened and PERIODS added to. A file reporting three weeks of one
+    # month is one period, not three, which is what a reader expects the import
+    # history to say.
     created: int = 0
     updated: int = 0
+    # Submissions written. Different from the two above and worth its own
+    # number now that a period is built from many: "3 periods, 42 entries".
+    entries: int = 0
     rows: int = 0
     issues: list = field(default_factory=list)
     # True when a file with identical contents was already uploaded for this
@@ -217,38 +216,68 @@ def _rows(text: str, header):
         yield offset + index, {(k or '').strip(): v for k, v in row.items()}, fieldnames
 
 
-# --- collapsing a period's rows into one set of operands -------------------
+# --- turning read rows into entries ----------------------------------------
+#
+# `aggregate()` used to live here, collapsing a period's rows into one set of
+# operands before writing. It moved to `records.collapse()`, because collapsing
+# is no longer something the importer does to a file: it is what a period does
+# to every entry ever made against it, whether they arrived in one upload, in
+# six uploads a week apart, or by hand through the modal. Keeping a copy here
+# would be a second answer to "what is August's figure?".
 
 
-def aggregate(kpi_input, cells):
-    """Collapse one column across a period's rows, per its `aggregation`."""
-    if kpi_input.aggregation == Aggregation.COUNT:
-        return len(cells)
+def _write_entries(kpi, rows, batch, result, user, label=''):
+    """Write one KPI's rows as entries, then re-derive each period they touch.
 
-    present = [c for c in cells if c is not None]
-    if not present:
-        return 0
+    Every row is its own entry, so uploading the same month twice adds to it
+    instead of replacing it. The rebuild is deferred and done once per period
+    rather than once per row: a 400-row file otherwise re-collapses the same
+    month 400 times to reach the answer it reaches once.
+    """
+    touched = set()
 
-    if kpi_input.aggregation == Aggregation.SUM:
-        return sum(present)
-    if kpi_input.aggregation == Aggregation.AVG:
-        return statistics.mean(present)
-    if kpi_input.aggregation == Aggregation.MIN:
-        return min(present)
-    if kpi_input.aggregation == Aggregation.MAX:
-        return max(present)
-    if kpi_input.aggregation == Aggregation.LAST:
-        return present[-1]
+    for row in rows:
+        try:
+            records.add_entry(
+                kpi,
+                row['entry_date'],
+                row['values'],
+                source=KpiRecord.Source.IMPORT,
+                user=user,
+                batch=batch,
+                remarks=row['remarks'],
+                rebuild=False,
+            )
+        except records.RecordError as error:
+            result.issues.append(
+                Issue(row['line'], f'{label}{error}' if label else str(error),
+                      error.field or '')
+            )
+            continue
+        touched.add(row['period_start'])
+        result.entries += 1
 
-    # NONE: exactly one row per period, and more than one is an error.
-    if len(present) > 1:
-        raise records.RecordError(
-            f'{kpi_input.label} expects one row per period, but this period has '
-            f'{len(present)}. Set its aggregation to Sum or Average if several '
-            'rows are intended.',
-            kpi_input.key,
-        )
-    return present[0]
+    for period_start in sorted(touched):
+        try:
+            existed = KpiRecord.objects.filter(
+                kpi=kpi, period_start=period_start, is_active=True
+            ).exists()
+            records.rebuild_period(kpi, period_start)
+        except records.RecordError as error:
+            # The entries are written and will collapse correctly the next time
+            # this period is rebuilt, so this is an issue on the period, not a
+            # reason to throw the upload away.
+            result.issues.append(
+                Issue(0, f'{label}{error}' if label else str(error), error.field or '')
+            )
+            continue
+        # "Created" and "updated" count PERIODS, which is what the import
+        # history has always reported and what a reader recognises. How many
+        # submissions went into them is `entries`.
+        if existed:
+            result.updated += 1
+        else:
+            result.created += 1
 
 
 # --- the whole run ---------------------------------------------------------
@@ -270,7 +299,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
     expected = [row.key for row in inputs]
 
     result = Result()
-    buckets = {}
+    entry_rows = []
     # Rows that carry at least one figure. The template ships with its period
     # cell already filled, so an untouched file is not "empty" — see below.
     filled_rows = 0
@@ -291,6 +320,11 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
             filled_rows += 1
 
         try:
+            # The cell holds the DATE this row is for. The KPI's cadence then
+            # decides which period that lands in — a full date is kept as
+            # written so the history log can say when each figure arrived, and
+            # a bare period label still works for reporting a whole month at once.
+            entry_date = periods.parse_entry_date(row.get('period'), kpi.frequency)
             period_start, _ = periods.parse(row.get('period'), kpi.frequency)
         except periods.PeriodError as error:
             result.issues.append(
@@ -319,13 +353,15 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
             result.issues.append(Issue(line_number, too_long, 'remarks', remarks[:255]))
             continue
 
-        bucket = buckets.setdefault(period_start, {'rows': [], 'lines': [], 'remarks': []})
-        bucket['rows'].append(values)
-        bucket['lines'].append(line_number)
-        if remarks:
-            bucket['remarks'].append(remarks)
+        entry_rows.append({
+            'line': line_number,
+            'entry_date': entry_date,
+            'period_start': period_start,
+            'values': values,
+            'remarks': remarks,
+        })
 
-    if not buckets and not result.issues:
+    if not entry_rows and not result.issues:
         raise ImportError_('That file has no data rows to import.')
 
     # A downloaded template arrives with its period cell already filled and the
@@ -335,7 +371,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
     # likeliest slip of all now that the file also carries a worked example.
     if result.rows and not filled_rows:
         raise ImportError_(
-            'This template has not been filled in yet. Every row has a period '
+            'This template has not been filled in yet. Every row has a date '
             'but no figures. Enter the numbers under '
             + ', '.join(expected)
             + ', then upload it again.'
@@ -357,42 +393,7 @@ def parse_and_apply(raw: bytes, *, team, user, file_name, content_type='', branc
                    content_type=content_type, header=header)
     result.batch = batch
 
-    for period_start in sorted(buckets):
-        bucket = buckets[period_start]
-        remarks, shortened = _join_remarks(bucket['remarks'])
-        if shortened:
-            result.issues.append(Issue(
-                bucket['lines'][0],
-                f'Remarks: the notes on {len(bucket["remarks"])} rows for this '
-                f'period were shortened to {REMARKS_MAX_LENGTH} characters. '
-                'The figures were imported.',
-                'remarks',
-                severity=KpiImportIssue.Severity.WARNING,
-            ))
-        try:
-            collapsed = {
-                kpi_input.key: aggregate(
-                    kpi_input, [row[kpi_input.key] for row in bucket['rows']]
-                )
-                for kpi_input in inputs
-            }
-            _, created = records.save_record(
-                kpi,
-                period_start,
-                collapsed,
-                source=KpiRecord.Source.IMPORT,
-                user=user,
-                batch=batch,
-                remarks=remarks,
-            )
-        except records.RecordError as error:
-            result.issues.append(
-                Issue(bucket['lines'][0], str(error), error.field or '')
-            )
-            continue
-
-        result.created += 1 if created else 0
-        result.updated += 0 if created else 1
+    _write_entries(kpi, entry_rows, batch, result, user)
 
     _finish(batch, result)
     return result
@@ -491,16 +492,19 @@ def _finish(batch, result):
 
 
 def _collect(kpi, rows, result, label=''):
-    """Turn a sheet's (or file's) rows into period buckets, logging bad cells.
+    """Turn a sheet's rows into entry rows, logging bad cells as it goes.
 
-    Shared by the CSV and workbook paths so a number typed into a spreadsheet
-    is validated exactly as the same number in a .csv would be. `label` prefixes
-    an issue message with the KPI it came from, which is what makes a
-    many-sheet upload readable — `kpi_import_issue` has no sheet column.
+    One spreadsheet row is one entry. It is no longer collapsed here: rows for
+    the same month are not merged on the way in, they are written as separate
+    submissions and collapsed by the period when it is rebuilt. That is what
+    makes uploading week two add to week one instead of replacing it.
+
+    `label` prefixes an issue message with the KPI it came from, which is what
+    makes a many-sheet upload readable — `kpi_import_issue` has no sheet column.
     """
     inputs = list(kpi.inputs.all())
     expected = [row.key for row in inputs]
-    buckets = {}
+    entry_rows = []
     filled = 0
 
     def note(row_number, message, column='', raw=''):
@@ -522,6 +526,8 @@ def _collect(kpi, rows, result, label=''):
         filled += 1
 
         try:
+            # See the CSV path: the cell is the DATE, the cadence picks the period.
+            entry_date = periods.parse_entry_date(row.get('period'), kpi.frequency)
             period_start, _ = periods.parse(row.get('period'), kpi.frequency)
         except periods.PeriodError as error:
             note(line_number, str(error), 'period', row.get('period') or '')
@@ -542,60 +548,20 @@ def _collect(kpi, rows, result, label=''):
             note(line_number, too_long, 'remarks', remarks[:255])
             continue
 
-        bucket = buckets.setdefault(period_start, {'rows': [], 'lines': [], 'remarks': []})
-        bucket['rows'].append(values)
-        bucket['lines'].append(line_number)
-        if remarks:
-            bucket['remarks'].append(remarks)
+        entry_rows.append({
+            'line': line_number,
+            'entry_date': entry_date,
+            'period_start': period_start,
+            'values': values,
+            'remarks': remarks,
+        })
 
-    return buckets, filled
+    return entry_rows, filled
 
 
-def _apply(kpi, buckets, batch, result, user, label=''):
-    """Write one KPI's collapsed periods. Counts land on `result`."""
-    inputs = list(kpi.inputs.all())
-
-    for period_start in sorted(buckets):
-        bucket = buckets[period_start]
-        remarks, shortened = _join_remarks(bucket['remarks'])
-        if shortened:
-            message = (
-                f'Remarks: the notes on {len(bucket["remarks"])} rows for this '
-                f'period were shortened to {REMARKS_MAX_LENGTH} characters. '
-                'The figures were imported.'
-            )
-            result.issues.append(Issue(
-                bucket['lines'][0],
-                f'{label}{message}' if label else message,
-                'remarks',
-                severity=KpiImportIssue.Severity.WARNING,
-            ))
-        try:
-            collapsed = {
-                kpi_input.key: aggregate(
-                    kpi_input, [row[kpi_input.key] for row in bucket['rows']]
-                )
-                for kpi_input in inputs
-            }
-            _, created = records.save_record(
-                kpi,
-                period_start,
-                collapsed,
-                source=KpiRecord.Source.IMPORT,
-                user=user,
-                batch=batch,
-                remarks=remarks,
-            )
-        except records.RecordError as error:
-            result.issues.append(
-                Issue(bucket['lines'][0],
-                      f'{label}{error}' if label else str(error),
-                      error.field or '')
-            )
-            continue
-
-        result.created += 1 if created else 0
-        result.updated += 0 if created else 1
+def _apply(kpi, entry_rows, batch, result, user, label=''):
+    """Write one sheet's entries and re-derive their periods."""
+    _write_entries(kpi, entry_rows, batch, result, user, label)
 
 
 def parse_and_apply_workbook(raw, *, team, user, file_name, content_type='', branch=None):
@@ -625,7 +591,7 @@ def parse_and_apply_workbook(raw, *, team, user, file_name, content_type='', bra
         raise ImportError_('That workbook has no sheets.')
 
     result = Result()
-    plans = []          # (kpi, buckets, label)
+    plans = []          # (kpi, entry_rows, label)
     filled_total = 0
     recognised = 0      # sheets carrying a kpi= note
     resolved = 0        # …that also matched a live KPI on this team
@@ -668,10 +634,10 @@ def parse_and_apply_workbook(raw, *, team, user, file_name, content_type='', bra
             ))
             continue
 
-        buckets, filled = _collect(kpi, rows, result, label)
+        entry_rows, filled = _collect(kpi, rows, result, label)
         filled_total += filled
         if filled:
-            plans.append((kpi, buckets, label))
+            plans.append((kpi, entry_rows, label))
 
     if not recognised:
         raise ImportError_(
@@ -711,8 +677,8 @@ def parse_and_apply_workbook(raw, *, team, user, file_name, content_type='', bra
     )
     result.batch = batch
 
-    for kpi, buckets, label in plans:
-        _apply(kpi, buckets, batch, result, user, label)
+    for kpi, entry_rows, label in plans:
+        _apply(kpi, entry_rows, batch, result, user, label)
 
     _finish(batch, result)
     return result

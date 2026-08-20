@@ -15,6 +15,7 @@ Audit entries are written by the view, which is the thing that holds the
 request.
 """
 
+import datetime as dt
 import json
 from decimal import Decimal
 
@@ -28,9 +29,11 @@ from apps.kpi import importer, periods, records
 from apps.kpi.models import (
     KEY_VALIDATOR,
     REMARKS_MAX_LENGTH,
+    Aggregation,
     DataType,
     KpiCategory,
     KpiDefinition,
+    KpiEntryInput,
     KpiFormulaHistory,
     KpiInput,
     KpiRecord,
@@ -159,6 +162,18 @@ _SHARED_LABELS = {
 class BaseKpiForm(forms.ModelForm):
     """Everything create and edit agree on: the widgets, the team-scoped
     category picker, and the rule that a target is always a band."""
+
+    @property
+    def aggregation_choices(self):
+        """`Aggregation.choices` as JSON, for the builder's per-input picker.
+
+        Emitted onto the fieldset rather than written out in `formula_builder.js`
+        for the same reason `data-all-team-roles` is: the model stays the one
+        place that decides what the options are, so adding one cannot leave the
+        form offering a stale list. Same shape the template already uses for a
+        `<select>`: `[[value, label], ...]`.
+        """
+        return json.dumps(list(Aggregation.choices))
 
     # Categories are per-team rows (§4) and the table starts empty, so the
     # dropdown alone would be unusable. This names a new one; it stays hidden
@@ -308,20 +323,57 @@ class BaseKpiForm(forms.ModelForm):
                 raise forms.ValidationError(f'"{key}" is used by more than one input.')
             seen.add(key)
 
+            data_type = (
+                item.get("data_type")
+                if item.get("data_type") in DataType.values
+                else DataType.NUMBER
+            )
             inputs.append(
                 {
                     "key": key,
                     "label": label[:120],
                     "placeholder": str(item.get("placeholder", ""))[:60],
-                    "data_type": (
-                        item.get("data_type")
-                        if item.get("data_type") in DataType.values
-                        else DataType.NUMBER
+                    "data_type": data_type,
+                    "aggregation": (
+                        item.get("aggregation")
+                        if item.get("aggregation") in Aggregation.values
+                        else None  # filled in by _default_aggregations()
                     ),
                     "position": position,
                 }
             )
 
+        return inputs
+
+    def _default_aggregations(self, inputs, expression):
+        """Fill in any operand the builder did not choose an aggregation for.
+
+        The setting decides whether a second entry against a period ADDS to it
+        or replaces it, so leaving it unset is not an option — there is no
+        neutral answer. The formula gives most of it away: an operand under a
+        `/` is a denominator, and adding three uploads of "average headcount"
+        together gives a population nobody has. Dates cannot be summed at all.
+        Everything else is an additive event.
+
+        A default, not a rule: a numerator can be a snapshot too, and the picker
+        on this form is where that gets said.
+        """
+        try:
+            denominators = formula_engine.divisors(expression or "")
+        except formula_engine.FormulaError:
+            # The expression is validated separately and will report itself.
+            # Additive is the safer guess meanwhile: a wrong total is visible on
+            # the dashboard, a silent replace is not.
+            denominators = set()
+
+        for item in inputs:
+            if item.get("aggregation"):
+                continue
+            item["aggregation"] = (
+                Aggregation.LAST
+                if item["data_type"] == DataType.DATE or item["key"] in denominators
+                else Aggregation.SUM
+            )
         return inputs
 
     def _sync_inputs(self, kpi, inputs):
@@ -347,8 +399,11 @@ class BaseKpiForm(forms.ModelForm):
             row.label = item["label"]
             row.placeholder = item["placeholder"]
             row.data_type = item["data_type"]
+            row.aggregation = item["aggregation"]
             row.position = item["position"]
-            row.save(update_fields=["label", "placeholder", "data_type", "position"])
+            row.save(update_fields=[
+                "label", "placeholder", "data_type", "aggregation", "position"
+            ])
 
 
 class CreateKpiForm(BaseKpiForm):
@@ -392,7 +447,9 @@ class CreateKpiForm(BaseKpiForm):
         kpi.created_by = user if user and user.is_authenticated else None
         kpi.template_version = 1
 
-        inputs = self.cleaned_data.get("inputs_json") or []
+        inputs = self._default_aggregations(
+            self.cleaned_data.get("inputs_json") or [], kpi.expression
+        )
         labels = {item["key"]: item["label"] for item in inputs}
 
         # Rendered, never typed, so the sentence on the Definitions screen can
@@ -409,6 +466,7 @@ class CreateKpiForm(BaseKpiForm):
                 label=item["label"],
                 placeholder=item["placeholder"],
                 data_type=item["data_type"],
+                aggregation=item["aggregation"],
                 position=item["position"],
             )
             for item in inputs
@@ -479,9 +537,17 @@ class EditKpiForm(BaseKpiForm):
 
         # Feed the builder this KPI's own operands so it opens on the real
         # formula rather than an empty canvas.
+        # `aggregation` rides along so re-saving an untouched formula does not
+        # quietly reset every operand to the derived default. The builder is
+        # what the form believes, so anything it does not send is lost.
         self.fields["inputs_json"].initial = json.dumps(
             [
-                {"key": row.key, "label": row.label}
+                {
+                    "key": row.key,
+                    "label": row.label,
+                    "data_type": row.data_type,
+                    "aggregation": row.aggregation,
+                }
                 for row in self.instance.inputs.all()
             ]
         )
@@ -521,13 +587,17 @@ class EditKpiForm(BaseKpiForm):
         cleaned = super().clean()
 
         # An operand that already has recorded values behind it cannot be
-        # dropped — `KpiRecordInput` protects it. Better a clear message here
-        # than a ProtectedError from the middle of save().
+        # dropped — `KpiRecordInput` and `KpiEntryInput` both protect it. Better
+        # a clear message here than a ProtectedError from the middle of save().
+        # BOTH have to be asked: an entry whose period was later emptied still
+        # holds its operands, so the record side alone would miss it and the
+        # save would die halfway through.
         keys = {item["key"] for item in (cleaned.get("inputs_json") or [])}
         blocked = [
             row.key
             for row in self.instance.inputs.all()
-            if row.key not in keys and row.record_values.exists()
+            if row.key not in keys
+            and (row.record_values.exists() or row.entry_values.exists())
         ]
         if blocked:
             self.add_error(
@@ -578,7 +648,9 @@ class EditKpiForm(BaseKpiForm):
         submitted_inputs = self._submitted_inputs
 
         kpi = super().save(commit=False)
-        inputs = self.cleaned_data.get("inputs_json") or []
+        inputs = self._default_aggregations(
+            self.cleaned_data.get("inputs_json") or [], kpi.expression
+        )
         labels = {item["key"]: item["label"] for item in inputs}
 
         # Regenerated on every save — a reworded operand label changes the
@@ -641,6 +713,22 @@ class EditKpiForm(BaseKpiForm):
 # ---------------------------------------------------------------------------
 
 
+class KpiChoiceField(forms.ModelChoiceField):
+    """A KPI dropdown labelled by name alone.
+
+    `KpiDefinition.__str__` is "<team> · <name>", so the default label reaches
+    through `obj.team` for every option and the Add-Record dropdown cost one
+    `core_team` SELECT per KPI. Exactly the trap `CategoryChoiceField` below
+    documents, on a different picker.
+
+    It reads better too: the queryset is already scoped to one team, so naming
+    that team on every row of its own dropdown says nothing.
+    """
+
+    def label_from_instance(self, obj):
+        return obj.name
+
+
 class AddRecordForm(forms.Form):
     """Manual entry of one actual, from the Add Performance Record modal.
 
@@ -648,21 +736,33 @@ class AddRecordForm(forms.Form):
     chosen KPI's `kpi_input` rows say they are. So the template renders one
     field group per KPI (all but the selected one disabled, so only one set is
     ever submitted) and `clean()` reads them by key.
+
+    **It asks for a DATE, not a reporting period**, and that is the whole change
+    in how figures are entered. The date is what the person knows: "these are
+    today's numbers". Which period it belongs to follows from the KPI's cadence,
+    so the form derives it and shows it back rather than asking someone to write
+    `2026-Q3` correctly. It also means the field's meaning no longer changes
+    shape when the KPI dropdown changes — only the period it resolves to does.
+
+    Adding a figure to a period that already has one ADDS to it. There is no
+    overwrite here and no "this period already exists" refusal: reporting twice
+    in a month is the normal case, not a mistake to be caught.
     """
 
     INPUT_PREFIX = "input__"
 
-    kpi = forms.ModelChoiceField(
+    kpi = KpiChoiceField(
         queryset=KpiDefinition.objects.none(),
         empty_label="Select KPI…",
         widget=forms.Select(attrs={"class": TAILWIND_INPUT, "data-record-kpi": True}),
     )
-    period = forms.CharField(
-        max_length=20,
-        widget=forms.TextInput(
-            attrs={"class": TAILWIND_INPUT, "placeholder": "e.g. 2026-08"}
+    entry_date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            attrs={"class": TAILWIND_INPUT, "type": "date", "data-record-date": True},
+            format="%Y-%m-%d",
         ),
-        help_text="The reporting period this figure covers.",
+        help_text="The date these figures are for.",
     )
     remarks = forms.CharField(
         required=False,
@@ -690,22 +790,25 @@ class AddRecordForm(forms.Form):
             .prefetch_related("inputs")
             .order_by("sort_order", "name")
         )
+        # Today, in Manila. `timezone.localdate()` and not `date.today()`: the
+        # server runs on UTC and for eight hours a day those are different days,
+        # which would default the figure into yesterday.
+        self.fields["entry_date"].initial = timezone.localdate()
 
     def clean(self):
         cleaned = super().clean()
         kpi = cleaned.get("kpi")
-        if not kpi:
+        entry_date = cleaned.get("entry_date")
+        if not kpi or not entry_date:
             return cleaned
 
-        # The period format follows the KPI's own cadence, so the error message
-        # can say exactly what this KPI expects.
-        try:
-            cleaned["period_start"], _ = periods.parse(
-                cleaned.get("period"), kpi.frequency
-            )
-        except periods.PeriodError as error:
-            self.add_error("period", str(error))
-            return cleaned
+        # The cadence turns the date into a period. Nothing to validate: every
+        # date falls in exactly one period at every cadence, which is precisely
+        # why the form asks for a date instead of asking someone to spell
+        # "2026-Q3".
+        cleaned["period_start"], _ = periods.parse(
+            periods.label(entry_date, kpi.frequency), kpi.frequency
+        )
 
         values = {}
         for row in kpi.inputs.all():
@@ -727,9 +830,15 @@ class AddRecordForm(forms.Form):
         return cleaned
 
     def save(self, user=None):
-        return records.save_record(
+        """Add one entry. Returns `(entry, record)` — the record is the period.
+
+        The period is re-derived inside `add_entry`, so what comes back is the
+        accumulated figure and not just what was typed. That is what the flash
+        message should report: "August is now 45 hires", not "you added 5".
+        """
+        return records.add_entry(
             self.cleaned_data["kpi"],
-            self.cleaned_data["period_start"],
+            self.cleaned_data["entry_date"],
             self.cleaned_data["values"],
             source=KpiRecord.Source.MANUAL,
             user=user,
@@ -738,27 +847,39 @@ class AddRecordForm(forms.Form):
 
 
 class EditRecordForm(forms.Form):
-    """Correcting one already-saved actual: its raw operands and its remarks.
+    """Correcting one ENTRY: its date, its raw operands and its remarks.
 
-    Deliberately NOT a second way to enter a record. The KPI and the period are
-    the record's identity — `(kpi, period_start)` is the upsert key the whole
-    import pipeline turns on — so this form only rewrites the numbers behind an
-    existing figure and lets `records.save_record()` recompute the result, the
-    attainment and the status exactly as the first save did.
+    It edits a submission, not a period. A period's figure is derived from every
+    entry inside it, so there is nothing there to edit directly — correcting the
+    month means correcting the entry that got it wrong, and `rebuild_period()`
+    re-collapses the rest around it.
 
-    Fixing a figure filed against the WRONG PERIOD is still delete plus
-    re-enter: moving it here would mean deleting the row underneath the user
-    and would have to decide what to do when the destination period is already
-    taken, which is a different action wearing this one's clothes.
+    **The date IS editable, and that is new.** It used to be the record's
+    identity, so a figure filed against the wrong month could only be deleted
+    and re-entered. An entry's date is just a fact about that entry now, so
+    moving it is a correction like any other: `save()` rebuilds the period it
+    left as well as the one it arrives in, which is what stops the old month
+    keeping a figure that is no longer in it.
+
+    The KPI is still fixed. Moving an entry between KPIs would mean its operands
+    landing in inputs of a different formula, which is a re-entry wearing a
+    correction's clothes.
 
     Unlike `AddRecordForm`, the operand fields are declared for real, because
-    there is exactly one KPI in play. Each form is prefixed with its record's
+    there is exactly one KPI in play. Each form is prefixed with its entry's
     pk: the screen renders one modal per row and every field name would
     otherwise repeat down the page.
     """
 
     INPUT_PREFIX = "input__"
 
+    entry_date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            attrs={"class": TAILWIND_INPUT, "type": "date"}, format="%Y-%m-%d"
+        ),
+        help_text="The date these figures are for.",
+    )
     remarks = forms.CharField(
         required=False,
         max_length=REMARKS_MAX_LENGTH,
@@ -784,25 +905,26 @@ class EditRecordForm(forms.Form):
         help_text="Optional. Shown on the activity log entry for this edit.",
     )
 
-    def __init__(self, *args, record=None, **kwargs):
+    def __init__(self, *args, entry=None, **kwargs):
         # The prefix is derived, not passed, so a caller cannot accidentally
-        # bind one record's POST data to another record's form.
-        kwargs.setdefault("prefix", self.prefix_for(record))
+        # bind one entry's POST data to another entry's form.
+        kwargs.setdefault("prefix", self.prefix_for(entry))
         super().__init__(*args, **kwargs)
-        self.record = record
-        self.kpi = record.kpi
+        self.entry = entry
+        self.kpi = entry.kpi
 
-        stored = {value.input_id: value for value in record.input_values.all()}
+        stored = {value.input_id: value for value in entry.input_values.all()}
         for row in self.kpi.inputs.all():
             self.fields[f"{self.INPUT_PREFIX}{row.key}"] = self._input_field(
                 row, stored.get(row.pk)
             )
 
-        self.fields["remarks"].initial = record.remarks
+        self.fields["entry_date"].initial = entry.entry_date
+        self.fields["remarks"].initial = entry.remarks
 
     @staticmethod
-    def prefix_for(record):
-        return f"record{record.pk}"
+    def prefix_for(entry):
+        return f"entry{entry.pk}"
 
     @property
     def operand_fields(self):
@@ -872,23 +994,52 @@ class EditRecordForm(forms.Form):
 
         return cleaned
 
+    @transaction.atomic
     def save(self, user=None):
-        """Rewrite the record through the one save path, and return it.
+        """Rewrite the entry, then re-derive every period it touches.
 
-        The source becomes MANUAL and the record stops pointing at the import
+        The source becomes MANUAL and the entry stops pointing at the import
         batch, because after this the figure is no longer what the file said.
-        That also keeps "delete this import" honest: it removes the records the
+        That also keeps "delete this import" honest: it removes the entries the
         upload is still the source of, and this one no longer is.
+
+        Two periods can need rebuilding, not one. If the date moved across a
+        month boundary the period it LEFT has to be re-collapsed too, or it goes
+        on showing a total that includes a figure no longer filed against it.
         """
-        record, _ = records.save_record(
-            self.kpi,
-            self.record.period_start,
-            self.cleaned_data["values"],
-            source=KpiRecord.Source.MANUAL,
-            user=user,
-            remarks=self.cleaned_data.get("remarks", ""),
+        entry = self.entry
+        was = entry.period_start
+        values = self.cleaned_data["values"]
+
+        entry.entry_date = self.cleaned_data["entry_date"]
+        entry.period_start, entry.period_end = records._period_of(
+            self.kpi, entry.entry_date
         )
-        return record
+        entry.value = Decimal(str(round(records.evaluate(self.kpi, values), 4)))
+        entry.value_display = records.format_value(self.kpi, float(entry.value))
+        entry.source = KpiRecord.Source.MANUAL
+        entry.import_batch = None
+        entry.remarks = self.cleaned_data.get("remarks", "")
+        entry.entered_by = user if user and user.is_authenticated else None
+        entry.save()
+
+        # Replace rather than merge, same rule as the first write: the operand
+        # set is whatever this edit says it is.
+        entry.input_values.all().delete()
+        KpiEntryInput.objects.bulk_create(
+            KpiEntryInput(
+                entry=entry,
+                input=row,
+                value_number=None if isinstance(values.get(row.key), dt.date) else values.get(row.key),
+                value_date=values.get(row.key) if isinstance(values.get(row.key), dt.date) else None,
+            )
+            for row in self.kpi.inputs.all()
+            if values.get(row.key) is not None
+        )
+
+        if was != entry.period_start:
+            records.rebuild_period(self.kpi, was)
+        return records.rebuild_period(self.kpi, entry.period_start)
 
 
 class ImportRecordsForm(forms.Form):
