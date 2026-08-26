@@ -74,11 +74,11 @@ _TO_SUM = [
 ]
 
 # --- approved: the metric names an average, so average the readings ---------
-# Covers Operations (7 units + "Attrition Rates"), HR and Site Lead: the same
+# Covers Operations (7 units, all sharing the KPI name "Attrition Rate"),
+# Site Lead (also "Attrition Rate") and HR ("Monthly Attrition"): the same
 # decision everywhere the input is called `average_headcount`.
 _TO_AVG = [
     ('Attrition Rate', 'average_headcount'),
-    ('Attrition Rates', 'average_headcount'),
     ('Monthly Attrition', 'average_headcount'),
 ]
 
